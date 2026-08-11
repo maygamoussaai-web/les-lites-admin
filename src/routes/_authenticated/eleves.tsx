@@ -223,7 +223,7 @@ function EnrollmentsDialog({ student, onClose }: { student: Row | null; onClose:
           fields={fields}
           submitting={save.isPending}
           onSubmit={(values) => {
-            const klass = classes.find((c) => c.id === values.class_id);
+            const klass = classes.find((c) => c.id === values['class_id']);
             if (!klass) return;
             save.mutate(
               {

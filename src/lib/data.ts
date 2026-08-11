@@ -55,7 +55,7 @@ async function writeAudit(action: string, table: TableName, entityId?: string | 
 export function useSaveRow(table: TableName, label = "Enregistrement") {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, values }: { id?: string | null; values: Record<string, unknown> }) => {
+    mutationFn: async ({ id, values }: { id?: string | null | undefined; values: Record<string, unknown> }) => {
       if (id) {
         const { data, error } = await supabase.from(table).update(values as never).eq("id", id).select().maybeSingle();
         if (error) throw error;

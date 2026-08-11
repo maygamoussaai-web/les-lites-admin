@@ -86,7 +86,7 @@ function Plans() {
         fields={fields}
         submitting={save.isPending}
         onSubmit={(values) => {
-          const klass = classes.find((c) => c.id === values.class_id);
+          const klass = classes.find((c) => c.id === values['class_id']);
           if (!klass) return;
           save.mutate(
             { values: { ...values, establishment_id: klass.establishment_id, academic_year_id: klass.academic_year_id ?? activeYear?.id } },
