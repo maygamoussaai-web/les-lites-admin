@@ -57,11 +57,13 @@ function AuthPage() {
     });
     if (error) {
       setLoading(false);
-      return toast.error(error.message);
+      toast.error(error.message);
+      return;
     }
     if (!data.session) {
       setLoading(false);
-      return toast.info("Compte créé. Confirmez votre adresse e-mail puis connectez-vous.");
+      toast.info("Compte créé. Confirmez votre adresse e-mail puis connectez-vous.");
+      return;
     }
     const { error: profileError } = await supabase.from("admin_profiles").insert({
       id: data.user!.id,
@@ -71,7 +73,7 @@ function AuthPage() {
       role: "staff",
     });
     setLoading(false);
-    if (profileError) return toast.error(profileError.message);
+    if (profileError) { toast.error(profileError.message); return; }
     toast.success("Compte administrateur créé");
     navigate({ to: "/tableau-de-bord" });
   };
