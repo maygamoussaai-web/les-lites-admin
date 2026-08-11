@@ -10,33 +10,206 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AuthenticatedAnneesRouteImport } from './routes/_authenticated/annees'
+import { Route as AuthenticatedAuditRouteImport } from './routes/_authenticated/audit'
+import { Route as AuthenticatedClassesRouteImport } from './routes/_authenticated/classes'
+import { Route as AuthenticatedElevesRouteImport } from './routes/_authenticated/eleves'
+import { Route as AuthenticatedEnseignantsRouteImport } from './routes/_authenticated/enseignants'
+import { Route as AuthenticatedEtablissementsRouteImport } from './routes/_authenticated/etablissements'
+import { Route as AuthenticatedMatieresRouteImport } from './routes/_authenticated/matieres'
+import { Route as AuthenticatedNotesRouteImport } from './routes/_authenticated/notes'
+import { Route as AuthenticatedPaiementsEnseignantsRouteImport } from './routes/_authenticated/paiements-enseignants'
+import { Route as AuthenticatedPersonnelRouteImport } from './routes/_authenticated/personnel'
+import { Route as AuthenticatedScolariteRouteImport } from './routes/_authenticated/scolarite'
+import { Route as AuthenticatedTableauDeBordRouteImport } from './routes/_authenticated/tableau-de-bord'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
+  id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthRoute = AuthRouteImport.update({
+  id: '/auth',
+  path: '/auth',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedAnneesRoute = AuthenticatedAnneesRouteImport.update({
+  id: '/annees',
+  path: '/annees',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAuditRoute = AuthenticatedAuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedClassesRoute = AuthenticatedClassesRouteImport.update({
+  id: '/classes',
+  path: '/classes',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedElevesRoute = AuthenticatedElevesRouteImport.update({
+  id: '/eleves',
+  path: '/eleves',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedEnseignantsRoute =
+  AuthenticatedEnseignantsRouteImport.update({
+    id: '/enseignants',
+    path: '/enseignants',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedEtablissementsRoute =
+  AuthenticatedEtablissementsRouteImport.update({
+    id: '/etablissements',
+    path: '/etablissements',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedMatieresRoute = AuthenticatedMatieresRouteImport.update({
+  id: '/matieres',
+  path: '/matieres',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedNotesRoute = AuthenticatedNotesRouteImport.update({
+  id: '/notes',
+  path: '/notes',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedPaiementsEnseignantsRoute =
+  AuthenticatedPaiementsEnseignantsRouteImport.update({
+    id: '/paiements-enseignants',
+    path: '/paiements-enseignants',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedPersonnelRoute = AuthenticatedPersonnelRouteImport.update({
+  id: '/personnel',
+  path: '/personnel',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedScolariteRoute = AuthenticatedScolariteRouteImport.update({
+  id: '/scolarite',
+  path: '/scolarite',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedTableauDeBordRoute =
+  AuthenticatedTableauDeBordRouteImport.update({
+    id: '/tableau-de-bord',
+    path: '/tableau-de-bord',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
+  '/annees': typeof AuthenticatedAnneesRoute
+  '/audit': typeof AuthenticatedAuditRoute
+  '/classes': typeof AuthenticatedClassesRoute
+  '/eleves': typeof AuthenticatedElevesRoute
+  '/enseignants': typeof AuthenticatedEnseignantsRoute
+  '/etablissements': typeof AuthenticatedEtablissementsRoute
+  '/matieres': typeof AuthenticatedMatieresRoute
+  '/notes': typeof AuthenticatedNotesRoute
+  '/paiements-enseignants': typeof AuthenticatedPaiementsEnseignantsRoute
+  '/personnel': typeof AuthenticatedPersonnelRoute
+  '/scolarite': typeof AuthenticatedScolariteRoute
+  '/tableau-de-bord': typeof AuthenticatedTableauDeBordRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/auth': typeof AuthRoute
+  '/annees': typeof AuthenticatedAnneesRoute
+  '/audit': typeof AuthenticatedAuditRoute
+  '/classes': typeof AuthenticatedClassesRoute
+  '/eleves': typeof AuthenticatedElevesRoute
+  '/enseignants': typeof AuthenticatedEnseignantsRoute
+  '/etablissements': typeof AuthenticatedEtablissementsRoute
+  '/matieres': typeof AuthenticatedMatieresRoute
+  '/notes': typeof AuthenticatedNotesRoute
+  '/paiements-enseignants': typeof AuthenticatedPaiementsEnseignantsRoute
+  '/personnel': typeof AuthenticatedPersonnelRoute
+  '/scolarite': typeof AuthenticatedScolariteRoute
+  '/tableau-de-bord': typeof AuthenticatedTableauDeBordRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/auth': typeof AuthRoute
+  '/_authenticated/annees': typeof AuthenticatedAnneesRoute
+  '/_authenticated/audit': typeof AuthenticatedAuditRoute
+  '/_authenticated/classes': typeof AuthenticatedClassesRoute
+  '/_authenticated/eleves': typeof AuthenticatedElevesRoute
+  '/_authenticated/enseignants': typeof AuthenticatedEnseignantsRoute
+  '/_authenticated/etablissements': typeof AuthenticatedEtablissementsRoute
+  '/_authenticated/matieres': typeof AuthenticatedMatieresRoute
+  '/_authenticated/notes': typeof AuthenticatedNotesRoute
+  '/_authenticated/paiements-enseignants': typeof AuthenticatedPaiementsEnseignantsRoute
+  '/_authenticated/personnel': typeof AuthenticatedPersonnelRoute
+  '/_authenticated/scolarite': typeof AuthenticatedScolariteRoute
+  '/_authenticated/tableau-de-bord': typeof AuthenticatedTableauDeBordRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/annees'
+    | '/audit'
+    | '/classes'
+    | '/eleves'
+    | '/enseignants'
+    | '/etablissements'
+    | '/matieres'
+    | '/notes'
+    | '/paiements-enseignants'
+    | '/personnel'
+    | '/scolarite'
+    | '/tableau-de-bord'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/auth'
+    | '/annees'
+    | '/audit'
+    | '/classes'
+    | '/eleves'
+    | '/enseignants'
+    | '/etablissements'
+    | '/matieres'
+    | '/notes'
+    | '/paiements-enseignants'
+    | '/personnel'
+    | '/scolarite'
+    | '/tableau-de-bord'
+  id:
+    | '__root__'
+    | '/'
+    | '/_authenticated'
+    | '/auth'
+    | '/_authenticated/annees'
+    | '/_authenticated/audit'
+    | '/_authenticated/classes'
+    | '/_authenticated/eleves'
+    | '/_authenticated/enseignants'
+    | '/_authenticated/etablissements'
+    | '/_authenticated/matieres'
+    | '/_authenticated/notes'
+    | '/_authenticated/paiements-enseignants'
+    | '/_authenticated/personnel'
+    | '/_authenticated/scolarite'
+    | '/_authenticated/tableau-de-bord'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  AuthRoute: typeof AuthRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,22 +221,146 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/auth': {
+      id: '/auth'
+      path: '/auth'
+      fullPath: '/auth'
+      preLoaderRoute: typeof AuthRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/annees': {
+      id: '/_authenticated/annees'
+      path: '/annees'
+      fullPath: '/annees'
+      preLoaderRoute: typeof AuthenticatedAnneesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/audit': {
+      id: '/_authenticated/audit'
+      path: '/audit'
+      fullPath: '/audit'
+      preLoaderRoute: typeof AuthenticatedAuditRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/classes': {
+      id: '/_authenticated/classes'
+      path: '/classes'
+      fullPath: '/classes'
+      preLoaderRoute: typeof AuthenticatedClassesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/eleves': {
+      id: '/_authenticated/eleves'
+      path: '/eleves'
+      fullPath: '/eleves'
+      preLoaderRoute: typeof AuthenticatedElevesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/enseignants': {
+      id: '/_authenticated/enseignants'
+      path: '/enseignants'
+      fullPath: '/enseignants'
+      preLoaderRoute: typeof AuthenticatedEnseignantsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/etablissements': {
+      id: '/_authenticated/etablissements'
+      path: '/etablissements'
+      fullPath: '/etablissements'
+      preLoaderRoute: typeof AuthenticatedEtablissementsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/matieres': {
+      id: '/_authenticated/matieres'
+      path: '/matieres'
+      fullPath: '/matieres'
+      preLoaderRoute: typeof AuthenticatedMatieresRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/notes': {
+      id: '/_authenticated/notes'
+      path: '/notes'
+      fullPath: '/notes'
+      preLoaderRoute: typeof AuthenticatedNotesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/paiements-enseignants': {
+      id: '/_authenticated/paiements-enseignants'
+      path: '/paiements-enseignants'
+      fullPath: '/paiements-enseignants'
+      preLoaderRoute: typeof AuthenticatedPaiementsEnseignantsRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/personnel': {
+      id: '/_authenticated/personnel'
+      path: '/personnel'
+      fullPath: '/personnel'
+      preLoaderRoute: typeof AuthenticatedPersonnelRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/scolarite': {
+      id: '/_authenticated/scolarite'
+      path: '/scolarite'
+      fullPath: '/scolarite'
+      preLoaderRoute: typeof AuthenticatedScolariteRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/tableau-de-bord': {
+      id: '/_authenticated/tableau-de-bord'
+      path: '/tableau-de-bord'
+      fullPath: '/tableau-de-bord'
+      preLoaderRoute: typeof AuthenticatedTableauDeBordRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
   }
 }
 
+interface AuthenticatedRouteRouteChildren {
+  AuthenticatedAnneesRoute: typeof AuthenticatedAnneesRoute
+  AuthenticatedAuditRoute: typeof AuthenticatedAuditRoute
+  AuthenticatedClassesRoute: typeof AuthenticatedClassesRoute
+  AuthenticatedElevesRoute: typeof AuthenticatedElevesRoute
+  AuthenticatedEnseignantsRoute: typeof AuthenticatedEnseignantsRoute
+  AuthenticatedEtablissementsRoute: typeof AuthenticatedEtablissementsRoute
+  AuthenticatedMatieresRoute: typeof AuthenticatedMatieresRoute
+  AuthenticatedNotesRoute: typeof AuthenticatedNotesRoute
+  AuthenticatedPaiementsEnseignantsRoute: typeof AuthenticatedPaiementsEnseignantsRoute
+  AuthenticatedPersonnelRoute: typeof AuthenticatedPersonnelRoute
+  AuthenticatedScolariteRoute: typeof AuthenticatedScolariteRoute
+  AuthenticatedTableauDeBordRoute: typeof AuthenticatedTableauDeBordRoute
+}
+
+const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedAnneesRoute: AuthenticatedAnneesRoute,
+  AuthenticatedAuditRoute: AuthenticatedAuditRoute,
+  AuthenticatedClassesRoute: AuthenticatedClassesRoute,
+  AuthenticatedElevesRoute: AuthenticatedElevesRoute,
+  AuthenticatedEnseignantsRoute: AuthenticatedEnseignantsRoute,
+  AuthenticatedEtablissementsRoute: AuthenticatedEtablissementsRoute,
+  AuthenticatedMatieresRoute: AuthenticatedMatieresRoute,
+  AuthenticatedNotesRoute: AuthenticatedNotesRoute,
+  AuthenticatedPaiementsEnseignantsRoute:
+    AuthenticatedPaiementsEnseignantsRoute,
+  AuthenticatedPersonnelRoute: AuthenticatedPersonnelRoute,
+  AuthenticatedScolariteRoute: AuthenticatedScolariteRoute,
+  AuthenticatedTableauDeBordRoute: AuthenticatedTableauDeBordRoute,
+}
+
+const AuthenticatedRouteRouteWithChildren =
+  AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  AuthRoute: AuthRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
