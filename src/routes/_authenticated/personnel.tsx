@@ -21,7 +21,7 @@ export const Route = createFileRoute("/_authenticated/personnel")({
 });
 
 function Page() {
-  const { isDirectorGeneral } = useAdminProfile();
+  const { isDG } = useAdminProfile();
   const { data: establishments = [] } = useRows<Tables<"establishments">>("establishments");
   const { data = [], isLoading } = useRows<Tables<"admin_profiles">>("admin_profiles", { order: { column: "last_name" } });
 
@@ -47,7 +47,7 @@ function Page() {
   return (
     <>
       <PageHeader title="Personnel administratif" description="Comptes ayant accès à l'administration du complexe." />
-      {!isDirectorGeneral && (
+      {!isDG && (
         <Card>
           <CardContent className="pt-6 text-sm text-muted-foreground">
             Seul le Directeur Général peut modifier les rôles et les rattachements du personnel.
