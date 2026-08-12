@@ -2,7 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { sha256Hex } from "./invitations";
 
-export const DG_EMAIL = "direction@leselitesdegao.ml";
+export const DG_EMAIL = "directeurgeneral@gmail.com";
 
 /**
  * Crée le compte Auth du Directeur Général si — et seulement si — aucun DG n'existe.
