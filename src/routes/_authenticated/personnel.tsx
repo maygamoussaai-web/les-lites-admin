@@ -128,7 +128,7 @@ function Page() {
       <PageHeader
         title="Personnel administratif"
         description="Les comptes sont créés uniquement sur invitation du Directeur Général."
-        action={isDG ? <Button onClick={() => setOpen(true)}><UserPlus className="mr-2 h-4 w-4" />Inviter</Button> : undefined}
+        actions={isDG ? <Button onClick={() => setOpen(true)}><UserPlus className="mr-2 h-4 w-4" />Inviter</Button> : undefined}
       />
 
       {link && (
