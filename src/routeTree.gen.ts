@@ -24,6 +24,7 @@ import { Route as AuthenticatedPaiementsEnseignantsRouteImport } from './routes/
 import { Route as AuthenticatedPersonnelRouteImport } from './routes/_authenticated/personnel'
 import { Route as AuthenticatedScolariteRouteImport } from './routes/_authenticated/scolarite'
 import { Route as AuthenticatedTableauDeBordRouteImport } from './routes/_authenticated/tableau-de-bord'
+import { Route as InvitationTokenRouteImport } from './routes/invitation.$token'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -103,6 +104,11 @@ const AuthenticatedTableauDeBordRoute =
     path: '/tableau-de-bord',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const InvitationTokenRoute = InvitationTokenRouteImport.update({
+  id: '/invitation/$token',
+  path: '/invitation/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -119,6 +125,7 @@ export interface FileRoutesByFullPath {
   '/personnel': typeof AuthenticatedPersonnelRoute
   '/scolarite': typeof AuthenticatedScolariteRoute
   '/tableau-de-bord': typeof AuthenticatedTableauDeBordRoute
+  '/invitation/$token': typeof InvitationTokenRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -135,6 +142,7 @@ export interface FileRoutesByTo {
   '/personnel': typeof AuthenticatedPersonnelRoute
   '/scolarite': typeof AuthenticatedScolariteRoute
   '/tableau-de-bord': typeof AuthenticatedTableauDeBordRoute
+  '/invitation/$token': typeof InvitationTokenRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -153,6 +161,7 @@ export interface FileRoutesById {
   '/_authenticated/personnel': typeof AuthenticatedPersonnelRoute
   '/_authenticated/scolarite': typeof AuthenticatedScolariteRoute
   '/_authenticated/tableau-de-bord': typeof AuthenticatedTableauDeBordRoute
+  '/invitation/$token': typeof InvitationTokenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -171,6 +180,7 @@ export interface FileRouteTypes {
     | '/personnel'
     | '/scolarite'
     | '/tableau-de-bord'
+    | '/invitation/$token'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -187,6 +197,7 @@ export interface FileRouteTypes {
     | '/personnel'
     | '/scolarite'
     | '/tableau-de-bord'
+    | '/invitation/$token'
   id:
     | '__root__'
     | '/'
@@ -204,12 +215,14 @@ export interface FileRouteTypes {
     | '/_authenticated/personnel'
     | '/_authenticated/scolarite'
     | '/_authenticated/tableau-de-bord'
+    | '/invitation/$token'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  InvitationTokenRoute: typeof InvitationTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -319,6 +332,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedTableauDeBordRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/invitation/$token': {
+      id: '/invitation/$token'
+      path: '/invitation/$token'
+      fullPath: '/invitation/$token'
+      preLoaderRoute: typeof InvitationTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -360,17 +380,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  InvitationTokenRoute: InvitationTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
