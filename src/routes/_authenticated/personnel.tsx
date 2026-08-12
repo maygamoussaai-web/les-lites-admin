@@ -46,10 +46,10 @@ function Page() {
     mutationFn: async (values: Record<string, any>) => {
       const token = generateInvitationToken();
       const token_hash = await sha256Hex(token);
-      const days = Number(values.days ?? 7) || 7;
+      const days = Number(values['days'] ?? 7) || 7;
       const { error } = await supabase.from("invitations").insert({
         token_hash,
-        establishment_id: values.establishment_id,
+        establishment_id: values['establishment_id'],
         invited_by: user?.id ?? null,
         expires_at: new Date(Date.now() + days * 86_400_000).toISOString(),
       });
@@ -58,7 +58,7 @@ function Page() {
         actor_id: user?.id ?? null,
         action: "invitation_created",
         entity_type: "invitations",
-        establishment_id: values.establishment_id,
+        establishment_id: values['establishment_id'],
         metadata: {},
       });
       return `${window.location.origin}/invitation/${token}`;
