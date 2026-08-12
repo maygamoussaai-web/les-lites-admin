@@ -9,10 +9,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { supabase } from "@/integrations/supabase/client";
 import { useRows } from "@/lib/data";
 import { useAdminProfile } from "@/hooks/use-auth";
-import { roleLabel } from "@/lib/format";
+import { roleLabel, initials } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
 
 export const Route = createFileRoute("/_authenticated/mon-compte")({
@@ -32,18 +33,29 @@ function Page() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { data: establishments = [] } = useRows<Tables<"establishments">>("establishments");
-  const [form, setForm] = useState({ first_name: "", last_name: "", phone: "" });
+  const [form, setForm] = useState({ first_name: "", last_name: "", phone: "", avatar_url: "" });
   const [password, setPassword] = useState("");
 
   useEffect(() => {
-    if (profile) setForm({ first_name: profile.first_name, last_name: profile.last_name, phone: profile.phone ?? "" });
+    if (profile)
+      setForm({
+        first_name: profile.first_name,
+        last_name: profile.last_name,
+        phone: profile.phone ?? "",
+        avatar_url: profile.avatar_url ?? "",
+      });
   }, [profile]);
 
   const save = useMutation({
     mutationFn: async () => {
       const { error } = await supabase
         .from("admin_profiles")
-        .update({ first_name: form.first_name, last_name: form.last_name, phone: form.phone || null })
+        .update({
+          first_name: form.first_name,
+          last_name: form.last_name,
+          phone: form.phone || null,
+          avatar_url: form.avatar_url || null,
+        })
         .eq("id", user!.id);
       if (error) throw error;
     },
@@ -83,6 +95,24 @@ function Page() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="flex items-center gap-4">
+              <Avatar className="h-16 w-16 border-2 border-accent">
+                {form.avatar_url && <AvatarImage src={form.avatar_url} alt="Photo de profil" />}
+                <AvatarFallback className="bg-primary/10 text-base font-semibold text-primary">
+                  {initials(form.first_name, form.last_name)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1">
+                <Label htmlFor="avatar_url">Photo de profil (URL)</Label>
+                <Input
+                  id="avatar_url"
+                  placeholder="https://…"
+                  className="mt-1.5"
+                  value={form.avatar_url}
+                  onChange={(e) => setForm({ ...form, avatar_url: e.target.value })}
+                />
+              </div>
+            </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <Label htmlFor="first_name">Prénom</Label>
