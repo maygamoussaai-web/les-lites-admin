@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Loader2, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Loader2, ShieldCheck, Crown, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { initDirectorGeneral, DG_EMAIL } from "@/lib/admin.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
@@ -29,53 +30,42 @@ export const Route = createFileRoute("/auth")({
   component: AuthPage,
 });
 
+type Mode = null | "dg" | "staff";
+
 function AuthPage() {
   const navigate = useNavigate();
+  const initDG = useServerFn(initDirectorGeneral);
+  const [mode, setMode] = useState<Mode>(null);
   const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [phone, setPhone] = useState("");
 
   const signIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
     setLoading(false);
-    if (error) { toast.error(error.message); return; }
+    if (error) {
+      toast.error("Identifiants incorrects ou compte non autorisé.");
+      return;
+    }
     navigate({ to: "/tableau-de-bord" });
   };
 
-  const signUp = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const initialise = async () => {
     setLoading(true);
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { emailRedirectTo: window.location.origin },
-    });
-    if (error) {
-      setLoading(false);
-      toast.error(error.message);
-      return;
+    try {
+      const result = await initDG({ data: { password } });
+      if (result.created) {
+        toast.success("Compte Directeur Général initialisé. Connectez-vous puis changez le mot de passe.");
+        setEmail(result.email);
+      } else {
+        toast.info("Le compte Directeur Général existe déjà.");
+      }
+    } catch (error) {
+      toast.error((error as Error).message || "Initialisation impossible");
     }
-    if (!data.session) {
-      setLoading(false);
-      toast.info("Compte créé. Confirmez votre adresse e-mail puis connectez-vous.");
-      return;
-    }
-    const { error: profileError } = await supabase.from("admin_profiles").insert({
-      id: data.user!.id,
-      first_name: firstName,
-      last_name: lastName,
-      phone: phone || null,
-      role: "staff",
-    });
     setLoading(false);
-    if (profileError) { toast.error(profileError.message); return; }
-    toast.success("Compte administrateur créé");
-    navigate({ to: "/tableau-de-bord" });
   };
 
   return (
@@ -105,70 +95,120 @@ function AuthPage() {
       </div>
 
       <div className="flex items-center justify-center p-6">
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <CardTitle className="text-xl">Espace administration</CardTitle>
-            <CardDescription>Connectez-vous pour accéder à la gestion du complexe.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Tabs defaultValue="signin">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="signin">Connexion</TabsTrigger>
-                <TabsTrigger value="signup">Créer un compte</TabsTrigger>
-              </TabsList>
+        <div className="w-full max-w-md space-y-6 duration-300 animate-in fade-in slide-in-from-bottom-2">
+          <div className="text-center lg:hidden">
+            <p className="font-display text-xl font-semibold text-foreground">LES ÉLITES DE GAO</p>
+            <p className="text-sm text-muted-foreground">Administration du complexe scolaire</p>
+          </div>
 
-              <TabsContent value="signin">
-                <form className="space-y-4 pt-4" onSubmit={signIn}>
+          {mode === null ? (
+            <Card>
+              <CardHeader className="text-center">
+                <CardTitle className="font-display text-2xl">LES ÉLITES DE GAO</CardTitle>
+                <CardDescription>Administration du complexe scolaire</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3">
+                <button
+                  type="button"
+                  onClick={() => { setMode("dg"); setEmail(DG_EMAIL); }}
+                  className="flex items-center gap-3 rounded-lg border border-border bg-card p-4 text-left transition-all hover:border-primary hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.99]"
+                >
+                  <span className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
+                    <Crown className="h-5 w-5" />
+                  </span>
+                  <span>
+                    <span className="block font-medium text-foreground">Directeur Général</span>
+                    <span className="block text-xs text-muted-foreground">Accès complet au complexe</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setMode("staff"); setEmail(""); }}
+                  className="flex items-center gap-3 rounded-lg border border-border bg-card p-4 text-left transition-all hover:border-primary hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.99]"
+                >
+                  <span className="flex h-10 w-10 items-center justify-center rounded-md bg-primary/10 text-primary">
+                    <Users className="h-5 w-5" />
+                  </span>
+                  <span>
+                    <span className="block font-medium text-foreground">Personnel administratif</span>
+                    <span className="block text-xs text-muted-foreground">Accès à l'établissement assigné</span>
+                  </span>
+                </button>
+                <p className="pt-2 text-center text-xs text-muted-foreground">
+                  Aucune inscription publique : les comptes du personnel sont créés uniquement sur invitation du
+                  Directeur Général.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader>
+                <Button variant="ghost" size="sm" className="mb-2 w-fit -ml-2" onClick={() => setMode(null)}>
+                  <ArrowLeft className="mr-1 h-4 w-4" /> Retour
+                </Button>
+                <CardTitle className="text-xl">
+                  {mode === "dg" ? "Connexion Directeur Général" : "Connexion Personnel administratif"}
+                </CardTitle>
+                <CardDescription>
+                  {mode === "dg"
+                    ? "Compte unique de direction du complexe."
+                    : "Utilisez l'adresse e-mail définie lors de l'activation de votre invitation."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form className="space-y-4" onSubmit={signIn}>
                   <div>
                     <Label htmlFor="email">Adresse e-mail</Label>
-                    <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1.5" />
+                    <Input
+                      id="email"
+                      type="email"
+                      autoComplete="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="mt-1.5"
+                    />
                   </div>
                   <div>
                     <Label htmlFor="password">Mot de passe</Label>
-                    <Input id="password" type="password" required value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1.5" />
+                    <Input
+                      id="password"
+                      type="password"
+                      autoComplete="current-password"
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="mt-1.5"
+                    />
                   </div>
                   <Button type="submit" className="w-full" disabled={loading}>
                     {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Se connecter"}
                   </Button>
                 </form>
-              </TabsContent>
 
-              <TabsContent value="signup">
-                <form className="space-y-4 pt-4" onSubmit={signUp}>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <Label htmlFor="firstName">Prénom</Label>
-                      <Input id="firstName" required value={firstName} onChange={(e) => setFirstName(e.target.value)} className="mt-1.5" />
-                    </div>
-                    <div>
-                      <Label htmlFor="lastName">Nom</Label>
-                      <Input id="lastName" required value={lastName} onChange={(e) => setLastName(e.target.value)} className="mt-1.5" />
-                    </div>
+                {mode === "dg" && (
+                  <div className="mt-6 rounded-lg border border-dashed border-border p-3">
+                    <p className="text-xs text-muted-foreground">
+                      Première mise en service uniquement : si le compte de direction n'existe pas encore, saisissez
+                      le mot de passe initial ci-dessus puis initialisez le compte. Le mot de passe est confié à
+                      Supabase Auth, jamais stocké dans la base.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-2 w-full"
+                      disabled={loading || password.length < 6}
+                      onClick={initialise}
+                    >
+                      Initialiser le compte Directeur Général
+                    </Button>
                   </div>
-                  <div>
-                    <Label htmlFor="phone">Téléphone</Label>
-                    <Input id="phone" value={phone} onChange={(e) => setPhone(e.target.value)} className="mt-1.5" placeholder="+223 ..." />
-                  </div>
-                  <div>
-                    <Label htmlFor="email2">Adresse e-mail</Label>
-                    <Input id="email2" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="mt-1.5" />
-                  </div>
-                  <div>
-                    <Label htmlFor="password2">Mot de passe</Label>
-                    <Input id="password2" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} className="mt-1.5" />
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Le tout premier compte créé devient automatiquement Directeur Général. Les comptes
-                    suivants sont créés comme personnel et doivent être habilités par le Directeur Général.
-                  </p>
-                  <Button type="submit" className="w-full" disabled={loading}>
-                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Créer le compte"}
-                  </Button>
-                </form>
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </div>
       </div>
     </div>
   );

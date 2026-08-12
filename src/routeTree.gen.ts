@@ -19,11 +19,13 @@ import { Route as AuthenticatedElevesRouteImport } from './routes/_authenticated
 import { Route as AuthenticatedEnseignantsRouteImport } from './routes/_authenticated/enseignants'
 import { Route as AuthenticatedEtablissementsRouteImport } from './routes/_authenticated/etablissements'
 import { Route as AuthenticatedMatieresRouteImport } from './routes/_authenticated/matieres'
+import { Route as AuthenticatedMonCompteRouteImport } from './routes/_authenticated/mon-compte'
 import { Route as AuthenticatedNotesRouteImport } from './routes/_authenticated/notes'
 import { Route as AuthenticatedPaiementsEnseignantsRouteImport } from './routes/_authenticated/paiements-enseignants'
 import { Route as AuthenticatedPersonnelRouteImport } from './routes/_authenticated/personnel'
 import { Route as AuthenticatedScolariteRouteImport } from './routes/_authenticated/scolarite'
 import { Route as AuthenticatedTableauDeBordRouteImport } from './routes/_authenticated/tableau-de-bord'
+import { Route as InvitationTokenRouteImport } from './routes/invitation.$token'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -76,6 +78,11 @@ const AuthenticatedMatieresRoute = AuthenticatedMatieresRouteImport.update({
   path: '/matieres',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedMonCompteRoute = AuthenticatedMonCompteRouteImport.update({
+  id: '/mon-compte',
+  path: '/mon-compte',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedNotesRoute = AuthenticatedNotesRouteImport.update({
   id: '/notes',
   path: '/notes',
@@ -103,6 +110,11 @@ const AuthenticatedTableauDeBordRoute =
     path: '/tableau-de-bord',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const InvitationTokenRoute = InvitationTokenRouteImport.update({
+  id: '/invitation/$token',
+  path: '/invitation/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -114,11 +126,13 @@ export interface FileRoutesByFullPath {
   '/enseignants': typeof AuthenticatedEnseignantsRoute
   '/etablissements': typeof AuthenticatedEtablissementsRoute
   '/matieres': typeof AuthenticatedMatieresRoute
+  '/mon-compte': typeof AuthenticatedMonCompteRoute
   '/notes': typeof AuthenticatedNotesRoute
   '/paiements-enseignants': typeof AuthenticatedPaiementsEnseignantsRoute
   '/personnel': typeof AuthenticatedPersonnelRoute
   '/scolarite': typeof AuthenticatedScolariteRoute
   '/tableau-de-bord': typeof AuthenticatedTableauDeBordRoute
+  '/invitation/$token': typeof InvitationTokenRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -130,11 +144,13 @@ export interface FileRoutesByTo {
   '/enseignants': typeof AuthenticatedEnseignantsRoute
   '/etablissements': typeof AuthenticatedEtablissementsRoute
   '/matieres': typeof AuthenticatedMatieresRoute
+  '/mon-compte': typeof AuthenticatedMonCompteRoute
   '/notes': typeof AuthenticatedNotesRoute
   '/paiements-enseignants': typeof AuthenticatedPaiementsEnseignantsRoute
   '/personnel': typeof AuthenticatedPersonnelRoute
   '/scolarite': typeof AuthenticatedScolariteRoute
   '/tableau-de-bord': typeof AuthenticatedTableauDeBordRoute
+  '/invitation/$token': typeof InvitationTokenRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -148,11 +164,13 @@ export interface FileRoutesById {
   '/_authenticated/enseignants': typeof AuthenticatedEnseignantsRoute
   '/_authenticated/etablissements': typeof AuthenticatedEtablissementsRoute
   '/_authenticated/matieres': typeof AuthenticatedMatieresRoute
+  '/_authenticated/mon-compte': typeof AuthenticatedMonCompteRoute
   '/_authenticated/notes': typeof AuthenticatedNotesRoute
   '/_authenticated/paiements-enseignants': typeof AuthenticatedPaiementsEnseignantsRoute
   '/_authenticated/personnel': typeof AuthenticatedPersonnelRoute
   '/_authenticated/scolarite': typeof AuthenticatedScolariteRoute
   '/_authenticated/tableau-de-bord': typeof AuthenticatedTableauDeBordRoute
+  '/invitation/$token': typeof InvitationTokenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -166,11 +184,13 @@ export interface FileRouteTypes {
     | '/enseignants'
     | '/etablissements'
     | '/matieres'
+    | '/mon-compte'
     | '/notes'
     | '/paiements-enseignants'
     | '/personnel'
     | '/scolarite'
     | '/tableau-de-bord'
+    | '/invitation/$token'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -182,11 +202,13 @@ export interface FileRouteTypes {
     | '/enseignants'
     | '/etablissements'
     | '/matieres'
+    | '/mon-compte'
     | '/notes'
     | '/paiements-enseignants'
     | '/personnel'
     | '/scolarite'
     | '/tableau-de-bord'
+    | '/invitation/$token'
   id:
     | '__root__'
     | '/'
@@ -199,17 +221,20 @@ export interface FileRouteTypes {
     | '/_authenticated/enseignants'
     | '/_authenticated/etablissements'
     | '/_authenticated/matieres'
+    | '/_authenticated/mon-compte'
     | '/_authenticated/notes'
     | '/_authenticated/paiements-enseignants'
     | '/_authenticated/personnel'
     | '/_authenticated/scolarite'
     | '/_authenticated/tableau-de-bord'
+    | '/invitation/$token'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  InvitationTokenRoute: typeof InvitationTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -284,6 +309,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedMatieresRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/mon-compte': {
+      id: '/_authenticated/mon-compte'
+      path: '/mon-compte'
+      fullPath: '/mon-compte'
+      preLoaderRoute: typeof AuthenticatedMonCompteRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/notes': {
       id: '/_authenticated/notes'
       path: '/notes'
@@ -319,6 +351,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedTableauDeBordRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/invitation/$token': {
+      id: '/invitation/$token'
+      path: '/invitation/$token'
+      fullPath: '/invitation/$token'
+      preLoaderRoute: typeof InvitationTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -330,6 +369,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedEnseignantsRoute: typeof AuthenticatedEnseignantsRoute
   AuthenticatedEtablissementsRoute: typeof AuthenticatedEtablissementsRoute
   AuthenticatedMatieresRoute: typeof AuthenticatedMatieresRoute
+  AuthenticatedMonCompteRoute: typeof AuthenticatedMonCompteRoute
   AuthenticatedNotesRoute: typeof AuthenticatedNotesRoute
   AuthenticatedPaiementsEnseignantsRoute: typeof AuthenticatedPaiementsEnseignantsRoute
   AuthenticatedPersonnelRoute: typeof AuthenticatedPersonnelRoute
@@ -345,6 +385,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedEnseignantsRoute: AuthenticatedEnseignantsRoute,
   AuthenticatedEtablissementsRoute: AuthenticatedEtablissementsRoute,
   AuthenticatedMatieresRoute: AuthenticatedMatieresRoute,
+  AuthenticatedMonCompteRoute: AuthenticatedMonCompteRoute,
   AuthenticatedNotesRoute: AuthenticatedNotesRoute,
   AuthenticatedPaiementsEnseignantsRoute:
     AuthenticatedPaiementsEnseignantsRoute,
@@ -360,17 +401,8 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  InvitationTokenRoute: InvitationTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
