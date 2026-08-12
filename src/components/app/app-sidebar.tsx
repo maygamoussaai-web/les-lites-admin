@@ -12,6 +12,7 @@ import {
   Banknote,
   ShieldCheck,
   ScrollText,
+  UserCircle,
 } from "lucide-react";
 import {
   Sidebar,
@@ -60,6 +61,7 @@ const groups = [
     items: [
       { title: "Personnel & accès", url: "/personnel", icon: ShieldCheck },
       { title: "Journal d'audit", url: "/audit", icon: ScrollText },
+      { title: "Mon compte", url: "/mon-compte", icon: UserCircle },
     ],
   },
 ];
