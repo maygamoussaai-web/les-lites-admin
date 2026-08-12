@@ -22,10 +22,7 @@ export const establishmentTypeLabel = (type: string) =>
 
 export const ADMIN_ROLES = [
   { value: "director_general", label: "Directeur Général" },
-  { value: "director", label: "Directeur d'établissement" },
-  { value: "accountant", label: "Comptable" },
-  { value: "secretary", label: "Secrétaire" },
-  { value: "staff", label: "Personnel" },
+  { value: "administrative_staff", label: "Personnel administratif" },
 ] as const;
 
 export const roleLabel = (role: string | null | undefined) =>
