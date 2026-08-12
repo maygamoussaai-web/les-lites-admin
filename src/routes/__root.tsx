@@ -8,6 +8,7 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
+import { Toaster } from "@/components/ui/sonner";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
@@ -84,7 +85,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
           "Administration du complexe scolaire Les Élites de Gao : élèves, enseignants, notes, scolarité et paiements.",
       },
       { name: "author", content: "Les Élites de Gao" },
-      { name: "theme-color", content: "#123a8a" },
+      { name: "theme-color", content: "#0f2a63" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-title", content: "Élites de Gao" },
       { name: "apple-mobile-web-app-status-bar-style", content: "default" },
@@ -98,6 +99,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "twitter:site", content: "@Lovable" },
     ],
     links: [
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700;9..144,900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap",
+      },
       {
         rel: "stylesheet",
         href: appCss,
@@ -121,6 +128,7 @@ function RootShell({ children }: { children: ReactNode }) {
       </head>
       <body>
         {children}
+        <Toaster position="top-center" richColors closeButton />
         <Scripts />
       </body>
     </html>
