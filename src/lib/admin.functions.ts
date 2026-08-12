@@ -6,7 +6,7 @@ export const DG_EMAIL = "directeurgeneral@gmail.com";
 
 /**
  * Crée le compte Auth du Directeur Général si — et seulement si — aucun DG n'existe.
- * Le mot de passe n'est jamais stocké ni renvoyé : il est confié à Supabase Auth.
+ * Conservé pour une réinitialisation d'urgence future ; non exposé dans l'UI.
  */
 export const initDirectorGeneral = createServerFn({ method: "POST" })
   .inputValidator((data) => z.object({ password: z.string().min(6) }).parse(data))
@@ -40,6 +40,65 @@ export const initDirectorGeneral = createServerFn({ method: "POST" })
     if (profileError) throw new Error(profileError.message);
 
     return { created: true, email: DG_EMAIL };
+  });
+
+/**
+ * Retourne le nom et la photo du Directeur Général pour l'écran de connexion (public, sans donnée sensible).
+ */
+export const getDirectorGeneralAccount = createServerFn({ method: "GET" }).handler(async () => {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data, error } = await supabaseAdmin
+    .from("admin_profiles")
+    .select("first_name, last_name, avatar_url")
+    .eq("role", "director_general")
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ?? { first_name: "Awdou Moussa", last_name: "MAYGA", avatar_url: null as string | null };
+});
+
+/**
+ * Liste les comptes actifs du personnel administratif pour l'écran de connexion
+ * (uniquement nom, établissement, photo — aucune donnée sensible).
+ */
+export const listStaffAccounts = createServerFn({ method: "GET" }).handler(async () => {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data, error } = await supabaseAdmin
+    .from("admin_profiles")
+    .select("id, first_name, last_name, avatar_url, establishment_id, establishments(name)")
+    .eq("role", "administrative_staff")
+    .eq("is_active", true)
+    .order("last_name");
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    first_name: row.first_name as string,
+    last_name: row.last_name as string,
+    avatar_url: row.avatar_url as string | null,
+    establishment_name: (row as unknown as { establishments: { name: string } | null }).establishments?.name ?? null,
+  }));
+});
+
+/**
+ * Résout l'e-mail d'un compte de personnel administratif actif à partir de son identifiant de profil,
+ * pour permettre une connexion par simple sélection + mot de passe (sans ressaisir l'e-mail).
+ */
+export const getStaffEmail = createServerFn({ method: "POST" })
+  .inputValidator((data) => z.object({ profile_id: z.string().uuid() }).parse(data))
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: profile, error } = await supabaseAdmin
+      .from("admin_profiles")
+      .select("id, role, is_active")
+      .eq("id", data.profile_id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!profile || profile.role !== "administrative_staff" || !profile.is_active) {
+      throw new Error("Ce compte est introuvable ou a été désactivé.");
+    }
+    const { data: userRes, error: userError } = await supabaseAdmin.auth.admin.getUserById(data.profile_id);
+    if (userError || !userRes.user?.email) throw new Error("Impossible de retrouver ce compte.");
+    return { email: userRes.user.email };
   });
 
 /**
