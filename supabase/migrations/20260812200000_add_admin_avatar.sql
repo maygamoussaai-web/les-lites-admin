@@ -1,0 +1,1 @@
+alter table public.admin_profiles add column if not exists avatar_url text;
