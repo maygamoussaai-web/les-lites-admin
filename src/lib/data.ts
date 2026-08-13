@@ -90,6 +90,7 @@ export function useDeleteRow(table: TableName, label = "Élément") {
     },
     onError: (error: Error) => toast.error(error.message || "Suppression impossible"),
   });
+}
 /**
  * Archive une ligne (soft-delete) au lieu de la supprimer définitivement.
  * Utilisé pour students et teachers : ils disparaissent des listes actives
@@ -113,5 +114,4 @@ export function useArchiveRow(table: TableName, label = "Élément") {
     },
     onError: (error: Error) => toast.error(error.message || "Archivage impossible"),
   });
-}
 }
