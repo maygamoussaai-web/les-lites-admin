@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
 export type Column<T> = {
   key: string;
@@ -14,11 +15,13 @@ export function DataTable<T extends { id: string }>({
   rows,
   loading,
   emptyLabel = "Aucune donnée pour le moment.",
+  onRowClick,
 }: {
   columns: Column<T>[];
   rows: T[];
   loading?: boolean;
   emptyLabel?: string;
+  onRowClick?: (row: T) => void;
 }) {
   return (
     <div className="overflow-x-auto rounded-lg border border-border bg-card">
@@ -51,7 +54,11 @@ export function DataTable<T extends { id: string }>({
             </TableRow>
           ) : (
             rows.map((row) => (
-              <TableRow key={row.id}>
+              <TableRow
+                key={row.id}
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
+                className={cn(onRowClick && "cursor-pointer transition-colors hover:bg-muted/50")}
+              >
                 {columns.map((c) => (
                   <TableCell key={c.key} className={c.className}>
                     {c.cell(row)}
