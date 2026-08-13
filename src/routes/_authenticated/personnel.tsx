@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Copy, UserPlus } from "lucide-react";
@@ -9,11 +9,11 @@ import { RecordDialog } from "@/components/app/record-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Switch } from "@/components/ui/switch";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { supabase } from "@/integrations/supabase/client";
 import { useRows } from "@/lib/data";
 import { generateInvitationToken, sha256Hex } from "@/lib/invitations";
-import { roleLabel, formatDateTime } from "@/lib/format";
+import { roleLabel, formatDateTime, initials } from "@/lib/format";
 import { useAdminProfile } from "@/hooks/use-auth";
 import type { Tables } from "@/integrations/supabase/types";
 
@@ -31,6 +31,7 @@ export const Route = createFileRoute("/_authenticated/personnel")({
 
 function Page() {
   const { isDG, user } = useAdminProfile();
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [link, setLink] = useState<string | null>(null);
@@ -72,52 +73,28 @@ function Page() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const toggleActive = useMutation({
-    mutationFn: async ({ id, is_active }: { id: string; is_active: boolean }) => {
-      const { error } = await supabase.from("admin_profiles").update({ is_active }).eq("id", id);
-      if (error) throw error;
-      await supabase.from("audit_logs").insert({
-        actor_id: user?.id ?? null,
-        action: is_active ? "admin_activated" : "admin_deactivated",
-        entity_type: "admin_profiles",
-        entity_id: id,
-        metadata: {},
-      });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["admin_profiles"] });
-      toast.success("Accès mis à jour");
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
   const columns: Column<Tables<"admin_profiles">>[] = [
     {
       key: "name",
       header: "Membre",
       cell: (r) => (
-        <div>
-          <p className="font-medium">{r.last_name} {r.first_name}</p>
-          <p className="text-xs text-muted-foreground">{r.phone ?? "—"}</p>
+        <div className="flex items-center gap-2.5">
+          <Avatar className="h-8 w-8 border border-border">
+            {r.avatar_url && <AvatarImage src={r.avatar_url} alt="" />}
+            <AvatarFallback className="bg-primary/10 text-xs font-medium text-primary">
+              {initials(r.first_name, r.last_name)}
+            </AvatarFallback>
+          </Avatar>
+          <div>
+            <p className="font-medium">{r.last_name} {r.first_name}</p>
+            <p className="text-xs text-muted-foreground">{r.phone ?? "—"}</p>
+          </div>
         </div>
       ),
     },
     { key: "role", header: "Rôle", cell: (r) => <Badge variant={r.role === "director_general" ? "default" : "secondary"}>{roleLabel(r.role)}</Badge> },
     { key: "est", header: "Établissement", cell: (r) => establishments.find((e) => e.id === r.establishment_id)?.name ?? "Tout le complexe" },
-    {
-      key: "active",
-      header: "Accès",
-      cell: (r) =>
-        isDG && r.role !== "director_general" ? (
-          <Switch
-            checked={!!r.is_active}
-            aria-label={`Activer l'accès de ${r.first_name} ${r.last_name}`}
-            onCheckedChange={(v) => toggleActive.mutate({ id: r.id, is_active: v })}
-          />
-        ) : (
-          <span className="text-sm">{r.is_active ? "Actif" : "Désactivé"}</span>
-        ),
-    },
+    { key: "active", header: "Accès", cell: (r) => <span className="text-sm">{r.is_active ? "Actif" : "Désactivé"}</span> },
     { key: "created", header: "Créé le", cell: (r) => formatDateTime(r.created_at) },
   ];
 
@@ -127,7 +104,7 @@ function Page() {
     <>
       <PageHeader
         title="Personnel administratif"
-        description="Les comptes sont créés uniquement sur invitation du Directeur Général."
+        description="Les comptes sont créés uniquement sur invitation du Directeur Général. Cliquez sur un membre pour voir sa fiche."
         actions={isDG ? <Button onClick={() => setOpen(true)}><UserPlus className="mr-2 h-4 w-4" />Inviter</Button> : undefined}
       />
 
@@ -149,7 +126,13 @@ function Page() {
         </Card>
       )}
 
-      <DataTable columns={columns} rows={data} loading={isLoading} emptyLabel="Aucun compte." />
+      <DataTable
+        columns={columns}
+        rows={data}
+        loading={isLoading}
+        emptyLabel="Aucun compte."
+        onRowClick={(r) => navigate({ to: "/personnel/$id", params: { id: r.id } })}
+      />
 
       {isDG && (
         <Card>
