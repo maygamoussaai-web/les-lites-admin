@@ -2,12 +2,13 @@ import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { LogOut } from "lucide-react";
+import { LogOut, Bell } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { supabase } from "@/integrations/supabase/client";
@@ -34,16 +35,19 @@ function Page() {
   const navigate = useNavigate();
   const { data: establishments = [] } = useRows<Tables<"establishments">>("establishments");
   const [form, setForm] = useState({ first_name: "", last_name: "", phone: "", avatar_url: "" });
+  const [notifications, setNotifications] = useState(true);
   const [password, setPassword] = useState("");
 
   useEffect(() => {
-    if (profile)
+    if (profile) {
       setForm({
         first_name: profile.first_name,
         last_name: profile.last_name,
         phone: profile.phone ?? "",
         avatar_url: profile.avatar_url ?? "",
       });
+      setNotifications(profile.notifications_enabled ?? true);
+    }
   }, [profile]);
 
   const save = useMutation({
@@ -62,6 +66,20 @@ function Page() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["admin_profile"] });
       toast.success("Informations mises à jour");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const toggleNotifications = useMutation({
+    mutationFn: async (value: boolean) => {
+      const { error } = await supabase.from("admin_profiles").update({ notifications_enabled: value }).eq("id", user!.id);
+      if (error) throw error;
+      return value;
+    },
+    onSuccess: (value) => {
+      setNotifications(value);
+      qc.invalidateQueries({ queryKey: ["admin_profile"] });
+      toast.success(value ? "Notifications activées" : "Notifications désactivées");
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -135,27 +153,48 @@ function Page() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Sécurité</CardTitle>
-            <CardDescription>Modifiez votre mot de passe, notamment après la première connexion.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="new_password">Nouveau mot de passe</Label>
-              <Input id="new_password" type="password" autoComplete="new-password" minLength={8} className="mt-1.5" value={password} onChange={(e) => setPassword(e.target.value)} />
-              <p className="mt-1 text-xs text-muted-foreground">8 caractères minimum.</p>
-            </div>
-            <Button onClick={() => changePassword.mutate()} disabled={password.length < 8 || changePassword.isPending}>
-              Modifier le mot de passe
-            </Button>
-            <div className="border-t border-border pt-4">
-              <Button variant="outline" onClick={signOut}>
-                <LogOut className="mr-2 h-4 w-4" /> Se déconnecter
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Sécurité</CardTitle>
+              <CardDescription>Modifiez votre mot de passe, notamment après la première connexion.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="new_password">Nouveau mot de passe</Label>
+                <Input id="new_password" type="password" autoComplete="new-password" minLength={8} className="mt-1.5" value={password} onChange={(e) => setPassword(e.target.value)} />
+                <p className="mt-1 text-xs text-muted-foreground">8 caractères minimum.</p>
+              </div>
+              <Button onClick={() => changePassword.mutate()} disabled={password.length < 8 || changePassword.isPending}>
+                Modifier le mot de passe
               </Button>
-            </div>
-          </CardContent>
-        </Card>
+              <div className="border-t border-border pt-4">
+                <Button variant="outline" onClick={signOut}>
+                  <LogOut className="mr-2 h-4 w-4" /> Se déconnecter
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Notifications</CardTitle>
+              <CardDescription>Autoriser les notifications de l'application.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <label className="flex items-center justify-between rounded-lg border border-border px-3 py-2.5">
+                <span className="flex items-center gap-2 text-sm font-medium">
+                  <Bell className="h-4 w-4 text-muted-foreground" /> Notifications activées
+                </span>
+                <Switch
+                  checked={notifications}
+                  onCheckedChange={(v) => toggleNotifications.mutate(v)}
+                  disabled={toggleNotifications.isPending}
+                />
+              </label>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </>
   );
