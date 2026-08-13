@@ -1,14 +1,16 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Loader2, ShieldCheck } from "lucide-react";
-import { acceptInvitation } from "@/lib/admin.functions";
+import { Loader2, ShieldCheck, Building2 } from "lucide-react";
+import { acceptInvitation, getInvitationInfo } from "@/lib/admin.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { initials } from "@/lib/format";
 
 export const Route = createFileRoute("/invitation/$token")({
   ssr: false,
@@ -27,16 +29,47 @@ function Page() {
   const { token } = Route.useParams();
   const navigate = useNavigate();
   const accept = useServerFn(acceptInvitation);
+  const fetchInfo = useServerFn(getInvitationInfo);
   const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState({ first_name: "", last_name: "", phone: "", email: "", password: "" });
+  const [infoError, setInfoError] = useState<string | null>(null);
+  const [establishmentName, setEstablishmentName] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    first_name: "",
+    last_name: "",
+    phone: "",
+    email: "",
+    password: "",
+    confirm_password: "",
+    avatar_url: "",
+  });
+
+  useEffect(() => {
+    fetchInfo({ data: { token } })
+      .then((res) => setEstablishmentName(res.establishment_name))
+      .catch((e: Error) => setInfoError(e.message));
+  }, [token]);
 
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (form.password !== form.confirm_password) {
+      toast.error("Les mots de passe ne correspondent pas.");
+      return;
+    }
     setLoading(true);
     try {
-      await accept({ data: { ...form, token } });
+      await accept({
+        data: {
+          token,
+          email: form.email.trim(),
+          password: form.password,
+          first_name: form.first_name,
+          last_name: form.last_name,
+          phone: form.phone || null,
+          avatar_url: form.avatar_url || null,
+        },
+      });
       const { error } = await supabase.auth.signInWithPassword({ email: form.email.trim(), password: form.password });
       if (error) {
         toast.success("Compte activé. Connectez-vous.");
@@ -51,14 +84,41 @@ function Page() {
     setLoading(false);
   };
 
+  if (infoError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle className="text-xl">Lien invalide</CardTitle>
+            <CardDescription>{infoError}</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/40 p-4">
-      <Card className="w-full max-w-md">
+    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-md duration-300 animate-in fade-in slide-in-from-bottom-2">
         <CardHeader>
-          <CardTitle className="text-xl">Activation de votre compte</CardTitle>
-          <CardDescription>
-            Complétez vos informations pour rejoindre l'administration du complexe Les Élites de Gao.
-          </CardDescription>
+          <div className="mb-2 flex items-center gap-3">
+            <Avatar className="h-14 w-14 border-2 border-accent">
+              {form.avatar_url && <AvatarImage src={form.avatar_url} alt="Photo de profil" />}
+              <AvatarFallback className="bg-primary/10 text-base font-semibold text-primary">
+                {initials(form.first_name || "?", form.last_name || "")}
+              </AvatarFallback>
+            </Avatar>
+            <div>
+              <CardTitle className="font-display text-xl">Activation de votre compte</CardTitle>
+              <CardDescription>Personnel administratif — Les Élites de Gao</CardDescription>
+            </div>
+          </div>
+          {establishmentName && (
+            <div className="flex items-center gap-2 rounded-lg border border-accent/30 bg-accent/10 px-3 py-2 text-sm font-medium text-foreground">
+              <Building2 className="h-4 w-4 text-[oklch(0.55_0.15_85)]" />
+              Établissement assigné : {establishmentName}
+            </div>
+          )}
         </CardHeader>
         <CardContent>
           <form className="space-y-4" onSubmit={submit}>
@@ -77,15 +137,25 @@ function Page() {
               <Input id="phone" className="mt-1.5" placeholder="+223 ..." value={form.phone} onChange={(e) => set("phone", e.target.value)} />
             </div>
             <div>
+              <Label htmlFor="avatar_url">Photo de profil (URL)</Label>
+              <Input id="avatar_url" className="mt-1.5" placeholder="https://…" value={form.avatar_url} onChange={(e) => set("avatar_url", e.target.value)} />
+            </div>
+            <div>
               <Label htmlFor="email">Adresse e-mail</Label>
               <Input id="email" type="email" required className="mt-1.5" value={form.email} onChange={(e) => set("email", e.target.value)} />
             </div>
-            <div>
-              <Label htmlFor="password">Mot de passe</Label>
-              <Input id="password" type="password" required minLength={8} className="mt-1.5" value={form.password} onChange={(e) => set("password", e.target.value)} />
-              <p className="mt-1 text-xs text-muted-foreground">8 caractères minimum.</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label htmlFor="password">Mot de passe</Label>
+                <Input id="password" type="password" required minLength={8} className="mt-1.5" value={form.password} onChange={(e) => set("password", e.target.value)} />
+              </div>
+              <div>
+                <Label htmlFor="confirm_password">Confirmer</Label>
+                <Input id="confirm_password" type="password" required minLength={8} className="mt-1.5" value={form.confirm_password} onChange={(e) => set("confirm_password", e.target.value)} />
+              </div>
             </div>
-            <Button type="submit" className="w-full" disabled={loading}>
+            <p className="text-xs text-muted-foreground">8 caractères minimum.</p>
+            <Button type="submit" className="shine-gold w-full" disabled={loading}>
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Activer mon compte"}
             </Button>
             <p className="flex items-center gap-2 text-xs text-muted-foreground">
