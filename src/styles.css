@@ -227,3 +227,85 @@
 .shine-gold:hover::after {
   animation: shimmer-sweep 1s ease;
 }
+/* --- Animations d'interface : entrées, survols, chargements --- */
+
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes fade-in-soft {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes pop-check {
+  0% { transform: scale(0.6); opacity: 0; }
+  60% { transform: scale(1.12); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes ring-draw {
+  from { stroke-dashoffset: var(--ring-circumference); }
+}
+
+.animate-rise {
+  animation: rise-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.animate-fade-soft {
+  animation: fade-in-soft 0.45s ease both;
+}
+.animate-pop {
+  animation: pop-check 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.card-lift {
+  transition:
+    transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.25s ease,
+    border-color 0.25s ease;
+}
+.card-lift:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 18px 40px -22px oklch(0.22 0.06 258 / 55%);
+}
+.card-lift:active {
+  transform: translateY(-1px) scale(0.996);
+}
+
+.press {
+  transition: transform 0.15s ease;
+}
+.press:active {
+  transform: scale(0.97);
+}
+
+.panel-gradient {
+  background-image: linear-gradient(160deg, var(--color-card) 0%, oklch(0.97 0.012 255) 100%);
+}
+.dark .panel-gradient {
+  background-image: linear-gradient(160deg, var(--color-card) 0%, oklch(0.25 0.045 258) 100%);
+}
+
+.hairline {
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    oklch(0.78 0.16 85 / 45%),
+    transparent
+  );
+  height: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise,
+  .animate-fade-soft,
+  .animate-pop,
+  .animate-emblem-float,
+  .animate-glow-pulse {
+    animation: none !important;
+  }
+  .card-lift:hover {
+    transform: none;
+  }
+}
