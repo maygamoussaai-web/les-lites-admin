@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Plus, GraduationCap, Users, Wallet, AlertTriangle, Banknote, CalendarClock } from "lucide-react";
+import { Plus, GraduationCap, Users, Wallet, AlertTriangle, Banknote, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
 import { DataTable, type Column } from "@/components/app/data-table";
@@ -13,6 +13,24 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAdminProfile } from "@/hooks/use-auth";
 import { useSchoolData, useEstablishmentStats } from "@/lib/school-data";
 import { useSaveRow, useDeleteRow } from "@/lib/data";
@@ -23,6 +41,7 @@ import {
   teacherDue,
   validatedHours,
   weekdayLabel,
+  expectedTuition,
   WEEKDAYS,
   formatDuration,
   type ClassRow,
@@ -196,33 +215,355 @@ function ClassesTab({ establishmentId, data }: { establishmentId: string; data: 
   );
 }
 
-function TuitionTab({ establishmentId, data }: { establishmentId: string; data: Data }) {
+/* ---------------------------------------------------------------------- */
+/* Scolarité                                                               */
+/* ---------------------------------------------------------------------- */
+
+type TrancheDraft = { id: string; label: string; amount: string; due_date: string };
+
+function newTrancheDraft(index: number): TrancheDraft {
+  return { id: crypto.randomUUID(), label: `${index}ᵉ tranche`, amount: "", due_date: "" };
+}
+
+function PlanDialog({
+  open,
+  onClose,
+  editingPlan,
+  installments,
+  establishmentId,
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  editingPlan: Data["feePlans"][number] | null;
+  installments: Data["installments"];
+  establishmentId: string;
+  onSaved: () => void;
+}) {
   const savePlan = useSaveRow("fee_plans", "Modèle de scolarité");
-  const removePlan = useDeleteRow("fee_plans", "Modèle de scolarité");
   const saveInstallment = useSaveRow("fee_plan_installments", "Tranche");
   const removeInstallment = useDeleteRow("fee_plan_installments", "Tranche");
+
+  const [name, setName] = useState("");
+  const [total, setTotal] = useState("");
+  const [tranches, setTranches] = useState<TrancheDraft[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setName(editingPlan?.name ?? "");
+    setTotal(editingPlan ? String(editingPlan.total_amount) : "");
+    if (editingPlan) {
+      const existing = installments
+        .filter((i) => i.fee_plan_id === editingPlan.id)
+        .sort((a, b) => a.position - b.position)
+        .map((i) => ({ id: i.id, label: i.label, amount: String(i.amount), due_date: i.due_date }));
+      setTranches(existing.length ? existing : [newTrancheDraft(1)]);
+    } else {
+      setTranches([newTrancheDraft(1)]);
+    }
+    setSubmitting(false);
+  }, [open, editingPlan]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const trancheSum = sum(tranches.map((t) => Number(t.amount || 0)));
+  const totalNum = Number(total || 0);
+  const sumMatches = tranches.length > 0 && totalNum > 0 && trancheSum === totalNum;
+  const tranchesValid = tranches.every((t) => t.label.trim() && t.amount !== "" && t.due_date);
+  const canSubmit = !!name.trim() && totalNum > 0 && tranchesValid && sumMatches && !submitting;
+
+  const addTranche = () => setTranches((prev) => [...prev, newTrancheDraft(prev.length + 1)]);
+  const removeTranche = (id: string) => setTranches((prev) => prev.filter((t) => t.id !== id));
+  const updateTranche = (id: string, patch: Partial<TrancheDraft>) =>
+    setTranches((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    try {
+      const planRow = await savePlan.mutateAsync({
+        id: editingPlan?.id,
+        values: { name: name.trim(), total_amount: totalNum, establishment_id: establishmentId },
+      });
+      const planId = editingPlan?.id ?? (planRow as { id?: string } | null)?.id;
+      if (!planId) throw new Error("Modèle non créé");
+
+      if (editingPlan) {
+        const existingIds = new Set(
+          installments.filter((i) => i.fee_plan_id === editingPlan.id).map((i) => i.id),
+        );
+        const keptIds = new Set(tranches.filter((t) => existingIds.has(t.id)).map((t) => t.id));
+        for (const oldId of existingIds) {
+          if (!keptIds.has(oldId)) await removeInstallment.mutateAsync(oldId);
+        }
+      }
+
+      let position = 1;
+      for (const t of tranches) {
+        const isExisting = !!editingPlan && installments.some((i) => i.id === t.id && i.fee_plan_id === editingPlan.id);
+        await saveInstallment.mutateAsync({
+          id: isExisting ? t.id : undefined,
+          values: {
+            fee_plan_id: planId,
+            label: t.label.trim(),
+            amount: Number(t.amount),
+            due_date: t.due_date,
+            position: position++,
+          },
+        });
+      }
+      onSaved();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>{editingPlan ? "Modifier le modèle" : "Nouveau modèle de scolarité"}</DialogTitle>
+          <DialogDescription>
+            Définissez le montant total et ses tranches — la somme des tranches doit être égale au montant total.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Label className="mb-1.5 block text-sm">
+              Nom du modèle<span className="ml-0.5 text-destructive">*</span>
+            </Label>
+            <Input value={name} placeholder="Scolarité 6ème" onChange={(e) => setName(e.target.value)} />
+          </div>
+          <div className="sm:col-span-2">
+            <Label className="mb-1.5 block text-sm">
+              Montant total (FCFA)<span className="ml-0.5 text-destructive">*</span>
+            </Label>
+            <Input type="number" step="any" value={total} onChange={(e) => setTotal(e.target.value)} />
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">Tranches</p>
+            <Button size="sm" variant="outline" className="press" onClick={addTranche}>
+              <Plus className="mr-1.5 h-4 w-4" /> Ajouter une tranche
+            </Button>
+          </div>
+          <div className="space-y-2">
+            {tranches.map((t) => (
+              <div key={t.id} className="grid grid-cols-[1fr_1fr_1fr_auto] items-end gap-2 rounded-lg border border-border/70 p-2">
+                <div>
+                  <Label className="mb-1 block text-xs text-muted-foreground">Libellé</Label>
+                  <Input value={t.label} onChange={(e) => updateTranche(t.id, { label: e.target.value })} />
+                </div>
+                <div>
+                  <Label className="mb-1 block text-xs text-muted-foreground">Montant</Label>
+                  <Input type="number" step="any" value={t.amount} onChange={(e) => updateTranche(t.id, { amount: e.target.value })} />
+                </div>
+                <div>
+                  <Label className="mb-1 block text-xs text-muted-foreground">Échéance</Label>
+                  <Input type="date" value={t.due_date} onChange={(e) => updateTranche(t.id, { due_date: e.target.value })} />
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive"
+                  onClick={() => removeTranche(t.id)}
+                  disabled={tranches.length <= 1}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+          <p className={sumMatches ? "text-sm text-muted-foreground" : "text-sm font-medium text-destructive"}>
+            Somme des tranches : {formatFCFA(trancheSum)}
+            {totalNum > 0 ? ` / ${formatFCFA(totalNum)}` : ""}
+            {!sumMatches && totalNum > 0 ? " — la somme doit être égale au montant total" : ""}
+          </p>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Annuler
+          </Button>
+          <Button onClick={submit} disabled={!canSubmit}>
+            Enregistrer
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function PaymentDialog({
+  open,
+  onClose,
+  students,
+  defaultStudentId,
+  establishmentId,
+  data,
+}: {
+  open: boolean;
+  onClose: () => void;
+  students: Data["students"];
+  defaultStudentId: string | null;
+  establishmentId: string;
+  data: Data;
+}) {
   const savePayment = useSaveRow("tuition_payments", "Paiement");
+  const [studentId, setStudentId] = useState("");
+  const [amount, setAmount] = useState("");
+  const [paidAt, setPaidAt] = useState(new Date().toISOString().slice(0, 10));
+  const [method, setMethod] = useState("cash");
+  const [note, setNote] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setStudentId(defaultStudentId ?? students[0]?.id ?? "");
+    setAmount("");
+    setPaidAt(new Date().toISOString().slice(0, 10));
+    setMethod("cash");
+    setNote("");
+  }, [open, defaultStudentId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const student = students.find((s) => s.id === studentId) ?? null;
+  const expected = student ? expectedTuition(student, data.classes, data.feePlans) : 0;
+  const paidSoFar = student
+    ? sum(data.tuitionPayments.filter((p) => p.student_id === student.id).map((p) => Number(p.amount)))
+    : 0;
+  const remaining = Math.max(0, expected - paidSoFar);
+  const hasPlan = expected > 0;
+  const amountNum = Number(amount || 0);
+  const exceeds = hasPlan && amountNum > remaining;
+  const canSubmit = !!studentId && amountNum > 0 && !exceeds && !savePayment.isPending;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Enregistrer un paiement de scolarité</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Label className="mb-1.5 block text-sm">
+              Élève<span className="ml-0.5 text-destructive">*</span>
+            </Label>
+            <Select value={studentId} onValueChange={setStudentId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Sélectionner" />
+              </SelectTrigger>
+              <SelectContent>
+                {students.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.last_name} {s.first_name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {student ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {hasPlan ? `Reste dû : ${formatFCFA(remaining)}` : "Aucun modèle de scolarité associé à la classe de cet élève."}
+              </p>
+            ) : null}
+          </div>
+          <div>
+            <Label className="mb-1.5 block text-sm">
+              Montant (FCFA)<span className="ml-0.5 text-destructive">*</span>
+            </Label>
+            <Input type="number" step="any" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            {exceeds ? (
+              <p className="mt-1 text-xs font-medium text-destructive">
+                Le montant dépasse le reste dû ({formatFCFA(remaining)}).
+              </p>
+            ) : null}
+          </div>
+          <div>
+            <Label className="mb-1.5 block text-sm">Date</Label>
+            <Input type="date" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
+          </div>
+          <div>
+            <Label className="mb-1.5 block text-sm">Moyen de paiement</Label>
+            <Select value={method} onValueChange={setMethod}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="cash">Espèces</SelectItem>
+                <SelectItem value="mobile_money">Mobile money</SelectItem>
+                <SelectItem value="bank">Banque</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="sm:col-span-2">
+            <Label className="mb-1.5 block text-sm">Note</Label>
+            <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Annuler
+          </Button>
+          <Button
+            disabled={!canSubmit}
+            onClick={() =>
+              savePayment.mutate(
+                {
+                  values: {
+                    student_id: studentId,
+                    amount: amountNum,
+                    paid_at: paidAt,
+                    method,
+                    note: note || null,
+                    establishment_id: establishmentId,
+                  },
+                },
+                { onSuccess: onClose },
+              )
+            }
+          >
+            Enregistrer
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function TuitionTab({ establishmentId, data }: { establishmentId: string; data: Data }) {
+  const removePlan = useDeleteRow("fee_plans", "Modèle de scolarité");
   const [planOpen, setPlanOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<Data["feePlans"][number] | null>(null);
-  const [instPlan, setInstPlan] = useState<string | null>(null);
+  const [payOpen, setPayOpen] = useState(false);
   const [payStudent, setPayStudent] = useState<string | null>(null);
 
   const plans = data.feePlans.filter((p) => p.establishment_id === establishmentId);
   const students = data.students.filter((s) => s.establishment_id === establishmentId);
 
-  const late = useMemo(
+  const studentRows = useMemo(
     () =>
       students
         .map((student) => {
           const klass = data.classes.find((c) => c.id === student.class_id);
+          const plan = plans.find((p) => p.id === klass?.fee_plan_id);
           const insts = data.installments.filter((i) => i.fee_plan_id === klass?.fee_plan_id);
           const paid = sum(data.tuitionPayments.filter((p) => p.student_id === student.id).map((p) => Number(p.amount)));
           const status = lateStatus(paid, insts);
-          return { student, klass, paid, status };
+          const expected = plan ? Number(plan.total_amount) : 0;
+          return { student, klass, plan, paid, expected, remaining: Math.max(0, expected - paid), status };
         })
-        .filter((r) => r.status.isLate),
-    [students, data],
+        .sort((a, b) =>
+          `${a.student.last_name}${a.student.first_name}`.localeCompare(`${b.student.last_name}${b.student.first_name}`),
+        ),
+    [students, plans, data],
   );
+
+  const late = studentRows.filter((r) => r.status.isLate);
+
+  const openPayment = (studentId: string | null) => {
+    setPayStudent(studentId);
+    setPayOpen(true);
+  };
 
   const planColumns: Column<Data["feePlans"][number]>[] = [
     { key: "name", header: "Modèle", cell: (p) => <span className="font-medium">{p.name}</span> },
@@ -237,23 +578,16 @@ function TuitionTab({ establishmentId, data }: { establishmentId: string; data: 
       header: "",
       className: "text-right",
       cell: (p) => (
-        <div className="flex justify-end gap-1">
-          <Button variant="ghost" size="sm" className="press" onClick={() => setInstPlan(p.id)}>
-            <CalendarClock className="mr-1.5 h-4 w-4" /> Tranches
-          </Button>
-          <RowActions
-            onEdit={() => {
-              setEditingPlan(p);
-              setPlanOpen(true);
-            }}
-            onDelete={() => removePlan.mutate(p.id)}
-          />
-        </div>
+        <RowActions
+          onEdit={() => {
+            setEditingPlan(p);
+            setPlanOpen(true);
+          }}
+          onDelete={() => removePlan.mutate(p.id)}
+        />
       ),
     },
   ];
-
-  const instRows = data.installments.filter((i) => i.fee_plan_id === instPlan);
 
   return (
     <div className="space-y-8">
@@ -310,7 +644,7 @@ function TuitionTab({ establishmentId, data }: { establishmentId: string; data: 
                       <Badge variant="destructive">{formatFCFA(status.overdueAmount)}</Badge>
                     </td>
                     <td className="p-3 text-right">
-                      <Button size="sm" variant="outline" className="press" onClick={() => setPayStudent(student.id)}>
+                      <Button size="sm" variant="outline" className="press" onClick={() => openPayment(student.id)}>
                         <Banknote className="mr-1.5 h-4 w-4" /> Encaisser
                       </Button>
                     </td>
@@ -324,11 +658,66 @@ function TuitionTab({ establishmentId, data }: { establishmentId: string; data: 
 
       <section className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="font-display text-lg font-semibold">Derniers encaissements</h3>
-          <Button size="sm" variant="outline" className="press" onClick={() => setPayStudent(students[0]?.id ?? null)} disabled={!students.length}>
+          <h3 className="font-display text-lg font-semibold">Tous les élèves</h3>
+          <Button
+            size="sm"
+            variant="outline"
+            className="press"
+            onClick={() => openPayment(students[0]?.id ?? null)}
+            disabled={!students.length}
+          >
             <Plus className="mr-1.5 h-4 w-4" /> Enregistrer un paiement
           </Button>
         </div>
+        {studentRows.length === 0 && !data.loading ? (
+          <EmptyState icon={Users} title="Aucun élève" description="Cet établissement n'a pas encore d'élève." />
+        ) : (
+          <DataTable
+            loading={data.loading}
+            rows={studentRows}
+            columns={[
+              {
+                key: "name",
+                header: "Élève",
+                cell: (r) => (
+                  <span className="font-medium">
+                    {r.student.last_name} {r.student.first_name}
+                  </span>
+                ),
+              },
+              { key: "class", header: "Classe", cell: (r) => r.klass?.name ?? "—" },
+              { key: "plan", header: "Modèle", cell: (r) => r.plan?.name ?? "—" },
+              { key: "paid", header: "Payé", cell: (r) => formatFCFA(r.paid) },
+              { key: "remaining", header: "Reste dû", cell: (r) => formatFCFA(r.remaining) },
+              {
+                key: "status",
+                header: "Statut",
+                cell: (r) =>
+                  !r.plan ? (
+                    <Badge variant="outline">Sans modèle</Badge>
+                  ) : r.status.isLate ? (
+                    <Badge variant="destructive">En retard</Badge>
+                  ) : (
+                    <Badge>À jour</Badge>
+                  ),
+              },
+              {
+                key: "actions",
+                header: "",
+                className: "text-right",
+                cell: (r) => (
+                  <Button size="sm" variant="ghost" className="press" onClick={() => openPayment(r.student.id)}>
+                    <Banknote className="mr-1.5 h-4 w-4" /> Encaisser
+                  </Button>
+                ),
+              },
+            ]}
+          />
+        )}
+      </section>
+
+      <section className="space-y-3">
+        <h3 className="font-display text-lg font-semibold">Derniers encaissements</h3>
         <DataTable
           rows={data.tuitionPayments.filter((p) => p.establishment_id === establishmentId).slice(0, 15)}
           loading={data.loading}
@@ -349,169 +738,28 @@ function TuitionTab({ establishmentId, data }: { establishmentId: string; data: 
         />
       </section>
 
-      <RecordDialog
+      <PlanDialog
         open={planOpen}
-        onOpenChange={setPlanOpen}
-        title={editingPlan ? "Modifier le modèle" : "Nouveau modèle de scolarité"}
-        fields={[
-          { name: "name", label: "Nom du modèle", required: true, colSpan: 2, placeholder: "Scolarité 6ème" },
-          { name: "total_amount", label: "Montant total (FCFA)", type: "number", required: true, colSpan: 2 },
-        ]}
-        initial={editingPlan}
-        submitting={savePlan.isPending}
-        onSubmit={(values) =>
-          savePlan.mutate(
-            { id: editingPlan?.id, values: { ...values, establishment_id: establishmentId } },
-            { onSuccess: () => setPlanOpen(false) },
-          )
-        }
+        onClose={() => setPlanOpen(false)}
+        editingPlan={editingPlan}
+        installments={data.installments}
+        establishmentId={establishmentId}
+        onSaved={() => setPlanOpen(false)}
       />
 
-      <InstallmentsDialog
-        planId={instPlan}
-        rows={instRows}
-        onClose={() => setInstPlan(null)}
-        onSave={(values, id) => saveInstallment.mutate({ id, values: { ...values, fee_plan_id: instPlan } })}
-        onDelete={(id) => removeInstallment.mutate(id)}
-      />
-
-      <RecordDialog
-        open={!!payStudent}
-        onOpenChange={(v) => !v && setPayStudent(null)}
-        title="Enregistrer un paiement de scolarité"
-        fields={[
-          {
-            name: "student_id",
-            label: "Élève",
-            type: "select",
-            required: true,
-            colSpan: 2,
-            defaultValue: payStudent ?? undefined,
-            options: students.map((s) => ({ value: s.id, label: `${s.last_name} ${s.first_name}` })),
-          },
-          { name: "amount", label: "Montant (FCFA)", type: "number", required: true },
-          { name: "paid_at", label: "Date", type: "date", defaultValue: new Date().toISOString().slice(0, 10) },
-          {
-            name: "method",
-            label: "Moyen de paiement",
-            type: "select",
-            defaultValue: "cash",
-            options: [
-              { value: "cash", label: "Espèces" },
-              { value: "mobile_money", label: "Mobile money" },
-              { value: "bank", label: "Banque" },
-            ],
-          },
-          { name: "note", label: "Note", type: "textarea" },
-        ]}
-        submitting={savePayment.isPending}
-        onSubmit={(values) =>
-          savePayment.mutate(
-            { values: { ...values, establishment_id: establishmentId } },
-            { onSuccess: () => setPayStudent(null) },
-          )
-        }
+      <PaymentDialog
+        open={payOpen}
+        onClose={() => setPayOpen(false)}
+        students={students}
+        defaultStudentId={payStudent}
+        establishmentId={establishmentId}
+        data={data}
       />
     </div>
   );
 }
 
-function InstallmentsDialog({
-  planId,
-  rows,
-  onClose,
-  onSave,
-  onDelete,
-}: {
-  planId: string | null;
-  rows: Data["installments"];
-  onClose: () => void;
-  onSave: (values: Record<string, unknown>, id?: string) => void;
-  onDelete: (id: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<Data["installments"][number] | null>(null);
-
-  return (
-    <RecordDialogShell open={!!planId} onClose={onClose} title="Tranches de paiement">
-      <div className="flex justify-end">
-        <Button
-          size="sm"
-          className="press"
-          onClick={() => {
-            setEditing(null);
-            setOpen(true);
-          }}
-        >
-          <Plus className="mr-1.5 h-4 w-4" /> Ajouter une tranche
-        </Button>
-      </div>
-      <DataTable
-        rows={rows}
-        emptyLabel="Aucune tranche définie."
-        columns={[
-          { key: "label", header: "Tranche", cell: (i) => <span className="font-medium">{i.label}</span> },
-          { key: "amount", header: "Montant", cell: (i) => formatFCFA(i.amount) },
-          { key: "due", header: "Échéance", cell: (i) => formatDate(i.due_date) },
-          {
-            key: "actions",
-            header: "",
-            className: "text-right",
-            cell: (i) => (
-              <RowActions
-                onEdit={() => {
-                  setEditing(i);
-                  setOpen(true);
-                }}
-                onDelete={() => onDelete(i.id)}
-              />
-            ),
-          },
-        ]}
-      />
-      <RecordDialog
-        open={open}
-        onOpenChange={setOpen}
-        title={editing ? "Modifier la tranche" : "Nouvelle tranche"}
-        fields={[
-          { name: "label", label: "Libellé", required: true, colSpan: 2, placeholder: "1ère tranche" },
-          { name: "amount", label: "Montant (FCFA)", type: "number", required: true },
-          { name: "due_date", label: "Échéance", type: "date", required: true },
-          { name: "position", label: "Ordre", type: "number", defaultValue: rows.length + 1 },
-        ]}
-        initial={editing}
-        onSubmit={(values) => {
-          onSave(values, editing?.id);
-          setOpen(false);
-        }}
-      />
-    </RecordDialogShell>
-  );
-}
-
-function RecordDialogShell({
-  open,
-  onClose,
-  title,
-  children,
-}: {
-  open: boolean;
-  onClose: () => void;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card className={open ? "animate-rise fixed inset-x-4 top-16 z-50 mx-auto max-h-[80vh] max-w-3xl overflow-y-auto shadow-2xl" : "hidden"}>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="font-display">{title}</CardTitle>
-        <Button variant="ghost" size="sm" onClick={onClose}>
-          Fermer
-        </Button>
-      </CardHeader>
-      <CardContent className="space-y-4">{children}</CardContent>
-    </Card>
-  );
-}
+/* ---------------------------------------------------------------------- */
 
 function TeachersTab({
   establishmentId,
