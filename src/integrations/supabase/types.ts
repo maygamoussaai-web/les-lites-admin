@@ -41,7 +41,7 @@ export type Database = {
         }
         Relationships: []
       }
-    admin_profiles: {
+      admin_profiles: {
         Row: {
           avatar_url: string | null
           created_at: string
