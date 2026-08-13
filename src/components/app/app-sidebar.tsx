@@ -1,19 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import {
-  LayoutDashboard,
-  Building2,
-  CalendarRange,
-  GraduationCap,
-  BookOpen,
-  Users,
-  UserCog,
-  ClipboardList,
-  Wallet,
-  Banknote,
-  ShieldCheck,
-  ScrollText,
-  UserCircle,
-} from "lucide-react";
+import { LayoutDashboard, Building2, ShieldCheck, Wallet, UserCircle, School } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -26,56 +12,53 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar";
-
-const groups = [
-  {
-    label: "Pilotage",
-    items: [{ title: "Tableau de bord", url: "/tableau-de-bord", icon: LayoutDashboard }],
-  },
-  {
-    label: "Structure",
-    items: [
-      { title: "Établissements", url: "/etablissements", icon: Building2 },
-      { title: "Années académiques", url: "/annees", icon: CalendarRange },
-      { title: "Classes", url: "/classes", icon: GraduationCap },
-      { title: "Matières", url: "/matieres", icon: BookOpen },
-    ],
-  },
-  {
-    label: "Scolarité",
-    items: [
-      { title: "Élèves", url: "/eleves", icon: Users },
-      { title: "Enseignants", url: "/enseignants", icon: UserCog },
-      { title: "Évaluations & notes", url: "/notes", icon: ClipboardList },
-    ],
-  },
-  {
-    label: "Finances",
-    items: [
-      { title: "Frais de scolarité", url: "/scolarite", icon: Wallet },
-      { title: "Paiements enseignants", url: "/paiements-enseignants", icon: Banknote },
-    ],
-  },
-  {
-    label: "Administration",
-    items: [
-      { title: "Personnel & accès", url: "/personnel", icon: ShieldCheck },
-      { title: "Journal d'audit", url: "/audit", icon: ScrollText },
-      { title: "Mon compte", url: "/mon-compte", icon: UserCircle },
-    ],
-  },
-];
+import { useAdminProfile } from "@/hooks/use-auth";
 
 export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { isDG, profile } = useAdminProfile();
+
+  const dgGroups = [
+    {
+      label: "Pilotage",
+      items: [
+        { title: "Tableau de bord", url: "/tableau-de-bord", icon: LayoutDashboard },
+        { title: "Établissements", url: "/etablissements", icon: Building2 },
+      ],
+    },
+    {
+      label: "Direction",
+      items: [
+        { title: "Personnel administratif", url: "/personnel", icon: ShieldCheck },
+        { title: "Finance", url: "/finance", icon: Wallet },
+        { title: "Mon compte", url: "/mon-compte", icon: UserCircle },
+      ],
+    },
+  ];
+
+  const staffGroups = [
+    {
+      label: "Mon établissement",
+      items: [
+        {
+          title: "Gestion",
+          url: profile?.establishment_id ? `/etablissements/${profile.establishment_id}` : "/mon-compte",
+          icon: School,
+        },
+        { title: "Mon compte", url: "/mon-compte", icon: UserCircle },
+      ],
+    },
+  ];
+
+  const groups = isDG ? dgGroups : staffGroups;
 
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="px-3 py-4">
         <div className="flex items-center gap-2.5">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-sidebar-primary font-display text-sm font-bold text-sidebar-primary-foreground">
+          <span className="shine-gold flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-sidebar-primary font-display text-sm font-bold text-sidebar-primary-foreground">
             EG
           </span>
           {!collapsed && (
@@ -83,7 +66,9 @@ export function AppSidebar() {
               <p className="truncate font-display text-sm font-semibold text-sidebar-foreground">
                 Les Élites de Gao
               </p>
-              <p className="truncate text-xs text-sidebar-foreground/70">Administration</p>
+              <p className="truncate text-xs text-sidebar-foreground/70">
+                {isDG ? "Direction générale" : "Administration"}
+              </p>
             </div>
           )}
         </div>
@@ -96,9 +81,13 @@ export function AppSidebar() {
               <SidebarMenu>
                 {group.items.map((item) => (
                   <SidebarMenuItem key={item.url}>
-                    <SidebarMenuButton asChild isActive={pathname === item.url} tooltip={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={pathname === item.url || pathname.startsWith(item.url + "/")}
+                      tooltip={item.title}
+                    >
                       <Link to={item.url} className="flex items-center gap-2">
-                        <item.icon className="h-4 w-4" />
+                        <item.icon className="h-4 w-4 transition-transform duration-200 group-hover/menu-item:scale-110" />
                         {!collapsed && <span>{item.title}</span>}
                       </Link>
                     </SidebarMenuButton>
