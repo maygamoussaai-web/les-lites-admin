@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { sha256Hex } from "./invitations";
+import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 export const DG_EMAIL = "directeurgeneral@gmail.com";
 
@@ -102,6 +103,31 @@ export const getStaffEmail = createServerFn({ method: "POST" })
   });
 
 /**
+ * Retourne le nom de l'établissement assigné par une invitation, pour affichage
+ * en lecture seule sur la page d'activation (l'établissement n'est jamais modifiable par l'invité).
+ */
+export const getInvitationInfo = createServerFn({ method: "POST" })
+  .inputValidator((data) => z.object({ token: z.string().min(10) }).parse(data))
+  .handler(async ({ data }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const tokenHash = await sha256Hex(data.token);
+    const { data: invitation, error } = await supabaseAdmin
+      .from("invitations")
+      .select("establishment_id, expires_at, accepted_at, establishments(name)")
+      .eq("token_hash", tokenHash)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!invitation) throw new Error("Invitation introuvable ou déjà utilisée.");
+    if (invitation.accepted_at) throw new Error("Cette invitation a déjà été utilisée.");
+    if (new Date(invitation.expires_at).getTime() < Date.now())
+      throw new Error("Cette invitation a expiré. Demandez-en une nouvelle au Directeur Général.");
+    return {
+      establishment_name:
+        (invitation as unknown as { establishments: { name: string } | null }).establishments?.name ?? "—",
+    };
+  });
+
+/**
  * Active un compte de personnel administratif à partir d'un lien d'invitation signé.
  */
 export const acceptInvitation = createServerFn({ method: "POST" })
@@ -114,6 +140,7 @@ export const acceptInvitation = createServerFn({ method: "POST" })
         first_name: z.string().min(1),
         last_name: z.string().min(1),
         phone: z.string().optional().nullable(),
+        avatar_url: z.string().url().optional().nullable(),
       })
       .parse(data),
   )
@@ -144,6 +171,7 @@ export const acceptInvitation = createServerFn({ method: "POST" })
       first_name: data.first_name,
       last_name: data.last_name,
       phone: data.phone || null,
+      avatar_url: data.avatar_url || null,
       role: "administrative_staff",
       establishment_id: invitation.establishment_id,
       is_active: true,
@@ -164,6 +192,48 @@ export const acceptInvitation = createServerFn({ method: "POST" })
       entity_type: "admin_profiles",
       entity_id: created.user.id,
       establishment_id: invitation.establishment_id,
+      metadata: {},
+    });
+
+    return { ok: true as const };
+  });
+
+/**
+ * Supprime définitivement un compte de personnel administratif (auth + profil).
+ * Réservé au Directeur Général — vérifié côté serveur via la session de l'appelant.
+ */
+export const deleteStaffAccount = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) => z.object({ profile_id: z.string().uuid() }).parse(data))
+  .handler(async ({ data, context }) => {
+    const { data: callerProfile, error: callerError } = await context.supabase
+      .from("admin_profiles")
+      .select("role")
+      .eq("id", context.userId)
+      .maybeSingle();
+    if (callerError) throw new Error(callerError.message);
+    if (!callerProfile || callerProfile.role !== "director_general") {
+      throw new Error("Seul le Directeur Général peut supprimer un compte du personnel.");
+    }
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: target, error: targetError } = await supabaseAdmin
+      .from("admin_profiles")
+      .select("role")
+      .eq("id", data.profile_id)
+      .maybeSingle();
+    if (targetError) throw new Error(targetError.message);
+    if (!target || target.role !== "administrative_staff") {
+      throw new Error("Ce compte ne peut pas être supprimé.");
+    }
+
+    await supabaseAdmin.from("admin_profiles").delete().eq("id", data.profile_id);
+    await supabaseAdmin.auth.admin.deleteUser(data.profile_id);
+    await supabaseAdmin.from("audit_logs").insert({
+      actor_id: context.userId,
+      action: "admin_deleted",
+      entity_type: "admin_profiles",
+      entity_id: data.profile_id,
       metadata: {},
     });
 
