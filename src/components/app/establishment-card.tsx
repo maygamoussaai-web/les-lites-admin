@@ -20,7 +20,7 @@ export function EstablishmentCard({
   expected: number;
   delay?: number;
 }) {
-  const visual = ESTABLISHMENT_VISUALS[establishment.type] ?? ESTABLISHMENT_VISUALS.universite;
+  const visual = ESTABLISHMENT_VISUALS[establishment.type] ?? ESTABLISHMENT_VISUALS['universite']!;
   const ratio = expected > 0 ? Math.min(100, Math.round((collected / expected) * 100)) : 0;
 
   return (
@@ -30,7 +30,7 @@ export function EstablishmentCard({
       className="card-lift animate-rise group block overflow-hidden rounded-2xl border border-border bg-card"
       style={{ animationDelay: `${delay}ms` }}
     >
-      <div className={cn("shine-gold relative bg-gradient-to-br p-5 text-white", visual.gradient)}>
+      <div className={cn("shine-gold relative bg-gradient-to-br p-5 text-white", visual!.gradient)}>
         <span
           aria-hidden
           className="animate-glow-pulse absolute -right-8 -top-10 h-28 w-28 rounded-full bg-white/15 blur-2xl"

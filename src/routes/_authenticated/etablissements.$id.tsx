@@ -696,9 +696,9 @@ function TeachersTab({
             {
               id: assignmentEdit?.id,
               values: {
-                payment_method: values.payment_method,
-                salary_amount: values.salary_amount ?? 0,
-                hourly_rate: values.hourly_rate ?? 0,
+                payment_method: values['payment_method'],
+                salary_amount: values['salary_amount'] ?? 0,
+                hourly_rate: values['hourly_rate'] ?? 0,
               },
             },
             { onSuccess: () => setAssignmentEdit(null) },
@@ -726,9 +726,9 @@ function TeachersTab({
           saveSession.mutate(
             {
               values: {
-                name: values.name,
-                weekday: Number(values.weekday),
-                duration_minutes: Number(values.duration_minutes),
+                name: values['name'],
+                weekday: Number(values['weekday']),
+                duration_minutes: Number(values['duration_minutes']),
                 assignment_id: sessionFor!.id,
               },
             },

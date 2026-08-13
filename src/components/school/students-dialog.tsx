@@ -264,7 +264,7 @@ function TransferDialog({
       description="Le transfert conserve l'historique de l'élève."
       fields={[{ name: "class_id", label: "Nouvelle classe", type: "select", required: true, colSpan: 2, options }]}
       onSubmit={(values) => {
-        const target = data.classes.find((c) => c.id === values.class_id);
+        const target = data.classes.find((c) => c.id === values['class_id']);
         if (student && target) onTransfer(student, target.id, target.establishment_id);
       }}
     />
