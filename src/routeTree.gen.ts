@@ -17,6 +17,7 @@ import { Route as AuthenticatedMonCompteRouteImport } from './routes/_authentica
 import { Route as AuthenticatedPersonnelRouteImport } from './routes/_authenticated/personnel'
 import { Route as AuthenticatedTableauDeBordRouteImport } from './routes/_authenticated/tableau-de-bord'
 import { Route as InvitationTokenRouteImport } from './routes/invitation.$token'
+import { Route as AuthenticatedEtablissementsIdRouteImport } from './routes/_authenticated/etablissements.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -59,35 +60,44 @@ const InvitationTokenRoute = InvitationTokenRouteImport.update({
   path: '/invitation/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedEtablissementsIdRoute =
+  AuthenticatedEtablissementsIdRouteImport.update({
+    id: '/$id',
+    path: '/$id',
+    getParentRoute: () => AuthenticatedEtablissementsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
-  '/etablissements': typeof AuthenticatedEtablissementsRoute
+  '/etablissements': typeof AuthenticatedEtablissementsRouteWithChildren
   '/mon-compte': typeof AuthenticatedMonCompteRoute
   '/personnel': typeof AuthenticatedPersonnelRoute
   '/tableau-de-bord': typeof AuthenticatedTableauDeBordRoute
   '/invitation/$token': typeof InvitationTokenRoute
+  '/etablissements/$id': typeof AuthenticatedEtablissementsIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
-  '/etablissements': typeof AuthenticatedEtablissementsRoute
+  '/etablissements': typeof AuthenticatedEtablissementsRouteWithChildren
   '/mon-compte': typeof AuthenticatedMonCompteRoute
   '/personnel': typeof AuthenticatedPersonnelRoute
   '/tableau-de-bord': typeof AuthenticatedTableauDeBordRoute
   '/invitation/$token': typeof InvitationTokenRoute
+  '/etablissements/$id': typeof AuthenticatedEtablissementsIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
-  '/_authenticated/etablissements': typeof AuthenticatedEtablissementsRoute
+  '/_authenticated/etablissements': typeof AuthenticatedEtablissementsRouteWithChildren
   '/_authenticated/mon-compte': typeof AuthenticatedMonCompteRoute
   '/_authenticated/personnel': typeof AuthenticatedPersonnelRoute
   '/_authenticated/tableau-de-bord': typeof AuthenticatedTableauDeBordRoute
   '/invitation/$token': typeof InvitationTokenRoute
+  '/_authenticated/etablissements/$id': typeof AuthenticatedEtablissementsIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -99,6 +109,7 @@ export interface FileRouteTypes {
     | '/personnel'
     | '/tableau-de-bord'
     | '/invitation/$token'
+    | '/etablissements/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -108,6 +119,7 @@ export interface FileRouteTypes {
     | '/personnel'
     | '/tableau-de-bord'
     | '/invitation/$token'
+    | '/etablissements/$id'
   id:
     | '__root__'
     | '/'
@@ -118,6 +130,7 @@ export interface FileRouteTypes {
     | '/_authenticated/personnel'
     | '/_authenticated/tableau-de-bord'
     | '/invitation/$token'
+    | '/_authenticated/etablissements/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -185,18 +198,40 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InvitationTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/etablissements/$id': {
+      id: '/_authenticated/etablissements/$id'
+      path: '/$id'
+      fullPath: '/etablissements/$id'
+      preLoaderRoute: typeof AuthenticatedEtablissementsIdRouteImport
+      parentRoute: typeof AuthenticatedEtablissementsRoute
+    }
   }
 }
 
+interface AuthenticatedEtablissementsRouteChildren {
+  AuthenticatedEtablissementsIdRoute: typeof AuthenticatedEtablissementsIdRoute
+}
+
+const AuthenticatedEtablissementsRouteChildren: AuthenticatedEtablissementsRouteChildren =
+  {
+    AuthenticatedEtablissementsIdRoute: AuthenticatedEtablissementsIdRoute,
+  }
+
+const AuthenticatedEtablissementsRouteWithChildren =
+  AuthenticatedEtablissementsRoute._addFileChildren(
+    AuthenticatedEtablissementsRouteChildren,
+  )
+
 interface AuthenticatedRouteRouteChildren {
-  AuthenticatedEtablissementsRoute: typeof AuthenticatedEtablissementsRoute
+  AuthenticatedEtablissementsRoute: typeof AuthenticatedEtablissementsRouteWithChildren
   AuthenticatedMonCompteRoute: typeof AuthenticatedMonCompteRoute
   AuthenticatedPersonnelRoute: typeof AuthenticatedPersonnelRoute
   AuthenticatedTableauDeBordRoute: typeof AuthenticatedTableauDeBordRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
-  AuthenticatedEtablissementsRoute: AuthenticatedEtablissementsRoute,
+  AuthenticatedEtablissementsRoute:
+    AuthenticatedEtablissementsRouteWithChildren,
   AuthenticatedMonCompteRoute: AuthenticatedMonCompteRoute,
   AuthenticatedPersonnelRoute: AuthenticatedPersonnelRoute,
   AuthenticatedTableauDeBordRoute: AuthenticatedTableauDeBordRoute,
