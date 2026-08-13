@@ -1,99 +1,72 @@
-import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Plus } from "lucide-react";
+import { Building2 } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
-import { DataTable, type Column } from "@/components/app/data-table";
-import { RecordDialog, type Field } from "@/components/app/record-dialog";
-import { RowActions } from "@/components/app/row-actions";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { useRows, useSaveRow, useDeleteRow } from "@/lib/data";
-import { ESTABLISHMENT_TYPES, establishmentTypeLabel } from "@/lib/format";
-import { useAdminProfile } from "@/hooks/use-auth";
-import type { Tables } from "@/integrations/supabase/types";
+import { EstablishmentCard } from "@/components/app/establishment-card";
+import { EmptyState } from "@/components/app/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useSchoolData, useEstablishmentStats } from "@/lib/school-data";
 
 export const Route = createFileRoute("/_authenticated/etablissements")({
   head: () => ({
     meta: [
       { title: "Établissements – Les Élites de Gao" },
-      { name: "description", content: "Gestion des quatre établissements du complexe scolaire Les Élites de Gao." },
+      {
+        name: "description",
+        content: "Les quatre établissements du complexe Les Élites de Gao : université, lycée, collège et fondamentale.",
+      },
       { property: "og:title", content: "Établissements – Les Élites de Gao" },
-      { property: "og:description", content: "Université, Lycée, Collège et Fondamentale du complexe Les Élites de Gao." },
+      {
+        property: "og:description",
+        content: "Accédez à la gestion complète de chaque établissement : classes, scolarité, enseignants et finance.",
+      },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: Page,
 });
 
-type Row = Tables<"establishments">;
-
-const fields: Field[] = [
-  { name: "name", label: "Nom", required: true, colSpan: 2 },
-  { name: "type", label: "Type", type: "select", required: true, options: ESTABLISHMENT_TYPES.map((t) => ({ ...t })) },
-  { name: "phone", label: "Téléphone" },
-  { name: "address", label: "Adresse", colSpan: 2 },
-  { name: "description", label: "Description", type: "textarea" },
-  { name: "is_active", label: "Actif", type: "switch" },
-];
-
 function Page() {
-  const { isDG } = useAdminProfile();
-  const { data = [], isLoading } = useRows<Row>("establishments", { order: { column: "name" } });
-  const save = useSaveRow("establishments", "Établissement");
-  const remove = useDeleteRow("establishments", "Établissement");
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<Row | null>(null);
-
-  const columns: Column<Row>[] = [
-    { key: "name", header: "Établissement", cell: (r) => <span className="font-medium">{r.name}</span> },
-    { key: "type", header: "Type", cell: (r) => <Badge variant="secondary">{establishmentTypeLabel(r.type)}</Badge> },
-    { key: "phone", header: "Téléphone", cell: (r) => r.phone ?? "—" },
-    { key: "address", header: "Adresse", cell: (r) => r.address ?? "—" },
-    { key: "status", header: "Statut", cell: (r) => (r.is_active ? <Badge>Actif</Badge> : <Badge variant="outline">Inactif</Badge>) },
-    {
-      key: "actions",
-      header: "",
-      className: "text-right",
-      cell: (r) =>
-        isDG ? (
-          <RowActions
-            onEdit={() => {
-              setEditing(r);
-              setOpen(true);
-            }}
-            onDelete={() => remove.mutate(r.id)}
-          />
-        ) : null,
-    },
-  ];
+  const data = useSchoolData();
+  const stats = useEstablishmentStats(data);
 
   return (
     <>
       <PageHeader
+        eyebrow="Structure"
         title="Établissements"
-        description="Les quatre établissements du complexe scolaire Les Élites de Gao."
-        actions={
-          isDG ? (
-            <Button
-              onClick={() => {
-                setEditing(null);
-                setOpen(true);
-              }}
-            >
-              <Plus className="mr-1.5 h-4 w-4" /> Nouvel établissement
-            </Button>
-          ) : null
-        }
+        description="Ouvrez un établissement pour gérer ses classes, sa scolarité, ses enseignants et sa finance."
       />
-      <DataTable columns={columns} rows={data} loading={isLoading} />
-      <RecordDialog
-        open={open}
-        onOpenChange={setOpen}
-        title={editing ? "Modifier l'établissement" : "Nouvel établissement"}
-        fields={fields}
-        initial={editing}
-        submitting={save.isPending}
-        onSubmit={(values) => save.mutate({ id: editing?.id, values }, { onSuccess: () => setOpen(false) })}
-      />
+      {data.loading ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} className="h-64 rounded-2xl" />
+          ))}
+        </div>
+      ) : data.establishments.length === 0 ? (
+        <EmptyState
+          icon={Building2}
+          title="Aucun établissement accessible"
+          description="Votre compte n'est rattaché à aucun établissement. Contactez la direction générale."
+        />
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {data.establishments.map((est, index) => {
+            const s = stats.get(est.id);
+            return (
+              <EstablishmentCard
+                key={est.id}
+                establishment={est}
+                students={s?.students ?? 0}
+                classes={s?.classes ?? 0}
+                collected={s?.collected ?? 0}
+                expected={s?.expected ?? 0}
+                delay={index * 80}
+              />
+            );
+          })}
+        </div>
+      )}
     </>
   );
 }
