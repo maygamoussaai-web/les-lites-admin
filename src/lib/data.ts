@@ -90,4 +90,28 @@ export function useDeleteRow(table: TableName, label = "Élément") {
     },
     onError: (error: Error) => toast.error(error.message || "Suppression impossible"),
   });
+/**
+ * Archive une ligne (soft-delete) au lieu de la supprimer définitivement.
+ * Utilisé pour students et teachers : ils disparaissent des listes actives
+ * mais restent en base pour l'historique (transferts, paiements, audit).
+ */
+export function useArchiveRow(table: TableName, label = "Élément") {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from(table)
+        .update({ archived_at: new Date().toISOString() } as never)
+        .eq("id", id);
+      if (error) throw error;
+      await writeAudit("archive", table, id);
+      return id;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [table] });
+      toast.success(`${label} archivé`);
+    },
+    onError: (error: Error) => toast.error(error.message || "Archivage impossible"),
+  });
+}
 }
