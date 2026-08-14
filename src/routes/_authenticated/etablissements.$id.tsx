@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import { Plus, GraduationCap, Users, Wallet, AlertTriangle, Banknote, Trash2 } from "lucide-react";
+import { Plus, GraduationCap, Users, Wallet, AlertTriangle, Banknote, Trash2, Archive } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
 import { DataTable, type Column } from "@/components/app/data-table";
@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/select";
 import { useAdminProfile } from "@/hooks/use-auth";
 import { useSchoolData, useEstablishmentStats } from "@/lib/school-data";
-import { useSaveRow, useDeleteRow } from "@/lib/data";
+import { useSaveRow, useDeleteRow, useArchiveRow } from "@/lib/data";
 import { formatFCFA, formatDate, establishmentTypeLabel } from "@/lib/format";
 import {
   lateStatus,
@@ -760,6 +760,321 @@ function TuitionTab({ establishmentId, data }: { establishmentId: string; data: 
 }
 
 /* ---------------------------------------------------------------------- */
+/* Enseignants                                                             */
+/* ---------------------------------------------------------------------- */
+
+type SessionDraft = { id: string; name: string; weekday: string; duration_minutes: string };
+
+function newSessionDraft(): SessionDraft {
+  return { id: crypto.randomUUID(), name: "", weekday: "1", duration_minutes: "60" };
+}
+
+function TeacherDialog({
+  open,
+  onClose,
+  establishmentId,
+}: {
+  open: boolean;
+  onClose: () => void;
+  establishmentId: string;
+}) {
+  const saveTeacher = useSaveRow("teachers", "Enseignant");
+  const saveAssignment = useSaveRow("teacher_assignments", "Affectation");
+  const saveSession = useSaveRow("teacher_sessions", "Séance");
+
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [domain, setDomain] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"fixed_salary" | "hourly_rate">("fixed_salary");
+  const [salaryAmount, setSalaryAmount] = useState("");
+  const [hourlyRate, setHourlyRate] = useState("");
+  const [sessions, setSessions] = useState<SessionDraft[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setFirstName("");
+    setLastName("");
+    setPhone("");
+    setDomain("");
+    setPaymentMethod("fixed_salary");
+    setSalaryAmount("");
+    setHourlyRate("");
+    setSessions([]);
+    setSubmitting(false);
+  }, [open]);
+
+  const addSession = () => setSessions((prev) => [...prev, newSessionDraft()]);
+  const removeSession = (id: string) => setSessions((prev) => prev.filter((s) => s.id !== id));
+  const updateSession = (id: string, patch: Partial<SessionDraft>) =>
+    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
+
+  const paymentValid =
+    paymentMethod === "fixed_salary" ? Number(salaryAmount) > 0 : Number(hourlyRate) > 0;
+  const sessionsValid = sessions.every((s) => s.name.trim() && s.weekday !== "" && Number(s.duration_minutes) > 0);
+  const canSubmit = !!firstName.trim() && !!lastName.trim() && paymentValid && sessionsValid && !submitting;
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setSubmitting(true);
+    try {
+      const teacherRow = await saveTeacher.mutateAsync({
+        values: { first_name: firstName.trim(), last_name: lastName.trim(), phone: phone || null, domain: domain || null },
+      });
+      const teacherId = (teacherRow as { id?: string } | null)?.id;
+      if (!teacherId) throw new Error("Enseignant non créé");
+
+      const assignmentRow = await saveAssignment.mutateAsync({
+        values: {
+          teacher_id: teacherId,
+          establishment_id: establishmentId,
+          payment_method: paymentMethod,
+          salary_amount: paymentMethod === "fixed_salary" ? Number(salaryAmount) : 0,
+          hourly_rate: paymentMethod === "hourly_rate" ? Number(hourlyRate) : 0,
+        },
+      });
+      const assignmentId = (assignmentRow as { id?: string } | null)?.id;
+
+      if (assignmentId) {
+        for (const s of sessions) {
+          await saveSession.mutateAsync({
+            values: {
+              name: s.name.trim(),
+              weekday: Number(s.weekday),
+              duration_minutes: Number(s.duration_minutes),
+              assignment_id: assignmentId,
+            },
+          });
+        }
+      }
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Nouvel enseignant</DialogTitle>
+          <DialogDescription>
+            La fiche, la méthode de rémunération et l'emploi du temps sont créés en une seule fois pour cet établissement.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <Label className="mb-1.5 block text-sm">
+              Prénom<span className="ml-0.5 text-destructive">*</span>
+            </Label>
+            <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+          </div>
+          <div>
+            <Label className="mb-1.5 block text-sm">
+              Nom<span className="ml-0.5 text-destructive">*</span>
+            </Label>
+            <Input value={lastName} onChange={(e) => setLastName(e.target.value)} />
+          </div>
+          <div>
+            <Label className="mb-1.5 block text-sm">Téléphone</Label>
+            <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
+          </div>
+          <div>
+            <Label className="mb-1.5 block text-sm">Domaine</Label>
+            <Input value={domain} placeholder="Mathématiques" onChange={(e) => setDomain(e.target.value)} />
+          </div>
+
+          <div className="sm:col-span-2">
+            <Label className="mb-1.5 block text-sm">
+              Méthode de rémunération<span className="ml-0.5 text-destructive">*</span>
+            </Label>
+            <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as "fixed_salary" | "hourly_rate")}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="fixed_salary">Salaire fixe</SelectItem>
+                <SelectItem value="hourly_rate">Tarif horaire</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {paymentMethod === "fixed_salary" ? (
+            <div className="sm:col-span-2">
+              <Label className="mb-1.5 block text-sm">
+                Salaire mensuel (FCFA)<span className="ml-0.5 text-destructive">*</span>
+              </Label>
+              <Input type="number" step="any" value={salaryAmount} onChange={(e) => setSalaryAmount(e.target.value)} />
+            </div>
+          ) : (
+            <div className="sm:col-span-2">
+              <Label className="mb-1.5 block text-sm">
+                Tarif horaire (FCFA)<span className="ml-0.5 text-destructive">*</span>
+              </Label>
+              <Input type="number" step="any" value={hourlyRate} onChange={(e) => setHourlyRate(e.target.value)} />
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-medium">Emploi du temps (optionnel, modifiable ensuite)</p>
+            <Button size="sm" variant="outline" className="press" onClick={addSession}>
+              <Plus className="mr-1.5 h-4 w-4" /> Ajouter une séance
+            </Button>
+          </div>
+          {sessions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Aucune séance ajoutée pour l'instant.</p>
+          ) : (
+            <div className="space-y-2">
+              {sessions.map((s) => (
+                <div key={s.id} className="grid grid-cols-[1fr_1fr_1fr_auto] items-end gap-2 rounded-lg border border-border/70 p-2">
+                  <div>
+                    <Label className="mb-1 block text-xs text-muted-foreground">Intitulé</Label>
+                    <Input value={s.name} placeholder="Maths 6ème A" onChange={(e) => updateSession(s.id, { name: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label className="mb-1 block text-xs text-muted-foreground">Jour</Label>
+                    <Select value={s.weekday} onValueChange={(v) => updateSession(s.id, { weekday: v })}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {WEEKDAYS.map((d) => (
+                          <SelectItem key={d.value} value={String(d.value)}>
+                            {d.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="mb-1 block text-xs text-muted-foreground">Durée (min)</Label>
+                    <Input
+                      type="number"
+                      value={s.duration_minutes}
+                      onChange={(e) => updateSession(s.id, { duration_minutes: e.target.value })}
+                    />
+                  </div>
+                  <Button variant="ghost" size="sm" className="text-destructive" onClick={() => removeSession(s.id)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Annuler
+          </Button>
+          <Button onClick={submit} disabled={!canSubmit}>
+            Enregistrer
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function TeacherPaymentDialog({
+  open,
+  onClose,
+  assignment,
+  teacherName,
+  establishmentId,
+  data,
+}: {
+  open: boolean;
+  onClose: () => void;
+  assignment: TeacherAssignment | null;
+  teacherName: string;
+  establishmentId: string;
+  data: Data;
+}) {
+  const savePayment = useSaveRow("teacher_payments", "Paiement");
+  const [amount, setAmount] = useState("");
+  const [paidAt, setPaidAt] = useState(new Date().toISOString().slice(0, 10));
+  const [note, setNote] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setAmount("");
+    setPaidAt(new Date().toISOString().slice(0, 10));
+    setNote("");
+  }, [open, assignment?.id]);
+
+  const due = assignment ? teacherDue(assignment, data.sessions) : 0;
+  const paidSoFar = assignment
+    ? sum(
+        data.teacherPayments
+          .filter((p) => p.teacher_id === assignment.teacher_id && p.establishment_id === establishmentId)
+          .map((p) => Number(p.amount)),
+      )
+    : 0;
+  const remaining = Math.max(0, due - paidSoFar);
+  const amountNum = Number(amount || 0);
+  const exceeds = amountNum > remaining;
+  const canSubmit = !!assignment && amountNum > 0 && !exceeds && !savePayment.isPending;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Paiement enseignant — {teacherName}</DialogTitle>
+          <DialogDescription>Reste dû : {formatFCFA(remaining)}</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <Label className="mb-1.5 block text-sm">
+              Montant (FCFA)<span className="ml-0.5 text-destructive">*</span>
+            </Label>
+            <Input type="number" step="any" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            {exceeds ? (
+              <p className="mt-1 text-xs font-medium text-destructive">
+                Le montant dépasse le reste dû ({formatFCFA(remaining)}).
+              </p>
+            ) : null}
+          </div>
+          <div>
+            <Label className="mb-1.5 block text-sm">Date</Label>
+            <Input type="date" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
+          </div>
+          <div className="sm:col-span-2">
+            <Label className="mb-1.5 block text-sm">Note</Label>
+            <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Annuler
+          </Button>
+          <Button
+            disabled={!canSubmit}
+            onClick={() =>
+              savePayment.mutate(
+                {
+                  values: {
+                    amount: amountNum,
+                    paid_at: paidAt,
+                    note: note || null,
+                    teacher_id: assignment!.teacher_id,
+                    establishment_id: establishmentId,
+                  },
+                },
+                { onSuccess: onClose },
+              )
+            }
+          >
+            Enregistrer
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 function TeachersTab({
   establishmentId,
@@ -770,12 +1085,10 @@ function TeachersTab({
   data: Data;
   isDG: boolean;
 }) {
-  const saveTeacher = useSaveRow("teachers", "Enseignant");
-  const removeTeacher = useDeleteRow("teachers", "Enseignant");
+  const archiveTeacher = useArchiveRow("teachers", "Enseignant");
   const saveAssignment = useSaveRow("teacher_assignments", "Affectation");
   const saveSession = useSaveRow("teacher_sessions", "Séance");
   const removeSession = useDeleteRow("teacher_sessions", "Séance");
-  const savePayment = useSaveRow("teacher_payments", "Paiement");
 
   const [teacherOpen, setTeacherOpen] = useState(false);
   const [assignmentEdit, setAssignmentEdit] = useState<TeacherAssignment | null>(null);
@@ -876,8 +1189,13 @@ function TeachersTab({
                       <Banknote className="mr-1.5 h-4 w-4" /> Payer
                     </Button>
                     {isDG && teacher ? (
-                      <Button size="sm" variant="ghost" className="text-destructive" onClick={() => removeTeacher.mutate(teacher.id)}>
-                        Supprimer la fiche
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive"
+                        onClick={() => archiveTeacher.mutate(teacher.id)}
+                      >
+                        <Archive className="mr-1.5 h-4 w-4" /> Archiver la fiche
                       </Button>
                     ) : null}
                   </div>
@@ -888,35 +1206,7 @@ function TeachersTab({
         </div>
       )}
 
-      <RecordDialog
-        open={teacherOpen}
-        onOpenChange={setTeacherOpen}
-        title="Nouvel enseignant"
-        description="La fiche est créée puis affectée à cet établissement."
-        fields={[
-          { name: "first_name", label: "Prénom", required: true },
-          { name: "last_name", label: "Nom", required: true },
-          { name: "phone", label: "Téléphone" },
-          { name: "domain", label: "Domaine", placeholder: "Mathématiques" },
-        ]}
-        submitting={saveTeacher.isPending}
-        onSubmit={(values) =>
-          saveTeacher.mutate(
-            { values },
-            {
-              onSuccess: (created) => {
-                const teacherId = (created as { id?: string } | null)?.id;
-                if (teacherId) {
-                  saveAssignment.mutate({
-                    values: { teacher_id: teacherId, establishment_id: establishmentId, payment_method: "fixed_salary" },
-                  });
-                }
-                setTeacherOpen(false);
-              },
-            },
-          )
-        }
-      />
+      <TeacherDialog open={teacherOpen} onClose={() => setTeacherOpen(false)} establishmentId={establishmentId} />
 
       <RecordDialog
         open={!!assignmentEdit}
@@ -985,28 +1275,20 @@ function TeachersTab({
         }
       />
 
-      <RecordDialog
+      <TeacherPaymentDialog
         open={!!payFor}
-        onOpenChange={(v) => !v && setPayFor(null)}
-        title="Paiement enseignant"
-        fields={[
-          { name: "amount", label: "Montant (FCFA)", type: "number", required: true },
-          { name: "paid_at", label: "Date", type: "date", defaultValue: new Date().toISOString().slice(0, 10) },
-          { name: "note", label: "Note", type: "textarea" },
-        ]}
-        submitting={savePayment.isPending}
-        onSubmit={(values) =>
-          savePayment.mutate(
-            {
-              values: {
-                ...values,
-                teacher_id: payFor!.teacher_id,
-                establishment_id: establishmentId,
-              },
-            },
-            { onSuccess: () => setPayFor(null) },
-          )
+        onClose={() => setPayFor(null)}
+        assignment={payFor}
+        teacherName={
+          payFor
+            ? (() => {
+                const t = data.teachers.find((x) => x.id === payFor.teacher_id);
+                return t ? `${t.last_name} ${t.first_name}` : "Enseignant";
+              })()
+            : ""
         }
+        establishmentId={establishmentId}
+        data={data}
       />
     </div>
   );
