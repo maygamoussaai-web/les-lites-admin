@@ -418,19 +418,35 @@ function PaymentDialog({
 }) {
   const savePayment = useSaveRow("tuition_payments", "Paiement");
   const [studentId, setStudentId] = useState("");
+  const [classFilter, setClassFilter] = useState("");
+  const [search, setSearch] = useState("");
   const [amount, setAmount] = useState("");
   const [paidAt, setPaidAt] = useState(new Date().toISOString().slice(0, 10));
   const [method, setMethod] = useState("cash");
   const [note, setNote] = useState("");
 
+  const establishmentClasses = data.classes.filter((c) => c.establishment_id === establishmentId);
+
   useEffect(() => {
     if (!open) return;
-    setStudentId(defaultStudentId ?? students[0]?.id ?? "");
+    const preset = students.find((s) => s.id === defaultStudentId) ?? null;
+    setStudentId(preset?.id ?? students[0]?.id ?? "");
+    setClassFilter(preset?.class_id ?? "");
+    setSearch("");
     setAmount("");
     setPaidAt(new Date().toISOString().slice(0, 10));
     setMethod("cash");
     setNote("");
   }, [open, defaultStudentId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const filteredStudents = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return students.filter((s) => {
+      if (classFilter && s.class_id !== classFilter) return false;
+      if (term && !`${s.first_name} ${s.last_name}`.toLowerCase().includes(term)) return false;
+      return true;
+    });
+  }, [students, classFilter, search]);
 
   const student = students.find((s) => s.id === studentId) ?? null;
   const expected = student ? expectedTuition(student, data.classes, data.feePlans) : 0;
@@ -450,6 +466,26 @@ function PaymentDialog({
           <DialogTitle>Enregistrer un paiement de scolarité</DialogTitle>
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <Label className="mb-1.5 block text-sm">Classe</Label>
+            <Select value={classFilter || "all"} onValueChange={(v) => setClassFilter(v === "all" ? "" : v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Toutes les classes" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Toutes les classes</SelectItem>
+                {establishmentClasses.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="mb-1.5 block text-sm">Rechercher un élève</Label>
+            <Input placeholder="Nom, prénom…" value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
           <div className="sm:col-span-2">
             <Label className="mb-1.5 block text-sm">
               Élève<span className="ml-0.5 text-destructive">*</span>
@@ -459,11 +495,15 @@ function PaymentDialog({
                 <SelectValue placeholder="Sélectionner" />
               </SelectTrigger>
               <SelectContent>
-                {students.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.last_name} {s.first_name}
-                  </SelectItem>
-                ))}
+                {filteredStudents.length === 0 ? (
+                  <div className="px-2 py-1.5 text-sm text-muted-foreground">Aucun élève ne correspond.</div>
+                ) : (
+                  filteredStudents.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.last_name} {s.first_name}
+                    </SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
             {student ? (
@@ -791,7 +831,7 @@ function TeacherDialog({
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   const [domain, setDomain] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<"fixed_salary" | "hourly_rate">("fixed_salary");
+  const [paymentMethod, setPaymentMethod] = useState<"fixed_salary" | "hourly">("fixed_salary");
   const [salaryAmount, setSalaryAmount] = useState("");
   const [hourlyRate, setHourlyRate] = useState("");
   const [sessions, setSessions] = useState<SessionDraft[]>([]);
@@ -809,6 +849,12 @@ function TeacherDialog({
     setSessions([]);
     setSubmitting(false);
   }, [open]);
+
+  const changePaymentMethod = (v: string) => {
+    const val = v as "fixed_salary" | "hourly";
+    setPaymentMethod(val);
+    if (val === "fixed_salary") setSessions([]);
+  };
 
   const addSession = () => setSessions((prev) => [...prev, newSessionDraft()]);
   const removeSession = (id: string) => setSessions((prev) => prev.filter((s) => s.id !== id));
@@ -836,12 +882,12 @@ function TeacherDialog({
           establishment_id: establishmentId,
           payment_method: paymentMethod,
           salary_amount: paymentMethod === "fixed_salary" ? Number(salaryAmount) : 0,
-          hourly_rate: paymentMethod === "hourly_rate" ? Number(hourlyRate) : 0,
+          hourly_rate: paymentMethod === "hourly" ? Number(hourlyRate) : 0,
         },
       });
       const assignmentId = (assignmentRow as { id?: string } | null)?.id;
 
-     if (assignmentId) {
+      if (assignmentId && paymentMethod === "hourly" && sessions.length) {
         await Promise.all(
           sessions.map((s) =>
             saveSession.mutateAsync({
@@ -897,13 +943,13 @@ function TeacherDialog({
             <Label className="mb-1.5 block text-sm">
               Méthode de rémunération<span className="ml-0.5 text-destructive">*</span>
             </Label>
-            <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as "fixed_salary" | "hourly_rate")}>
+            <Select value={paymentMethod} onValueChange={changePaymentMethod}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="fixed_salary">Salaire fixe</SelectItem>
-                <SelectItem value="hourly_rate">Tarif horaire</SelectItem>
+                <SelectItem value="hourly">Tarif horaire</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -924,54 +970,56 @@ function TeacherDialog({
           )}
         </div>
 
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-medium">Emploi du temps (optionnel, modifiable ensuite)</p>
-            <Button size="sm" variant="outline" className="press" onClick={addSession}>
-              <Plus className="mr-1.5 h-4 w-4" /> Ajouter une séance
-            </Button>
-          </div>
-          {sessions.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Aucune séance ajoutée pour l'instant.</p>
-          ) : (
-            <div className="space-y-2">
-              {sessions.map((s) => (
-                <div key={s.id} className="grid grid-cols-[1fr_1fr_1fr_auto] items-end gap-2 rounded-lg border border-border/70 p-2">
-                  <div>
-                    <Label className="mb-1 block text-xs text-muted-foreground">Intitulé</Label>
-                    <Input value={s.name} placeholder="Maths 6ème A" onChange={(e) => updateSession(s.id, { name: e.target.value })} />
-                  </div>
-                  <div>
-                    <Label className="mb-1 block text-xs text-muted-foreground">Jour</Label>
-                    <Select value={s.weekday} onValueChange={(v) => updateSession(s.id, { weekday: v })}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {WEEKDAYS.map((d) => (
-                          <SelectItem key={d.value} value={String(d.value)}>
-                            {d.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="mb-1 block text-xs text-muted-foreground">Durée (min)</Label>
-                    <Input
-                      type="number"
-                      value={s.duration_minutes}
-                      onChange={(e) => updateSession(s.id, { duration_minutes: e.target.value })}
-                    />
-                  </div>
-                  <Button variant="ghost" size="sm" className="text-destructive" onClick={() => removeSession(s.id)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
+        {paymentMethod === "hourly" && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">Emploi du temps (optionnel, modifiable ensuite)</p>
+              <Button size="sm" variant="outline" className="press" onClick={addSession}>
+                <Plus className="mr-1.5 h-4 w-4" /> Ajouter une séance
+              </Button>
             </div>
-          )}
-        </div>
+            {sessions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Aucune séance ajoutée pour l'instant.</p>
+            ) : (
+              <div className="space-y-2">
+                {sessions.map((s) => (
+                  <div key={s.id} className="grid grid-cols-[1fr_1fr_1fr_auto] items-end gap-2 rounded-lg border border-border/70 p-2">
+                    <div>
+                      <Label className="mb-1 block text-xs text-muted-foreground">Intitulé</Label>
+                      <Input value={s.name} placeholder="Maths 6ème A" onChange={(e) => updateSession(s.id, { name: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label className="mb-1 block text-xs text-muted-foreground">Jour</Label>
+                      <Select value={s.weekday} onValueChange={(v) => updateSession(s.id, { weekday: v })}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {WEEKDAYS.map((d) => (
+                            <SelectItem key={d.value} value={String(d.value)}>
+                              {d.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label className="mb-1 block text-xs text-muted-foreground">Durée (min)</Label>
+                      <Input
+                        type="number"
+                        value={s.duration_minutes}
+                        onChange={(e) => updateSession(s.id, { duration_minutes: e.target.value })}
+                      />
+                    </div>
+                    <Button variant="ghost" size="sm" className="text-destructive" onClick={() => removeSession(s.id)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
@@ -1160,35 +1208,39 @@ function TeachersTab({
                     </div>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Emploi du temps</p>
-                    {sessions.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">Aucune séance planifiée.</p>
-                    ) : (
-                      sessions.map((sx) => (
-                        <label
-                          key={sx.id}
-                          className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/30 px-2.5 py-2 text-sm transition-colors hover:bg-muted/60"
-                        >
-                          <Checkbox
-                            checked={sx.is_done}
-                            onCheckedChange={(v) => saveSession.mutate({ id: sx.id, values: { is_done: !!v } })}
-                          />
-                          <span className="flex-1 truncate">
-                            {sx.name} · {weekdayLabel(sx.weekday)} · {formatDuration(sx.duration_minutes)}
-                          </span>
-                          <Button variant="ghost" size="sm" onClick={() => removeSession.mutate(sx.id)}>
-                            Retirer
-                          </Button>
-                        </label>
-                      ))
-                    )}
-                  </div>
+                  {a.payment_method === "hourly" && (
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Emploi du temps</p>
+                      {sessions.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">Aucune séance planifiée.</p>
+                      ) : (
+                        sessions.map((sx) => (
+                          <label
+                            key={sx.id}
+                            className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/30 px-2.5 py-2 text-sm transition-colors hover:bg-muted/60"
+                          >
+                            <Checkbox
+                              checked={sx.is_done}
+                              onCheckedChange={(v) => saveSession.mutate({ id: sx.id, values: { is_done: !!v } })}
+                            />
+                            <span className="flex-1 truncate">
+                              {sx.name} · {weekdayLabel(sx.weekday)} · {formatDuration(sx.duration_minutes)}
+                            </span>
+                            <Button variant="ghost" size="sm" onClick={() => removeSession.mutate(sx.id)}>
+                              Retirer
+                            </Button>
+                          </label>
+                        ))
+                      )}
+                    </div>
+                  )}
 
                   <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" className="press" onClick={() => setSessionFor(a)}>
-                      <Plus className="mr-1.5 h-4 w-4" /> Séance
-                    </Button>
+                    {a.payment_method === "hourly" && (
+                      <Button size="sm" variant="outline" className="press" onClick={() => setSessionFor(a)}>
+                        <Plus className="mr-1.5 h-4 w-4" /> Séance
+                      </Button>
+                    )}
                     <Button size="sm" variant="outline" className="press" onClick={() => setAssignmentEdit(a)}>
                       Rémunération
                     </Button>
@@ -1228,7 +1280,7 @@ function TeachersTab({
             colSpan: 2,
             options: [
               { value: "fixed_salary", label: "Salaire fixe" },
-              { value: "hourly_rate", label: "Tarif horaire" },
+              { value: "hourly", label: "Tarif horaire" },
             ],
           },
           { name: "salary_amount", label: "Salaire mensuel (FCFA)", type: "number" },
@@ -1309,7 +1361,6 @@ const financeChartConfig: ChartConfig = {
 const WEEKDAY_SHORT = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
 const MONTH_SHORT = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc"];
 
-/** Découpe une période en tranches (jours pour semaine/mois, mois pour année) pour l'affichage du graphique. */
 function buildPeriodBuckets(period: Period, since: string) {
   const now = new Date();
   const start = new Date(`${since}T00:00:00`);
