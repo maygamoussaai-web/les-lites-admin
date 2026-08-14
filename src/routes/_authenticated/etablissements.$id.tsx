@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { Bar, BarChart, CartesianGrid, XAxis } from "recharts";
 import { Plus, GraduationCap, Users, Wallet, AlertTriangle, Banknote, Trash2, Archive } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
@@ -13,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import {
   Dialog,
   DialogContent,
@@ -44,8 +46,11 @@ import {
   expectedTuition,
   WEEKDAYS,
   formatDuration,
+  PERIODS,
+  periodStart,
   type ClassRow,
   type TeacherAssignment,
+  type Period,
 } from "@/lib/school";
 
 export const Route = createFileRoute("/_authenticated/etablissements/$id")({
@@ -1294,24 +1299,109 @@ function TeachersTab({
   );
 }
 
+const financeChartConfig: ChartConfig = {
+  recettes: { label: "Recettes", color: "oklch(0.7 0.15 155)" },
+  depenses: { label: "Dépenses", color: "oklch(0.65 0.2 25)" },
+};
+
+const WEEKDAY_SHORT = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+const MONTH_SHORT = ["Jan", "Fév", "Mar", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc"];
+
+/** Découpe une période en tranches (jours pour semaine/mois, mois pour année) pour l'affichage du graphique. */
+function buildPeriodBuckets(period: Period, since: string) {
+  const now = new Date();
+  const start = new Date(`${since}T00:00:00`);
+  const buckets: { key: string; label: string }[] = [];
+  if (period === "year") {
+    for (let m = start.getMonth(); m <= now.getMonth(); m++) {
+      buckets.push({ key: `${now.getFullYear()}-${String(m + 1).padStart(2, "0")}`, label: MONTH_SHORT[m] });
+    }
+  } else {
+    const cursor = new Date(start);
+    while (cursor <= now) {
+      const key = cursor.toISOString().slice(0, 10);
+      const label = period === "week" ? WEEKDAY_SHORT[(cursor.getDay() + 6) % 7] : String(cursor.getDate());
+      buckets.push({ key, label });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+  }
+  return buckets;
+}
+
+function bucketKeyFor(period: Period, dateStr: string) {
+  return period === "year" ? dateStr.slice(0, 7) : dateStr.slice(0, 10);
+}
+
 function FinanceTab({ establishmentId, data }: { establishmentId: string; data: Data }) {
-  const stats = useEstablishmentStats(data).get(establishmentId);
-  const payments = data.tuitionPayments.filter((p) => p.establishment_id === establishmentId);
-  const teacherPayments = data.teacherPayments.filter((p) => p.establishment_id === establishmentId);
+  const [period, setPeriod] = useState<Period>("month");
+  const since = periodStart(period);
+  const stats = useEstablishmentStats(data, since).get(establishmentId);
+
+  const payments = data.tuitionPayments.filter((p) => p.establishment_id === establishmentId && p.paid_at >= since);
+  const teacherPayments = data.teacherPayments.filter(
+    (p) => p.establishment_id === establishmentId && p.paid_at >= since,
+  );
   const revenue = sum(payments.map((p) => Number(p.amount)));
   const expenses = sum(teacherPayments.map((p) => Number(p.amount)));
 
+  const chartData = useMemo(() => {
+    const buckets = buildPeriodBuckets(period, since);
+    return buckets.map((b) => ({
+      label: b.label,
+      recettes: sum(
+        payments.filter((p) => bucketKeyFor(period, p.paid_at) === b.key).map((p) => Number(p.amount)),
+      ),
+      depenses: sum(
+        teacherPayments.filter((p) => bucketKeyFor(period, p.paid_at) === b.key).map((p) => Number(p.amount)),
+      ),
+    }));
+  }, [period, since, payments, teacherPayments]);
+
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <div className="flex gap-1 rounded-lg border border-border bg-card p-1">
+          {PERIODS.map((p) => (
+            <Button
+              key={p.value}
+              size="sm"
+              variant={period === p.value ? "default" : "ghost"}
+              className="press"
+              onClick={() => setPeriod(p.value)}
+            >
+              {p.label}
+            </Button>
+          ))}
+        </div>
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Recettes scolarité" value={formatFCFA(revenue)} icon={Wallet} tone="success" />
         <StatCard label="Dépenses enseignants" value={formatFCFA(expenses)} icon={Banknote} tone="destructive" delay={60} />
         <StatCard label="Solde" value={formatFCFA(revenue - expenses)} icon={Wallet} delay={120} />
         <StatCard label="Impayés" value={formatFCFA(stats?.outstanding ?? 0)} icon={AlertTriangle} tone="accent" delay={180} />
       </div>
+
+      <Card className="animate-rise panel-gradient">
+        <CardHeader>
+          <CardTitle className="font-display text-base">Recettes vs dépenses</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ChartContainer config={financeChartConfig} className="aspect-auto h-64 w-full">
+            <BarChart data={chartData}>
+              <CartesianGrid vertical={false} />
+              <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} />
+              <ChartTooltip content={<ChartTooltipContent />} />
+              <Bar dataKey="recettes" fill="var(--color-recettes)" radius={4} />
+              <Bar dataKey="depenses" fill="var(--color-depenses)" radius={4} />
+            </BarChart>
+          </ChartContainer>
+        </CardContent>
+      </Card>
+
       <DataTable
         rows={teacherPayments.slice(0, 15)}
-        emptyLabel="Aucun paiement enseignant."
+        emptyLabel="Aucun paiement enseignant sur la période."
         columns={[
           {
             key: "teacher",
