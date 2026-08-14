@@ -36,12 +36,20 @@ export function useRows<T = any>(table: TableName, options: ListOptions = {}) {
   });
 }
 
+/**
+ * Écrit une entrée d'audit sans jamais bloquer l'opération appelante :
+ * - utilise la session déjà en mémoire (getSession) plutôt qu'un aller-retour
+ *   réseau de revalidation (getUser), nettement plus rapide ;
+ * - n'est jamais "await" par ses appelants (voir useSaveRow/useDeleteRow/useArchiveRow) :
+ *   l'audit s'écrit en arrière-plan, l'utilisateur n'attend pas dessus.
+ */
 async function writeAudit(action: string, table: TableName, entityId?: string | null, metadata: Record<string, unknown> = {}) {
   try {
-    const { data } = await supabase.auth.getUser();
-    if (!data.user) return;
+    const { data } = await supabase.auth.getSession();
+    const userId = data.session?.user.id;
+    if (!userId) return;
     await supabase.from("audit_logs").insert({
-      actor_id: data.user.id,
+      actor_id: userId,
       action,
       entity_type: table,
       entity_id: entityId ?? null,
@@ -59,12 +67,12 @@ export function useSaveRow(table: TableName, label = "Enregistrement") {
       if (id) {
         const { data, error } = await supabase.from(table).update(values as never).eq("id", id).select().maybeSingle();
         if (error) throw error;
-        await writeAudit("update", table, id, values);
+        void writeAudit("update", table, id, values);
         return data;
       }
       const { data, error } = await supabase.from(table).insert(values as never).select().maybeSingle();
       if (error) throw error;
-      await writeAudit("create", table, (data as { id?: string } | null)?.id, values);
+      void writeAudit("create", table, (data as { id?: string } | null)?.id, values);
       return data;
     },
     onSuccess: () => {
@@ -81,7 +89,7 @@ export function useDeleteRow(table: TableName, label = "Élément") {
     mutationFn: async (id: string) => {
       const { error } = await supabase.from(table).delete().eq("id", id);
       if (error) throw error;
-      await writeAudit("delete", table, id);
+      void writeAudit("delete", table, id);
       return id;
     },
     onSuccess: () => {
@@ -91,6 +99,7 @@ export function useDeleteRow(table: TableName, label = "Élément") {
     onError: (error: Error) => toast.error(error.message || "Suppression impossible"),
   });
 }
+
 /**
  * Archive une ligne (soft-delete) au lieu de la supprimer définitivement.
  * Utilisé pour students et teachers : ils disparaissent des listes actives
@@ -105,7 +114,7 @@ export function useArchiveRow(table: TableName, label = "Élément") {
         .update({ archived_at: new Date().toISOString() } as never)
         .eq("id", id);
       if (error) throw error;
-      await writeAudit("archive", table, id);
+      void writeAudit("archive", table, id);
       return id;
     },
     onSuccess: () => {
