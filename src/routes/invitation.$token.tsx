@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Loader2, ShieldCheck, Building2 } from "lucide-react";
+import { Loader2, ShieldCheck, Building2, RefreshCw } from "lucide-react";
 import { acceptInvitation, getInvitationInfo } from "@/lib/admin.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -25,12 +25,15 @@ export const Route = createFileRoute("/invitation/$token")({
   component: Page,
 });
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 function Page() {
   const { token } = Route.useParams();
   const navigate = useNavigate();
   const accept = useServerFn(acceptInvitation);
   const fetchInfo = useServerFn(getInvitationInfo);
   const [loading, setLoading] = useState(false);
+  const [checkingLink, setCheckingLink] = useState(true);
   const [infoError, setInfoError] = useState<string | null>(null);
   const [establishmentName, setEstablishmentName] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -43,11 +46,35 @@ function Page() {
     avatar_url: "",
   });
 
+  const loadInfo = async () => {
+    setCheckingLink(true);
+    setInfoError(null);
+    // Le contrôle de connexion Supabase de l'infrastructure peut mettre quelques secondes
+    // à se stabiliser après un déploiement — on retente automatiquement avant d'afficher une erreur.
+    const attempts = 4;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        const res = await fetchInfo({ data: { token } });
+        setEstablishmentName(res.establishment_name);
+        setCheckingLink(false);
+        return;
+      } catch (e) {
+        const message = (e as Error).message || "";
+        const isInfraGlitch = message.includes("SUPABASE_SERVICE_ROLE_KEY") || message.includes("Lovable Cloud");
+        if (isInfraGlitch && i < attempts - 1) {
+          await sleep(1500);
+          continue;
+        }
+        setInfoError(isInfraGlitch ? "Le service est momentanément indisponible. Réessayez dans quelques secondes." : message);
+        setCheckingLink(false);
+        return;
+      }
+    }
+  };
+
   useEffect(() => {
-    fetchInfo({ data: { token } })
-      .then((res) => setEstablishmentName(res.establishment_name))
-      .catch((e: Error) => setInfoError(e.message));
-  }, [token]);
+    loadInfo();
+  }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -84,6 +111,17 @@ function Page() {
     setLoading(false);
   };
 
+  if (checkingLink) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background p-4">
+        <div className="flex flex-col items-center gap-3 text-muted-foreground">
+          <Loader2 className="h-6 w-6 animate-spin" />
+          <p className="text-sm">Vérification du lien…</p>
+        </div>
+      </div>
+    );
+  }
+
   if (infoError) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background p-4">
@@ -92,6 +130,11 @@ function Page() {
             <CardTitle className="text-xl">Lien invalide</CardTitle>
             <CardDescription>{infoError}</CardDescription>
           </CardHeader>
+          <CardContent>
+            <Button variant="outline" className="w-full" onClick={loadInfo}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Réessayer
+            </Button>
+          </CardContent>
         </Card>
       </div>
     );
