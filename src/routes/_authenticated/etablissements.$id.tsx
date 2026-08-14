@@ -841,17 +841,19 @@ function TeacherDialog({
       });
       const assignmentId = (assignmentRow as { id?: string } | null)?.id;
 
-      if (assignmentId) {
-        for (const s of sessions) {
-          await saveSession.mutateAsync({
-            values: {
-              name: s.name.trim(),
-              weekday: Number(s.weekday),
-              duration_minutes: Number(s.duration_minutes),
-              assignment_id: assignmentId,
-            },
-          });
-        }
+     if (assignmentId) {
+        await Promise.all(
+          sessions.map((s) =>
+            saveSession.mutateAsync({
+              values: {
+                name: s.name.trim(),
+                weekday: Number(s.weekday),
+                duration_minutes: Number(s.duration_minutes),
+                assignment_id: assignmentId,
+              },
+            }),
+          ),
+        );
       }
       onClose();
     } finally {
