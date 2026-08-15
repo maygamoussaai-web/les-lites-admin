@@ -6,6 +6,17 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 export const DG_EMAIL = "directeurgeneral@gmail.com";
 
 /**
+ * Hash SHA-256 exécuté uniquement côté serveur, via le module Node natif "node:crypto"
+ * (import dynamique pour ne jamais être embarqué dans le bundle navigateur).
+ * Utilisé à la place de sha256Hex (Web Crypto API) dans les fonctions serveur ci-dessous,
+ * pour écarter toute incompatibilité de crypto.subtle dans l'environnement d'exécution serveur.
+ */
+async function serverTokenHash(value: string) {
+  const { createHash } = await import("node:crypto");
+  return createHash("sha256").update(value).digest("hex");
+}
+
+/**
  * Crée le compte Auth du Directeur Général si — et seulement si — aucun DG n'existe.
  * Conservé pour une réinitialisation d'urgence future ; non exposé dans l'UI.
  */
@@ -106,11 +117,11 @@ export const getStaffEmail = createServerFn({ method: "POST" })
  * Retourne le nom de l'établissement assigné par une invitation, pour affichage
  * en lecture seule sur la page d'activation (l'établissement n'est jamais modifiable par l'invité).
  */
-export const getInvitationInfo = createServerFn({ method: "GET" })
+export const getInvitationInfo = createServerFn({ method: "POST" })
   .inputValidator((data) => z.object({ token: z.string().min(10) }).parse(data))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const tokenHash = await sha256Hex(data.token);
+    const tokenHash = await serverTokenHash(data.token);
     const { data: invitation, error } = await supabaseAdmin
       .from("invitations")
       .select("establishment_id, expires_at, accepted_at, establishments(name)")
@@ -146,7 +157,7 @@ export const acceptInvitation = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const tokenHash = await sha256Hex(data.token);
+    const tokenHash = await serverTokenHash(data.token);
 
     const { data: invitation, error } = await supabaseAdmin
       .from("invitations")
