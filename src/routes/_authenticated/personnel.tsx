@@ -62,7 +62,7 @@ function Page() {
         establishment_id: values['establishment_id'],
         metadata: {},
       });
-      return `${window.location.origin}/invitation/${token}`;
+      return `${window.location.origin}/activation?token=${token}`;
     },
     onSuccess: (url) => {
       setLink(url);
