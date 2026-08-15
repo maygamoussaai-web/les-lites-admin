@@ -106,7 +106,7 @@ export const getStaffEmail = createServerFn({ method: "POST" })
  * Retourne le nom de l'établissement assigné par une invitation, pour affichage
  * en lecture seule sur la page d'activation (l'établissement n'est jamais modifiable par l'invité).
  */
-export const getInvitationInfo = createServerFn({ method: "POST" })
+export const getInvitationInfo = createServerFn({ method: "GET" })
   .inputValidator((data) => z.object({ token: z.string().min(10) }).parse(data))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
