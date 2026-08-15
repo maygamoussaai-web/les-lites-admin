@@ -675,6 +675,10 @@ export type Database = {
     Functions: {
       current_admin_establishment: { Args: never; Returns: string }
       current_admin_role: { Args: never; Returns: string }
+      delete_teacher_complete: {
+        Args: { target_teacher_id: string }
+        Returns: undefined
+      }
       has_establishment_access: {
         Args: { target_establishment_id: string }
         Returns: boolean
