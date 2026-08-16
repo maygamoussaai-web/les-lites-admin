@@ -118,13 +118,13 @@ function Page() {
         return;
       }
 
-      if (avatarFile) {
+if (avatarFile) {
         try {
-          const ext = avatarFile.name.split(".").pop() || "jpg";
-          const path = `${signInData.user.id}/avatar-${Date.now()}.${ext}`;
+          const compressed = await compressImage(avatarFile);
+          const path = `${signInData.user.id}/avatar-${Date.now()}.jpg`;
           const { error: uploadError } = await supabase.storage
             .from("avatars")
-            .upload(path, avatarFile, { upsert: true, contentType: avatarFile.type });
+            .upload(path, compressed, { upsert: true, contentType: compressed.type });
           if (!uploadError) {
             const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
             await supabase.from("admin_profiles").update({ avatar_url: pub.publicUrl }).eq("id", signInData.user.id);
