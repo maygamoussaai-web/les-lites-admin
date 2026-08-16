@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as ActivationRouteImport } from './routes/activation'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedEtablissementsRouteImport } from './routes/_authenticated/etablissements'
 import { Route as AuthenticatedFinanceRouteImport } from './routes/_authenticated/finance'
@@ -29,6 +30,11 @@ const IndexRoute = IndexRouteImport.update({
 } as any)
 const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ActivationRoute = ActivationRouteImport.update({
+  id: '/activation',
+  path: '/activation',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRoute = AuthRouteImport.update({
@@ -89,6 +95,7 @@ const AuthenticatedEtablissementsIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/activation': typeof ActivationRoute
   '/auth': typeof AuthRoute
   '/etablissements': typeof AuthenticatedEtablissementsRouteWithChildren
   '/finance': typeof AuthenticatedFinanceRoute
@@ -102,6 +109,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/activation': typeof ActivationRoute
   '/auth': typeof AuthRoute
   '/finance': typeof AuthenticatedFinanceRoute
   '/mon-compte': typeof AuthenticatedMonCompteRoute
@@ -116,6 +124,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
+  '/activation': typeof ActivationRoute
   '/auth': typeof AuthRoute
   '/_authenticated/etablissements': typeof AuthenticatedEtablissementsRouteWithChildren
   '/_authenticated/finance': typeof AuthenticatedFinanceRoute
@@ -131,6 +140,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/activation'
     | '/auth'
     | '/etablissements'
     | '/finance'
@@ -144,6 +154,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/activation'
     | '/auth'
     | '/finance'
     | '/mon-compte'
@@ -157,6 +168,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/_authenticated'
+    | '/activation'
     | '/auth'
     | '/_authenticated/etablissements'
     | '/_authenticated/finance'
@@ -172,6 +184,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
+  ActivationRoute: typeof ActivationRoute
   AuthRoute: typeof AuthRoute
   InvitationTokenRoute: typeof InvitationTokenRoute
 }
@@ -190,6 +203,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AuthenticatedRouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/activation': {
+      id: '/activation'
+      path: '/activation'
+      fullPath: '/activation'
+      preLoaderRoute: typeof ActivationRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth': {
@@ -307,6 +327,7 @@ const AuthenticatedRouteRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
+  ActivationRoute: ActivationRoute,
   AuthRoute: AuthRoute,
   InvitationTokenRoute: InvitationTokenRoute,
 }
