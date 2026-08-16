@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { toast } from "sonner";
-import { Copy, UserPlus } from "lucide-react";
+import { Copy, UserPlus, RefreshCw, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { DataTable, type Column } from "@/components/app/data-table";
 import { RecordDialog } from "@/components/app/record-dialog";
@@ -10,9 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { supabase } from "@/integrations/supabase/client";
 import { useRows } from "@/lib/data";
-import { generateInvitationToken, sha256Hex } from "@/lib/invitations";
+import { createInvitation, renewInvitation, revokeInvitation } from "@/lib/admin.functions";
 import { roleLabel, formatDateTime, initials } from "@/lib/format";
 import { useAdminProfile } from "@/hooks/use-auth";
 import type { Tables } from "@/integrations/supabase/types";
@@ -30,11 +30,14 @@ export const Route = createFileRoute("/_authenticated/personnel")({
 });
 
 function Page() {
-  const { isDG, user } = useAdminProfile();
-  const navigate = useNavigate();
+  const { isDG } = useAdminProfile();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [link, setLink] = useState<string | null>(null);
+  const [links, setLinks] = useState<Record<string, string>>({});
+  const [lastLink, setLastLink] = useState<string | null>(null);
+  const invitationFn = useServerFn(createInvitation);
+  const renewFn = useServerFn(renewInvitation);
+  const revokeFn = useServerFn(revokeInvitation);
 
   const { data: establishments = [] } = useRows<Tables<"establishments">>("establishments", { order: { column: "name" } });
   const { data = [], isLoading } = useRows<Tables<"admin_profiles">>("admin_profiles", { order: { column: "last_name" } });
@@ -45,33 +48,51 @@ function Page() {
 
   const invite = useMutation({
     mutationFn: async (values: Record<string, any>) => {
-      const token = generateInvitationToken();
-      const token_hash = await sha256Hex(token);
       const days = Number(values['days'] ?? 7) || 7;
-      const { error } = await supabase.from("invitations").insert({
-        token_hash,
-        establishment_id: values['establishment_id'],
-        invited_by: user?.id ?? null,
-        expires_at: new Date(Date.now() + days * 86_400_000).toISOString(),
-      });
-      if (error) throw error;
-      await supabase.from("audit_logs").insert({
-        actor_id: user?.id ?? null,
-        action: "invitation_created",
-        entity_type: "invitations",
-        establishment_id: values['establishment_id'],
-        metadata: {},
-      });
-      return `${window.location.origin}/activation?token=${token}`;
+      const res = await invitationFn({ data: { establishment_id: values['establishment_id'] as string, days } });
+      return { id: res.id, url: `${window.location.origin}/activation?token=${res.token}` };
     },
-    onSuccess: (url) => {
-      setLink(url);
+    onSuccess: ({ id, url }) => {
+      setLinks((l) => ({ ...l, [id]: url }));
+      setLastLink(url);
       setOpen(false);
       qc.invalidateQueries({ queryKey: ["invitations"] });
       toast.success("Invitation générée");
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const renew = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await renewFn({ data: { id, days: 7 } });
+      return { id, url: `${window.location.origin}/activation?token=${res.token}` };
+    },
+    onSuccess: ({ id, url }) => {
+      setLinks((l) => ({ ...l, [id]: url }));
+      setLastLink(url);
+      qc.invalidateQueries({ queryKey: ["invitations"] });
+      void navigator.clipboard.writeText(url).catch(() => undefined);
+      toast.success("Nouveau lien généré et copié");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const revoke = useMutation({
+    mutationFn: async (id: string) => {
+      await revokeFn({ data: { id } });
+      return id;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["invitations"] });
+      toast.success("Invitation révoquée");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const copy = (url: string) => {
+    void navigator.clipboard.writeText(url).catch(() => undefined);
+    toast.success("Lien copié");
+  };
 
   const columns: Column<Tables<"admin_profiles">>[] = [
     {
@@ -108,31 +129,21 @@ function Page() {
         actions={isDG ? <Button onClick={() => setOpen(true)}><UserPlus className="mr-2 h-4 w-4" />Inviter</Button> : undefined}
       />
 
-      {link && (
+      {lastLink && (
         <Card className="border-primary/40">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Lien d'invitation</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <code className="min-w-0 flex-1 truncate rounded-md bg-muted px-3 py-2 text-xs">{link}</code>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => { navigator.clipboard.writeText(link); toast.success("Lien copié"); }}
-            >
+            <code className="min-w-0 flex-1 truncate rounded-md bg-muted px-3 py-2 text-xs">{lastLink}</code>
+            <Button variant="outline" size="sm" onClick={() => copy(lastLink)}>
               <Copy className="mr-2 h-4 w-4" /> Copier
             </Button>
           </CardContent>
         </Card>
       )}
 
-      <DataTable
-        columns={columns}
-        rows={data}
-        loading={isLoading}
-        emptyLabel="Aucun compte."
-        onRowClick={(r) => navigate({ to: "/personnel/$id", params: { id: r.id } })}
-      />
+      <DataTable columns={columns} rows={data} loading={isLoading} emptyLabel="Aucun compte." />
 
       {isDG && (
         <Card>
@@ -144,9 +155,31 @@ function Page() {
               <p className="text-muted-foreground">Aucune invitation en attente.</p>
             ) : (
               pending.map((i) => (
-                <div key={i.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
-                  <span>{establishments.find((e) => e.id === i.establishment_id)?.name ?? "—"}</span>
-                  <span className="text-xs text-muted-foreground">Expire le {formatDateTime(i.expires_at)}</span>
+                <div key={i.id} className="space-y-2 rounded-md border border-border px-3 py-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-medium">{establishments.find((e) => e.id === i.establishment_id)?.name ?? "—"}</span>
+                    <span className="text-xs text-muted-foreground">Expire le {formatDateTime(i.expires_at)}</span>
+                  </div>
+                  {links[i.id] ? (
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                      <code className="min-w-0 flex-1 truncate rounded-md bg-muted px-3 py-1.5 text-xs">{links[i.id]}</code>
+                      <Button size="sm" variant="outline" onClick={() => copy(links[i.id]!)}>
+                        <Copy className="mr-2 h-4 w-4" /> Copier
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Le lien n'est affiché qu'une seule fois. Générez-en un nouveau pour le transmettre.
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" disabled={renew.isPending} onClick={() => renew.mutate(i.id)}>
+                      <RefreshCw className="mr-2 h-4 w-4" /> Nouveau lien
+                    </Button>
+                    <Button size="sm" variant="ghost" className="text-destructive" disabled={revoke.isPending} onClick={() => revoke.mutate(i.id)}>
+                      <Trash2 className="mr-2 h-4 w-4" /> Révoquer
+                    </Button>
+                  </div>
                 </div>
               ))
             )}
