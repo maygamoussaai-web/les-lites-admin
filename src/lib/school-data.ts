@@ -45,18 +45,26 @@ export function useSchoolData() {
     installments.isLoading ||
     tuitionPayments.isLoading;
 
+  const allStudents = students.data ?? [];
+  const allTeachers = teachers.data ?? [];
+
   return {
     loading,
     establishments: establishments.data ?? [],
     classes: classes.data ?? [],
-    students: (students.data ?? []).filter((s) => !s.archived_at),
+    // Listes actives (archivés exclus) — utilisées pour les cartes, formulaires et pickers.
+    students: allStudents.filter((s) => !s.archived_at),
     feePlans: feePlans.data ?? [],
     installments: installments.data ?? [],
     tuitionPayments: tuitionPayments.data ?? [],
-    teachers: (teachers.data ?? []).filter((t) => !t.archived_at),
+    teachers: allTeachers.filter((t) => !t.archived_at),
     assignments: assignments.data ?? [],
     sessions: sessions.data ?? [],
     teacherPayments: teacherPayments.data ?? [],
+    // Recherches non filtrées — utilisées pour retrouver le NOM dans l'historique
+    // (paiements, journal d'audit) même après archivage d'un élève ou d'un enseignant.
+    studentsById: new Map(allStudents.map((s) => [s.id, s])),
+    teachersById: new Map(allTeachers.map((t) => [t.id, t])),
   };
 }
 
@@ -96,7 +104,9 @@ export function useEstablishmentStats(data: SchoolData, since?: string) {
         );
         if (planInstallments.length && lateStatus(paid, planInstallments).isLate) lateStudents += 1;
       }
-      const estAssignments = data.assignments.filter((a) => a.establishment_id === est.id && a.is_active);
+      const estAssignments = data.assignments.filter(
+        (a) => a.establishment_id === est.id && a.is_active && data.teachers.some((t) => t.id === a.teacher_id),
+      );
       const dueTeachers = estAssignments.reduce((acc, a) => acc + teacherDue(a, data.sessions), 0);
       const paidTeachers = sum(
         data.teacherPayments
