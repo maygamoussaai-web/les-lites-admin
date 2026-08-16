@@ -72,16 +72,16 @@ function Page() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  const uploadAvatar = async (file: File) => {
+ const uploadAvatar = async (rawFile: File) => {
     if (!user) return;
-    if (file.size > 5 * 1024 * 1024) {
-      toast.error("L'image dépasse 5 Mo.");
+    if (rawFile.size > 15 * 1024 * 1024) {
+      toast.error("L'image dépasse 15 Mo.");
       return;
     }
     setUploading(true);
     try {
-      const ext = file.name.split(".").pop() || "jpg";
-      const path = `${user.id}/avatar-${Date.now()}.${ext}`;
+      const file = await compressImage(rawFile);
+      const path = `${user.id}/avatar-${Date.now()}.jpg`;
       const { error: uploadError } = await supabase.storage.from("avatars").upload(path, file, {
         upsert: true,
         contentType: file.type,
@@ -97,7 +97,8 @@ function Page() {
       qc.invalidateQueries({ queryKey: ["admin_profile"] });
       toast.success("Photo de profil mise à jour");
     } catch (e) {
-      toast.error((e as Error).message || "Envoi de la photo impossible");
+      const msg = (e as Error).message || "";
+      toast.error(msg.includes("Failed to fetch") ? "Connexion trop lente ou interrompue. Réessayez." : msg || "Envoi de la photo impossible");
     }
     setUploading(false);
   };
