@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { toast } from "sonner";
-import { Loader2, ShieldCheck, Building2, RefreshCw } from "lucide-react";
+import { Loader2, ShieldCheck, Building2, RefreshCw, Camera } from "lucide-react";
 import { acceptInvitation, getInvitationInfo } from "@/lib/admin.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -34,10 +34,13 @@ function Page() {
   const navigate = useNavigate();
   const accept = useServerFn(acceptInvitation);
   const fetchInfo = useServerFn(getInvitationInfo);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
   const [checkingLink, setCheckingLink] = useState(true);
   const [infoError, setInfoError] = useState<string | null>(null);
   const [establishmentName, setEstablishmentName] = useState<string | null>(null);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [form, setForm] = useState({
     first_name: "",
     last_name: "",
@@ -45,7 +48,6 @@ function Page() {
     email: "",
     password: "",
     confirm_password: "",
-    avatar_url: "",
   });
 
   const loadInfo = async () => {
@@ -75,6 +77,16 @@ function Page() {
     loadInfo();
   }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (!avatarFile) {
+      setAvatarPreview(null);
+      return;
+    }
+    const url = URL.createObjectURL(avatarFile);
+    setAvatarPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [avatarFile]);
+
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   const submit = async (e: React.FormEvent) => {
@@ -93,15 +105,35 @@ function Page() {
           first_name: form.first_name,
           last_name: form.last_name,
           phone: form.phone || null,
-          avatar_url: form.avatar_url || null,
+          avatar_url: null,
         },
       });
-      const { error } = await supabase.auth.signInWithPassword({ email: form.email.trim(), password: form.password });
-      if (error) {
+      const { data: signInData, error } = await supabase.auth.signInWithPassword({
+        email: form.email.trim(),
+        password: form.password,
+      });
+      if (error || !signInData.user) {
         toast.success("Compte activé. Connectez-vous.");
         navigate({ to: "/auth" });
         return;
       }
+
+      if (avatarFile) {
+        try {
+          const ext = avatarFile.name.split(".").pop() || "jpg";
+          const path = `${signInData.user.id}/avatar-${Date.now()}.${ext}`;
+          const { error: uploadError } = await supabase.storage
+            .from("avatars")
+            .upload(path, avatarFile, { upsert: true, contentType: avatarFile.type });
+          if (!uploadError) {
+            const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
+            await supabase.from("admin_profiles").update({ avatar_url: pub.publicUrl }).eq("id", signInData.user.id);
+          }
+        } catch {
+          /* la photo n'est pas bloquante pour l'activation */
+        }
+      }
+
       toast.success("Compte activé");
       navigate({ to: "/tableau-de-bord" });
     } catch (error) {
@@ -144,12 +176,28 @@ function Page() {
       <Card className="w-full max-w-md duration-300 animate-in fade-in slide-in-from-bottom-2">
         <CardHeader>
           <div className="mb-2 flex items-center gap-3">
-            <Avatar className="h-14 w-14 border-2 border-accent">
-              {form.avatar_url && <AvatarImage src={form.avatar_url} alt="Photo de profil" />}
-              <AvatarFallback className="bg-primary/10 text-base font-semibold text-primary">
-                {initials(form.first_name || "?", form.last_name || "")}
-              </AvatarFallback>
-            </Avatar>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="group relative shrink-0"
+            >
+              <Avatar className="h-14 w-14 border-2 border-accent">
+                {avatarPreview && <AvatarImage src={avatarPreview} alt="Photo de profil" />}
+                <AvatarFallback className="bg-primary/10 text-base font-semibold text-primary">
+                  {initials(form.first_name || "?", form.last_name || "")}
+                </AvatarFallback>
+              </Avatar>
+              <span className="absolute -bottom-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground shadow transition-transform group-hover:scale-105">
+                <Camera className="h-3 w-3" />
+              </span>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => setAvatarFile(e.target.files?.[0] ?? null)}
+              />
+            </button>
             <div>
               <CardTitle className="font-display text-xl">Activation de votre compte</CardTitle>
               <CardDescription>Personnel administratif — Les Élites de Gao</CardDescription>
@@ -179,10 +227,6 @@ function Page() {
               <Input id="phone" className="mt-1.5" placeholder="+223 ..." value={form.phone} onChange={(e) => set("phone", e.target.value)} />
             </div>
             <div>
-              <Label htmlFor="avatar_url">Photo de profil (URL)</Label>
-              <Input id="avatar_url" className="mt-1.5" placeholder="https://…" value={form.avatar_url} onChange={(e) => set("avatar_url", e.target.value)} />
-            </div>
-            <div>
               <Label htmlFor="email">Adresse e-mail</Label>
               <Input id="email" type="email" required className="mt-1.5" value={form.email} onChange={(e) => set("email", e.target.value)} />
             </div>
@@ -196,7 +240,7 @@ function Page() {
                 <Input id="confirm_password" type="password" required minLength={8} className="mt-1.5" value={form.confirm_password} onChange={(e) => set("confirm_password", e.target.value)} />
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">8 caractères minimum.</p>
+            <p className="text-xs text-muted-foreground">8 caractères minimum. Touchez la photo pour prendre une photo ou choisir dans la galerie.</p>
             <Button type="submit" className="shine-gold w-full" disabled={loading}>
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Activer mon compte"}
             </Button>
