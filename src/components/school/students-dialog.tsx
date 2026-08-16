@@ -57,24 +57,18 @@ export function StudentsDialog({
   const paidOf = (studentId: string) =>
     sum(data.tuitionPayments.filter((p) => p.student_id === studentId).map((p) => Number(p.amount)));
 
-  const columns: Column<Student>[] = [
-    {
+{
       key: "name",
       header: "Élève",
       cell: (s) => (
-        <Link
-          to="/eleves/$studentId"
-          params={{ studentId: s.id }}
-          className="block hover:underline"
-          onClick={(e) => e.stopPropagation()}
-        >
+        <div>
           <p className="font-medium text-foreground">
             {s.last_name} {s.first_name}
           </p>
           <p className="text-xs text-muted-foreground">
             {s.gender === "F" ? "Féminin" : "Masculin"} · {formatDate(s.date_of_birth)}
           </p>
-        </Link>
+        </div>
       ),
     },
     {
