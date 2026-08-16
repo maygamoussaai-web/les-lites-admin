@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { LogOut, Bell } from "lucide-react";
+import { LogOut, Bell, Camera, Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,10 +33,12 @@ function Page() {
   const { profile, user } = useAdminProfile();
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const { data: establishments = [] } = useRows<Tables<"establishments">>("establishments");
   const [form, setForm] = useState({ first_name: "", last_name: "", phone: "", avatar_url: "" });
   const [notifications, setNotifications] = useState(true);
   const [password, setPassword] = useState("");
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (profile) {
@@ -69,6 +71,36 @@ function Page() {
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  const uploadAvatar = async (file: File) => {
+    if (!user) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("L'image dépasse 5 Mo.");
+      return;
+    }
+    setUploading(true);
+    try {
+      const ext = file.name.split(".").pop() || "jpg";
+      const path = `${user.id}/avatar-${Date.now()}.${ext}`;
+      const { error: uploadError } = await supabase.storage.from("avatars").upload(path, file, {
+        upsert: true,
+        contentType: file.type,
+      });
+      if (uploadError) throw uploadError;
+      const { data: pub } = supabase.storage.from("avatars").getPublicUrl(path);
+      const { error: updateError } = await supabase
+        .from("admin_profiles")
+        .update({ avatar_url: pub.publicUrl })
+        .eq("id", user.id);
+      if (updateError) throw updateError;
+      setForm((f) => ({ ...f, avatar_url: pub.publicUrl }));
+      qc.invalidateQueries({ queryKey: ["admin_profile"] });
+      toast.success("Photo de profil mise à jour");
+    } catch (e) {
+      toast.error((e as Error).message || "Envoi de la photo impossible");
+    }
+    setUploading(false);
+  };
 
   const toggleNotifications = useMutation({
     mutationFn: async (value: boolean) => {
@@ -114,20 +146,35 @@ function Page() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center gap-4">
-              <Avatar className="h-16 w-16 border-2 border-accent">
-                {form.avatar_url && <AvatarImage src={form.avatar_url} alt="Photo de profil" />}
-                <AvatarFallback className="bg-primary/10 text-base font-semibold text-primary">
-                  {initials(form.first_name, form.last_name)}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1">
-                <Label htmlFor="avatar_url">Photo de profil (URL)</Label>
-                <Input
-                  id="avatar_url"
-                  placeholder="https://…"
-                  className="mt-1.5"
-                  value={form.avatar_url}
-                  onChange={(e) => setForm({ ...form, avatar_url: e.target.value })}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="group relative shrink-0"
+              >
+                <Avatar className="h-16 w-16 border-2 border-accent">
+                  {form.avatar_url && <AvatarImage src={form.avatar_url} alt="Photo de profil" />}
+                  <AvatarFallback className="bg-primary/10 text-base font-semibold text-primary">
+                    {initials(form.first_name, form.last_name)}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground shadow transition-transform group-hover:scale-105">
+                  {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+                </span>
+              </button>
+              <div>
+                <p className="text-sm font-medium text-foreground">Photo de profil</p>
+                <p className="text-xs text-muted-foreground">Prenez une photo ou choisissez-la dans la galerie.</p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) uploadAvatar(file);
+                    e.target.value = "";
+                  }}
                 />
               </div>
             </div>
