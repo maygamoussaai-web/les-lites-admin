@@ -1,7 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { Bar, BarChart, CartesianGrid, XAxis } from "recharts";
-import { Plus, GraduationCap, Users, Wallet, AlertTriangle, Banknote, Trash2, Archive, Maximize2, Minimize2 } from "lucide-react";
+import {
+  Plus,
+  GraduationCap,
+  Users,
+  Wallet,
+  AlertTriangle,
+  Banknote,
+  Trash2,
+  Archive,
+  Maximize2,
+  Minimize2,
+  ArrowLeft,
+  Pencil,
+} from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
 import { DataTable, type Column } from "@/components/app/data-table";
@@ -13,7 +26,19 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
 import {
   Dialog,
@@ -88,6 +113,14 @@ function Page() {
 
   return (
     <>
+      {isDG && (
+        <Button variant="ghost" size="sm" className="-ml-2 w-fit" asChild>
+          <Link to="/etablissements">
+            <ArrowLeft className="mr-1.5 h-4 w-4" /> Retour aux établissements
+          </Link>
+        </Button>
+      )}
+
       <PageHeader
         eyebrow={est ? establishmentTypeLabel(est.type) : "Établissement"}
         title={est?.name ?? "Établissement"}
@@ -149,40 +182,6 @@ function ClassesTab({ establishmentId, data }: { establishmentId: string; data: 
     { name: "is_active", label: "Active", type: "switch" },
   ];
 
-  const columns: Column<ClassRow>[] = [
-    { key: "name", header: "Classe", cell: (c) => <span className="font-medium">{c.name}</span> },
-    {
-      key: "effectif",
-      header: "Effectif",
-      cell: (c) => `${data.students.filter((s) => s.class_id === c.id).length} / ${c.capacity}`,
-    },
-    {
-      key: "plan",
-      header: "Modèle de scolarité",
-      cell: (c) => plans.find((p) => p.id === c.fee_plan_id)?.name ?? "—",
-    },
-    { key: "status", header: "Statut", cell: (c) => (c.is_active ? <Badge>Active</Badge> : <Badge variant="outline">Inactive</Badge>) },
-    {
-      key: "actions",
-      header: "",
-      className: "text-right",
-      cell: (c) => (
-        <div className="flex justify-end gap-1">
-          <Button variant="ghost" size="sm" className="press" onClick={() => setViewing(c)}>
-            <Users className="mr-1.5 h-4 w-4" /> Élèves
-          </Button>
-          <RowActions
-            onEdit={() => {
-              setEditing(c);
-              setOpen(true);
-            }}
-            onDelete={() => remove.mutate(c.id)}
-          />
-        </div>
-      ),
-    },
-  ];
-
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
@@ -196,11 +195,88 @@ function ClassesTab({ establishmentId, data }: { establishmentId: string; data: 
           <Plus className="mr-1.5 h-4 w-4" /> Nouvelle classe
         </Button>
       </div>
+
       {rows.length === 0 && !data.loading ? (
         <EmptyState icon={GraduationCap} title="Aucune classe" description="Créez la première classe de cet établissement." />
       ) : (
-        <DataTable columns={columns} rows={rows} loading={data.loading} />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {rows.map((c, index) => {
+            const effectif = data.students.filter((s) => s.class_id === c.id).length;
+            const plan = plans.find((p) => p.id === c.fee_plan_id);
+            const fillRate = c.capacity > 0 ? Math.min(100, Math.round((effectif / c.capacity) * 100)) : 0;
+            return (
+              <Card
+                key={c.id}
+                className="card-lift animate-rise panel-gradient overflow-hidden"
+                style={{ animationDelay: `${index * 50}ms` }}
+              >
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <GraduationCap className="h-4.5 w-4.5" />
+                      </span>
+                      <CardTitle className="truncate font-display text-base">{c.name}</CardTitle>
+                    </div>
+                    {c.is_active ? <Badge>Active</Badge> : <Badge variant="outline">Inactive</Badge>}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Effectif</span>
+                      <span className="font-medium text-foreground">
+                        {effectif} / {c.capacity}
+                      </span>
+                    </div>
+                    <Progress value={fillRate} className="h-1.5" />
+                  </div>
+                  <div className="flex items-center justify-between rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-xs">
+                    <span className="text-muted-foreground">Modèle de scolarité</span>
+                    <span className="font-medium text-foreground">{plan?.name ?? "Aucun"}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <Button size="sm" className="press flex-1" onClick={() => setViewing(c)}>
+                      <Users className="mr-1.5 h-4 w-4" /> Élèves
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="press"
+                      onClick={() => {
+                        setEditing(c);
+                        setOpen(true);
+                      }}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button size="sm" variant="outline" className="press text-destructive hover:text-destructive">
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Supprimer la classe {c.name} ?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Cette action est définitive. Assurez-vous qu'aucun élève actif n'y est rattaché.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Annuler</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => remove.mutate(c.id)}>Supprimer</AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
       )}
+
       <RecordDialog
         open={open}
         onOpenChange={setOpen}
