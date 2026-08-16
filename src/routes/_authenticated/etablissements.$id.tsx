@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Bar, BarChart, CartesianGrid, XAxis } from "recharts";
-import { Plus, GraduationCap, Users, Wallet, AlertTriangle, Banknote, Trash2, Archive } from "lucide-react";
+import { Plus, GraduationCap, Users, Wallet, AlertTriangle, Banknote, Trash2, Archive, Maximize2, Minimize2 } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
 import { DataTable, type Column } from "@/components/app/data-table";
@@ -595,7 +595,7 @@ function TuitionTab({ establishmentId, data }: { establishmentId: string; data: 
           const paid = sum(data.tuitionPayments.filter((p) => p.student_id === student.id).map((p) => Number(p.amount)));
           const status = lateStatus(paid, insts);
           const expected = plan ? Number(plan.total_amount) : 0;
-          return { id: student.id, student, klass, plan, paid, expected, remaining: Math.max(0, expected - paid), status };
+          return { student, klass, plan, paid, expected, remaining: Math.max(0, expected - paid), status };
         })
         .sort((a, b) =>
           `${a.student.last_name}${a.student.first_name}`.localeCompare(`${b.student.last_name}${b.student.first_name}`),
@@ -772,7 +772,7 @@ function TuitionTab({ establishmentId, data }: { establishmentId: string; data: 
               key: "student",
               header: "Élève",
               cell: (p) => {
-                const st = data.students.find((s) => s.id === p.student_id);
+                const st = data.studentsById.get(p.student_id);
                 return st ? `${st.last_name} ${st.first_name}` : "—";
               },
             },
@@ -1150,7 +1150,16 @@ function TeachersTab({
   const [sessionFor, setSessionFor] = useState<TeacherAssignment | null>(null);
   const [payFor, setPayFor] = useState<TeacherAssignment | null>(null);
 
-  const assignments = data.assignments.filter((a) => a.establishment_id === establishmentId);
+  const assignments = data.assignments.filter(
+    (a) => a.establishment_id === establishmentId && data.teachers.some((t) => t.id === a.teacher_id),
+  );
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const toggleCollapsed = (id: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
 
   return (
     <div className="space-y-4">
@@ -1182,16 +1191,28 @@ function TeachersTab({
             return (
               <Card key={a.id} className="card-lift animate-rise panel-gradient" style={{ animationDelay: `${index * 60}ms` }}>
                 <CardHeader className="flex flex-row items-start justify-between gap-2">
-                  <div>
+                  <div className="min-w-0">
                     <CardTitle className="font-display text-base">
                       {teacher ? `${teacher.last_name} ${teacher.first_name}` : "Enseignant"}
                     </CardTitle>
                     <p className="text-xs text-muted-foreground">{teacher?.domain ?? "—"} · {teacher?.phone ?? "—"}</p>
                   </div>
-                  <Badge variant={a.payment_method === "fixed_salary" ? "secondary" : "outline"}>
-                    {a.payment_method === "fixed_salary" ? "Salaire fixe" : "Tarif horaire"}
-                  </Badge>
+                  <div className="flex items-center gap-1.5">
+                    <Badge variant={a.payment_method === "fixed_salary" ? "secondary" : "outline"}>
+                      {a.payment_method === "fixed_salary" ? "Salaire fixe" : "Tarif horaire"}
+                    </Badge>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0"
+                      onClick={() => toggleCollapsed(a.id)}
+                      aria-label={collapsed.has(a.id) ? "Agrandir" : "Réduire"}
+                    >
+                      {collapsed.has(a.id) ? <Maximize2 className="h-3.5 w-3.5" /> : <Minimize2 className="h-3.5 w-3.5" />}
+                    </Button>
+                  </div>
                 </CardHeader>
+                {!collapsed.has(a.id) && (
                 <CardContent className="space-y-3">
                   <div className="grid grid-cols-3 gap-2 text-sm">
                     <div>
@@ -1259,6 +1280,7 @@ function TeachersTab({
                     ) : null}
                   </div>
                 </CardContent>
+                )}
               </Card>
             );
           })}
@@ -1367,13 +1389,13 @@ function buildPeriodBuckets(period: Period, since: string) {
   const buckets: { key: string; label: string }[] = [];
   if (period === "year") {
     for (let m = start.getMonth(); m <= now.getMonth(); m++) {
-      buckets.push({ key: `${now.getFullYear()}-${String(m + 1).padStart(2, "0")}`, label: MONTH_SHORT[m] ?? "" });
+      buckets.push({ key: `${now.getFullYear()}-${String(m + 1).padStart(2, "0")}`, label: MONTH_SHORT[m] });
     }
   } else {
     const cursor = new Date(start);
     while (cursor <= now) {
       const key = cursor.toISOString().slice(0, 10);
-      const label = period === "week" ? (WEEKDAY_SHORT[(cursor.getDay() + 6) % 7] ?? "") : String(cursor.getDate());
+      const label = period === "week" ? WEEKDAY_SHORT[(cursor.getDay() + 6) % 7] : String(cursor.getDate());
       buckets.push({ key, label });
       cursor.setDate(cursor.getDate() + 1);
     }
@@ -1460,7 +1482,7 @@ function FinanceTab({ establishmentId, data }: { establishmentId: string; data: 
             key: "teacher",
             header: "Enseignant",
             cell: (p) => {
-              const t = data.teachers.find((x) => x.id === p.teacher_id);
+              const t = data.teachersById.get(p.teacher_id);
               return t ? `${t.last_name} ${t.first_name}` : "—";
             },
           },
