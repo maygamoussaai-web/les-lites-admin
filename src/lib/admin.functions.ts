@@ -250,3 +250,83 @@ export const deleteStaffAccount = createServerFn({ method: "POST" })
 
     return { ok: true as const };
   });
+/** Vérifie que l'appelant est bien le Directeur Général. */
+async function assertDirectorGeneral(context: { supabase: any; userId: string }) {
+  const { data, error } = await context.supabase
+    .from("admin_profiles")
+    .select("role, is_active")
+    .eq("id", context.userId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data || data.role !== "director_general" || !data.is_active) {
+    throw new Error("Seul le Directeur Général peut gérer les invitations.");
+  }
+}
+
+function newToken() {
+  const bytes = new Uint8Array(24);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
+ * Crée une invitation : le jeton est généré ET haché côté serveur (aucune divergence
+ * possible entre le hachage navigateur et le hachage serveur). Le jeton en clair
+ * n'est retourné qu'une seule fois, à la création.
+ */
+export const createInvitation = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) =>
+    z.object({ establishment_id: z.string().uuid(), days: z.number().int().min(1).max(90).default(7) }).parse(data),
+  )
+  .handler(async ({ data, context }) => {
+    await assertDirectorGeneral(context as never);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const token = newToken();
+    const token_hash = await serverTokenHash(token);
+    const { data: row, error } = await supabaseAdmin
+      .from("invitations")
+      .insert({
+        token_hash,
+        establishment_id: data.establishment_id,
+        invited_by: context.userId,
+        expires_at: new Date(Date.now() + data.days * 86_400_000).toISOString(),
+      })
+      .select("id")
+      .single();
+    if (error) throw new Error(error.message);
+    return { id: row.id as string, token };
+  });
+
+/** Régénère le jeton d'une invitation en attente (le lien précédent devient invalide). */
+export const renewInvitation = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) =>
+    z.object({ id: z.string().uuid(), days: z.number().int().min(1).max(90).default(7) }).parse(data),
+  )
+  .handler(async ({ data, context }) => {
+    await assertDirectorGeneral(context as never);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const token = newToken();
+    const token_hash = await serverTokenHash(token);
+    const { error } = await supabaseAdmin
+      .from("invitations")
+      .update({ token_hash, expires_at: new Date(Date.now() + data.days * 86_400_000).toISOString(), accepted_at: null })
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { id: data.id, token };
+  });
+
+/** Supprime définitivement une invitation. */
+export const revokeInvitation = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data) => z.object({ id: z.string().uuid() }).parse(data))
+  .handler(async ({ data, context }) => {
+    await assertDirectorGeneral(context as never);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin.from("invitations").delete().eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true as const };
+  });

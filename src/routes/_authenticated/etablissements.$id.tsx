@@ -595,7 +595,7 @@ function TuitionTab({ establishmentId, data }: { establishmentId: string; data: 
           const paid = sum(data.tuitionPayments.filter((p) => p.student_id === student.id).map((p) => Number(p.amount)));
           const status = lateStatus(paid, insts);
           const expected = plan ? Number(plan.total_amount) : 0;
-          return { student, klass, plan, paid, expected, remaining: Math.max(0, expected - paid), status };
+          return { id: student.id, student, klass, plan, paid, expected, remaining: Math.max(0, expected - paid), status };
         })
         .sort((a, b) =>
           `${a.student.last_name}${a.student.first_name}`.localeCompare(`${b.student.last_name}${b.student.first_name}`),
@@ -1367,13 +1367,13 @@ function buildPeriodBuckets(period: Period, since: string) {
   const buckets: { key: string; label: string }[] = [];
   if (period === "year") {
     for (let m = start.getMonth(); m <= now.getMonth(); m++) {
-      buckets.push({ key: `${now.getFullYear()}-${String(m + 1).padStart(2, "0")}`, label: MONTH_SHORT[m] });
+      buckets.push({ key: `${now.getFullYear()}-${String(m + 1).padStart(2, "0")}`, label: MONTH_SHORT[m] ?? "" });
     }
   } else {
     const cursor = new Date(start);
     while (cursor <= now) {
       const key = cursor.toISOString().slice(0, 10);
-      const label = period === "week" ? WEEKDAY_SHORT[(cursor.getDay() + 6) % 7] : String(cursor.getDate());
+      const label = period === "week" ? (WEEKDAY_SHORT[(cursor.getDay() + 6) % 7] ?? "") : String(cursor.getDate());
       buckets.push({ key, label });
       cursor.setDate(cursor.getDate() + 1);
     }
