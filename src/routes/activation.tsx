@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { compressImage } from "@/lib/image";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { z } from "zod";
