@@ -57,7 +57,7 @@ export function AppSidebar() {
   const groups = isDG ? dgGroups : staffGroups;
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar collapsible="icon" className="border-sidebar-border/60">
       <SidebarHeader className="px-3 py-4">
         <div className="flex items-center gap-2.5">
           <span className="shine-gold flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-sidebar-primary font-display text-sm font-bold text-sidebar-primary-foreground">
@@ -87,6 +87,7 @@ export function AppSidebar() {
                       asChild
                       isActive={pathname === item.url || pathname.startsWith(item.url + "/")}
                       tooltip={item.title}
+                      className="group/menu-item relative transition-all duration-200 data-[active=true]:shadow-[inset_2px_0_0_0_var(--sidebar-primary)]"
                     >
                       <Link to={item.url} className="flex items-center gap-2">
                         <item.icon className="h-4 w-4 transition-transform duration-200 group-hover/menu-item:scale-110" />
