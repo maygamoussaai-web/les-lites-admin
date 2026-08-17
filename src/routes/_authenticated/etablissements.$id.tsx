@@ -76,9 +76,11 @@ import {
   formatDuration,
   PERIODS,
   periodStart,
+  currentWeekStart,
   type ClassRow,
   type TeacherAssignment,
   type Period,
+  type TeacherSessionCompletion,
 } from "@/lib/school";
 
 export const Route = createFileRoute("/_authenticated/etablissements/$id")({
