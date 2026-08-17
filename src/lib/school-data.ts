@@ -14,6 +14,7 @@ import {
   type TeacherAssignment,
   type TeacherPayment,
   type TeacherSession,
+  type TeacherSessionCompletion,
   type TuitionPayment,
 } from "@/lib/school";
 
@@ -33,6 +34,7 @@ export function useSchoolData() {
   const teachers = useRows<Teacher>("teachers", { order: { column: "last_name" } });
   const assignments = useRows<TeacherAssignment>("teacher_assignments");
   const sessions = useRows<TeacherSession>("teacher_sessions", { order: { column: "weekday" } });
+  const sessionCompletions = useRows<TeacherSessionCompletion>("teacher_session_completions");
   const teacherPayments = useRows<TeacherPayment>("teacher_payments", {
     order: { column: "paid_at", ascending: false },
   });
@@ -60,6 +62,7 @@ export function useSchoolData() {
     teachers: allTeachers.filter((t) => !t.archived_at),
     assignments: assignments.data ?? [],
     sessions: sessions.data ?? [],
+    sessionCompletions: sessionCompletions.data ?? [],
     teacherPayments: teacherPayments.data ?? [],
     // Recherches non filtrées — utilisées pour retrouver le NOM dans l'historique
     // (paiements, journal d'audit) même après archivage d'un élève ou d'un enseignant.
@@ -107,7 +110,10 @@ export function useEstablishmentStats(data: SchoolData, since?: string) {
       const estAssignments = data.assignments.filter(
         (a) => a.establishment_id === est.id && a.is_active && data.teachers.some((t) => t.id === a.teacher_id),
       );
-      const dueTeachers = estAssignments.reduce((acc, a) => acc + teacherDue(a, data.sessions), 0);
+      const dueTeachers = estAssignments.reduce(
+        (acc, a) => acc + teacherDue(a, data.sessions, data.sessionCompletions),
+        0,
+      );
       const paidTeachers = sum(
         data.teacherPayments
           .filter((p) => p.establishment_id === est.id && (!since || p.paid_at >= since))
