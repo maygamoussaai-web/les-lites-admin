@@ -60,7 +60,10 @@ import {
 } from "@/components/ui/select";
 import { useAdminProfile } from "@/hooks/use-auth";
 import { useSchoolData, useEstablishmentStats } from "@/lib/school-data";
-import { useSaveRow, useDeleteRow, useArchiveRow } from "@/lib/data";
+import { useSaveRow, useDeleteRow, useArchiveRow, writeAudit } from "@/lib/data";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 import { formatFCFA, formatDate, establishmentTypeLabel } from "@/lib/format";
 import {
   lateStatus,
