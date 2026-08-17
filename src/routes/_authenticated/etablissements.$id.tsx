@@ -1317,7 +1317,7 @@ function TeachersTab({
           {assignments.map((a, index) => {
             const teacher = data.teachers.find((t) => t.id === a.teacher_id);
             const sessions = data.sessions.filter((sx) => sx.assignment_id === a.id);
-            const due = teacherDue(a, data.sessions);
+  const due = teacherDue(a, data.sessions, data.sessionCompletions);
             const paid = sum(
               data.teacherPayments
                 .filter((p) => p.teacher_id === a.teacher_id && p.establishment_id === establishmentId)
