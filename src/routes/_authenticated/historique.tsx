@@ -38,7 +38,7 @@ function Page() {
   const { data: logs = [], isLoading } = useRows<Tables<"audit_logs">>("audit_logs", {
     order: { column: "created_at", ascending: false },
     limit: 300,
-    eq: scopedEstablishmentId ? { establishment_id: scopedEstablishmentId } : undefined,
+    ...(scopedEstablishmentId ? { eq: { establishment_id: scopedEstablishmentId } } : {}),
     enabled: isDG || !!profile?.establishment_id,
   });
 
