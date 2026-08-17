@@ -543,6 +543,57 @@ export type Database = {
           },
         ]
       }
+student_documents: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          establishment_id: string
+          file_path: string
+          file_size: number
+          file_type: string
+          id: string
+          name: string
+          student_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          establishment_id: string
+          file_path: string
+          file_size?: number
+          file_type: string
+          id?: string
+          name: string
+          student_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          establishment_id?: string
+          file_path?: string
+          file_size?: number
+          file_type?: string
+          id?: string
+          name?: string
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_documents_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_documents_establishment_id_fkey"
+            columns: ["establishment_id"]
+            isOneToOne: false
+            referencedRelation: "establishments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
 teacher_session_completions: {
         Row: {
           completed_at: string
