@@ -367,7 +367,7 @@ function Page() {
 
   const teacherOutstanding = sum(
     data.assignments.map((a) => {
-      const due = teacherDue(a, data.sessions);
+      const due = teacherDue(a, data.sessions, data.sessionCompletions);
       const paid = sum(
         data.teacherPayments
           .filter((p) => p.teacher_id === a.teacher_id && p.establishment_id === a.establishment_id)
