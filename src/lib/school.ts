@@ -9,6 +9,7 @@ export type TuitionPayment = Tables<"tuition_payments">;
 export type Teacher = Tables<"teachers">;
 export type TeacherAssignment = Tables<"teacher_assignments">;
 export type TeacherSession = Tables<"teacher_sessions">;
+export type TeacherSessionCompletion = Tables<"teacher_session_completions">;
 export type TeacherPayment = Tables<"teacher_payments">;
 
 export const WEEKDAYS = [
@@ -82,20 +83,43 @@ export function lateStatus(
   return { isLate: overdue > 0, overdueAmount: overdue, unpaidInstallments: unpaid };
 }
 
+/**
+ * Minutes cumulées validées pour un ensemble de séances, à partir de l'historique
+ * des validations hebdomadaires (chaque semaine cochée compte pour toujours, même
+ * si la case se réinitialise visuellement la semaine suivante).
+ */
+function cumulativeValidatedMinutes(
+  sessionIds: Set<string>,
+  sessions: TeacherSession[],
+  completions: TeacherSessionCompletion[],
+) {
+  return completions
+    .filter((c) => sessionIds.has(c.session_id))
+    .reduce((acc, c) => {
+      const session = sessions.find((s) => s.id === c.session_id);
+      return acc + (session?.duration_minutes ?? 0);
+    }, 0);
+}
+
 /** Montant dû à un enseignant pour un établissement donné. */
-export function teacherDue(assignment: TeacherAssignment, sessions: TeacherSession[]) {
+export function teacherDue(
+  assignment: TeacherAssignment,
+  sessions: TeacherSession[],
+  completions: TeacherSessionCompletion[],
+) {
   if (assignment.payment_method === "fixed_salary") return Number(assignment.salary_amount ?? 0);
-  const minutes = sessions
-    .filter((s) => s.assignment_id === assignment.id && s.is_done)
-    .reduce((acc, s) => acc + s.duration_minutes, 0);
+  const sessionIds = new Set(sessions.filter((s) => s.assignment_id === assignment.id).map((s) => s.id));
+  const minutes = cumulativeValidatedMinutes(sessionIds, sessions, completions);
   return (minutes / 60) * Number(assignment.hourly_rate ?? 0);
 }
 
-export function validatedHours(assignmentId: string, sessions: TeacherSession[]) {
-  const minutes = sessions
-    .filter((s) => s.assignment_id === assignmentId && s.is_done)
-    .reduce((acc, s) => acc + s.duration_minutes, 0);
-  return minutes / 60;
+export function validatedHours(
+  assignmentId: string,
+  sessions: TeacherSession[],
+  completions: TeacherSessionCompletion[],
+) {
+  const sessionIds = new Set(sessions.filter((s) => s.assignment_id === assignmentId).map((s) => s.id));
+  return cumulativeValidatedMinutes(sessionIds, sessions, completions) / 60;
 }
 
 export type Period = "week" | "month" | "year";
@@ -120,6 +144,9 @@ export function periodStart(period: Period, now = new Date()): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
+
+/** Lundi de la semaine en cours (YYYY-MM-DD) — sert de clé pour les cases à cocher. */
+export const currentWeekStart = (now = new Date()) => periodStart("week", now);
 
 export const ESTABLISHMENT_VISUALS: Record<
   string,
