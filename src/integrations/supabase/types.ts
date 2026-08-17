@@ -543,6 +543,41 @@ export type Database = {
           },
         ]
       }
+teacher_session_completions: {
+        Row: {
+          completed_at: string
+          completed_by: string | null
+          created_at: string
+          id: string
+          session_id: string
+          week_start: string
+        }
+        Insert: {
+          completed_at?: string
+          completed_by?: string | null
+          created_at?: string
+          id?: string
+          session_id: string
+          week_start: string
+        }
+        Update: {
+          completed_at?: string
+          completed_by?: string | null
+          created_at?: string
+          id?: string
+          session_id?: string
+          week_start?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "teacher_session_completions_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "teacher_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       teacher_sessions: {
         Row: {
           assignment_id: string
