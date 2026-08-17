@@ -43,7 +43,7 @@ export function useRows<T = any>(table: TableName, options: ListOptions = {}) {
  * - n'est jamais "await" par ses appelants (voir useSaveRow/useDeleteRow/useArchiveRow) :
  *   l'audit s'écrit en arrière-plan, l'utilisateur n'attend pas dessus.
  */
-async function writeAudit(action: string, table: TableName, entityId?: string | null, metadata: Record<string, unknown> = {}) {
+export async function writeAudit(action: string, table: TableName, entityId?: string | null, metadata: Record<string, unknown> = {}) {
   try {
     const { data } = await supabase.auth.getSession();
     const userId = data.session?.user.id;
