@@ -61,10 +61,10 @@ import {
 import { useAdminProfile } from "@/hooks/use-auth";
 import { useSchoolData, useEstablishmentStats } from "@/lib/school-data";
 import { useSaveRow, useDeleteRow, useArchiveRow, writeAudit, useRows } from "@/lib/data";
+import { formatFCFA, formatDate, establishmentTypeLabel } from "@/lib/format";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { formatFCFA, formatDate, establishmentTypeLabel } from "@/lib/format";
 import {
   lateStatus,
   sum,
@@ -361,8 +361,7 @@ function PlanDialog({
     setTranches((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
 
   // Enregistre le modèle et toutes ses tranches comme une seule action : un seul
-  // message de succès à la fin, un seul point d'échec géré, pas de notifications
-  // séparées par tranche.
+  // message de succès à la fin, un seul point d'échec géré.
   const submit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
@@ -708,16 +707,7 @@ function TuitionTab({ establishmentId, data }: { establishmentId: string; data: 
           const paid = sum(data.tuitionPayments.filter((p) => p.student_id === student.id).map((p) => Number(p.amount)));
           const status = lateStatus(paid, insts);
           const expected = plan ? Number(plan.total_amount) : 0;
-          return {
-            id: student.id,
-            student,
-            klass,
-            plan,
-            paid,
-            expected,
-            remaining: Math.max(0, expected - paid),
-            status,
-          };
+          return { student, klass, plan, paid, expected, remaining: Math.max(0, expected - paid), status };
         })
         .sort((a, b) =>
           `${a.student.last_name}${a.student.first_name}`.localeCompare(`${b.student.last_name}${b.student.first_name}`),
@@ -1183,7 +1173,7 @@ function TeacherPaymentDialog({
     setNote("");
   }, [open, assignment?.id]);
 
-  const due = assignment ? teacherDue(assignment, data.sessions) : 0;
+  const due = assignment ? teacherDue(assignment, data.sessions, data.sessionCompletions) : 0;
   const paidSoFar = assignment
     ? sum(
         data.teacherPayments
@@ -1317,7 +1307,7 @@ function TeachersTab({
           {assignments.map((a, index) => {
             const teacher = data.teachers.find((t) => t.id === a.teacher_id);
             const sessions = data.sessions.filter((sx) => sx.assignment_id === a.id);
-  const due = teacherDue(a, data.sessions, data.sessionCompletions);
+            const due = teacherDue(a, data.sessions, data.sessionCompletions);
             const paid = sum(
               data.teacherPayments
                 .filter((p) => p.teacher_id === a.teacher_id && p.establishment_id === establishmentId)
@@ -1351,8 +1341,8 @@ function TeachersTab({
                 <CardContent className="space-y-3">
                   <div className="grid grid-cols-3 gap-2 text-sm">
                     <div>
-                      <p className="text-xs text-muted-foreground">Heures validées</p>
-                      <p className="font-medium">{validatedHours(a.id, data.sessions).toFixed(1)} h</p>
+                      <p className="text-xs text-muted-foreground">Heures validées (cumulées)</p>
+                      <p className="font-medium">{validatedHours(a.id, data.sessions, data.sessionCompletions).toFixed(1)} h</p>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Dû</p>
@@ -1366,27 +1356,34 @@ function TeachersTab({
 
                   {a.payment_method === "hourly" && (
                     <div className="space-y-1.5">
-                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Emploi du temps</p>
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Emploi du temps — cases de la semaine en cours
+                      </p>
                       {sessions.length === 0 ? (
                         <p className="text-sm text-muted-foreground">Aucune séance planifiée.</p>
                       ) : (
-                        sessions.map((sx) => (
-                          <label
-                            key={sx.id}
-                            className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/30 px-2.5 py-2 text-sm transition-colors hover:bg-muted/60"
-                          >
-                            <Checkbox
-                              checked={sx.is_done}
-                              onCheckedChange={(v) => saveSession.mutate({ id: sx.id, values: { is_done: !!v } })}
-                            />
-                            <span className="flex-1 truncate">
-                              {sx.name} · {weekdayLabel(sx.weekday)} · {formatDuration(sx.duration_minutes)}
-                            </span>
-                            <Button variant="ghost" size="sm" onClick={() => removeSession.mutate(sx.id)}>
-                              Retirer
-                            </Button>
-                          </label>
-                        ))
+                        sessions.map((sx) => {
+                          const doneThisWeek = allCompletions.some(
+                            (c) => c.session_id === sx.id && c.week_start === week,
+                          );
+                          return (
+                            <label
+                              key={sx.id}
+                              className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/30 px-2.5 py-2 text-sm transition-colors hover:bg-muted/60"
+                            >
+                              <Checkbox
+                                checked={doneThisWeek}
+                                onCheckedChange={(v) => toggleSessionWeek(sx.id, !!v)}
+                              />
+                              <span className="flex-1 truncate">
+                                {sx.name} · {weekdayLabel(sx.weekday)} · {formatDuration(sx.duration_minutes)}
+                              </span>
+                              <Button variant="ghost" size="sm" onClick={() => removeSession.mutate(sx.id)}>
+                                Retirer
+                              </Button>
+                            </label>
+                          );
+                        })
                       )}
                     </div>
                   )}
@@ -1524,13 +1521,13 @@ function buildPeriodBuckets(period: Period, since: string) {
   const buckets: { key: string; label: string }[] = [];
   if (period === "year") {
     for (let m = start.getMonth(); m <= now.getMonth(); m++) {
-      buckets.push({ key: `${now.getFullYear()}-${String(m + 1).padStart(2, "0")}`, label: MONTH_SHORT[m] ?? "" });
+      buckets.push({ key: `${now.getFullYear()}-${String(m + 1).padStart(2, "0")}`, label: MONTH_SHORT[m] });
     }
   } else {
     const cursor = new Date(start);
     while (cursor <= now) {
       const key = cursor.toISOString().slice(0, 10);
-      const label = period === "week" ? (WEEKDAY_SHORT[(cursor.getDay() + 6) % 7] ?? "") : String(cursor.getDate());
+      const label = period === "week" ? WEEKDAY_SHORT[(cursor.getDay() + 6) % 7] : String(cursor.getDate());
       buckets.push({ key, label });
       cursor.setDate(cursor.getDate() + 1);
     }
