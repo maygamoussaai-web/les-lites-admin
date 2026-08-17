@@ -152,7 +152,7 @@ function Page() {
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-2">
+       <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="text-base">Résultats</CardTitle>
           </CardHeader>
@@ -163,6 +163,8 @@ function Page() {
             <Metric label="Moyenne annuelle" value={avg} highlight />
           </CardContent>
         </Card>
+
+        <StudentDocuments studentId={student.id} establishmentId={student.establishment_id} />
       </div>
 
       <div className="flex flex-wrap gap-2">
