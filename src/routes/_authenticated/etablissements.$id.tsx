@@ -1266,6 +1266,19 @@ function TeachersTab({
   const saveAssignment = useSaveRow("teacher_assignments", "Affectation");
   const saveSession = useSaveRow("teacher_sessions", "Séance");
   const removeSession = useDeleteRow("teacher_sessions", "Séance");
+  const { data: allCompletions = [] } = useRows<TeacherSessionCompletion>("teacher_session_completions");
+  const saveCompletion = useSaveRow("teacher_session_completions", "Séance");
+  const removeCompletion = useDeleteRow("teacher_session_completions", "Séance");
+  const week = currentWeekStart();
+
+  const toggleSessionWeek = (sessionId: string, checked: boolean) => {
+    const existing = allCompletions.find((c) => c.session_id === sessionId && c.week_start === week);
+    if (checked && !existing) {
+      saveCompletion.mutate({ values: { session_id: sessionId, week_start: week } });
+    } else if (!checked && existing) {
+      removeCompletion.mutate(existing.id);
+    }
+  };
 
   const [teacherOpen, setTeacherOpen] = useState(false);
   const [assignmentEdit, setAssignmentEdit] = useState<TeacherAssignment | null>(null);
