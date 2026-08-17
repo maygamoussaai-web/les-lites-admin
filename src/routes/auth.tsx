@@ -12,6 +12,8 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { initials } from "@/lib/format";
+import { ThemeToggle } from "@/components/app/theme-toggle";
+import { AuroraBackground } from "@/components/app/aurora-background";
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
@@ -110,14 +112,23 @@ function AuthPage() {
   const dgName = dg ? `${dg.last_name}` : "MAYGA";
 
   return (
-    <div className="grid min-h-screen lg:grid-cols-2">
+    <div className="relative grid min-h-screen lg:grid-cols-2">
+      <AuroraBackground intense />
+      <div className="absolute right-4 top-4 z-20">
+        <ThemeToggle />
+      </div>
       {/* Panneau de marque */}
       <div className="relative hidden flex-col justify-between overflow-hidden bg-sidebar p-10 text-sidebar-foreground lg:flex">
+        <div
+          aria-hidden
+          className="aurora-mesh pointer-events-none absolute inset-0 opacity-70"
+        />
+        <div aria-hidden className="grain pointer-events-none absolute inset-0" />
         <div aria-hidden className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-[oklch(0.78_0.16_85/18%)] blur-3xl animate-glow-pulse" />
         <div aria-hidden className="pointer-events-none absolute -bottom-32 -left-16 h-80 w-80 rounded-full bg-[oklch(0.78_0.16_85/12%)] blur-3xl animate-glow-pulse" style={{ animationDelay: "1.2s" }} />
 
-        <div className="relative flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-md bg-sidebar-primary font-display text-base font-bold text-sidebar-primary-foreground">
+        <div className="animate-rise relative flex items-center gap-3">
+          <span className="shine-gold flex h-11 w-11 items-center justify-center rounded-xl bg-sidebar-primary font-display text-base font-bold text-sidebar-primary-foreground">
             EG
           </span>
           <div>
@@ -126,8 +137,8 @@ function AuthPage() {
           </div>
         </div>
 
-        <div className="relative max-w-md space-y-5">
-          <div className="animate-emblem-float flex h-16 w-16 items-center justify-center rounded-2xl border border-sidebar-primary/40 bg-sidebar-primary/10 text-sidebar-primary shadow-lg">
+        <div className="stagger relative max-w-md space-y-5">
+          <div className="animate-emblem-float gold-ring flex h-16 w-16 items-center justify-center rounded-2xl border border-sidebar-primary/40 bg-sidebar-primary/10 text-sidebar-primary shadow-lg">
             <GraduationCap className="h-8 w-8" />
           </div>
           <h2 className="gold-underline font-display text-3xl font-semibold leading-tight">
@@ -153,7 +164,7 @@ function AuthPage() {
           </div>
 
           {mode === null && (
-            <Card>
+            <Card className="glass-panel card-lift animate-rise shadow-xl">
               <CardHeader className="text-center">
                 <CardTitle className="font-display text-2xl">LES ÉLITES DE GAO</CardTitle>
                 <CardDescription>Administration du complexe scolaire</CardDescription>
@@ -194,7 +205,7 @@ function AuthPage() {
           )}
 
           {mode === "dg" && (
-            <Card>
+            <Card className="glass-panel animate-rise shadow-xl">
               <CardHeader>
                 <Button variant="ghost" size="sm" className="mb-2 w-fit -ml-2" onClick={reset}>
                   <ArrowLeft className="mr-1 h-4 w-4" /> Retour
@@ -238,7 +249,7 @@ function AuthPage() {
           )}
 
           {mode === "staff" && !selectedStaff && (
-            <Card>
+            <Card className="glass-panel animate-rise shadow-xl">
               <CardHeader>
                 <Button variant="ghost" size="sm" className="mb-2 w-fit -ml-2" onClick={reset}>
                   <ArrowLeft className="mr-1 h-4 w-4" /> Retour
@@ -290,7 +301,7 @@ function AuthPage() {
           )}
 
           {mode === "staff" && selectedStaff && (
-            <Card>
+            <Card className="glass-panel animate-rise shadow-xl">
               <CardHeader>
                 <Button variant="ghost" size="sm" className="mb-2 w-fit -ml-2" onClick={backToStaffList}>
                   <ArrowLeft className="mr-1 h-4 w-4" /> Changer de compte

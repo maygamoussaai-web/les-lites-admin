@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAdminProfile, useOnlineStatus } from "@/hooks/use-auth";
 import { initials, roleLabel } from "@/lib/format";
+import { ThemeToggle } from "@/components/app/theme-toggle";
+import { AuroraBackground } from "@/components/app/aurora-background";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -31,18 +33,27 @@ function AuthenticatedLayout() {
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full bg-background">
+      <AuroraBackground />
+      <div className="flex min-h-screen w-full bg-transparent">
         <AppSidebar />
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-border bg-card/95 px-3 backdrop-blur">
+          <header className="glass-panel sticky top-0 z-20 flex h-14 items-center gap-2 border-x-0 border-t-0 px-3">
             <SidebarTrigger />
             <div className="flex-1" />
-            <Badge variant={online ? "secondary" : "destructive"} className="gap-1.5">
-              {online ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
+            <Badge
+              variant={online ? "secondary" : "destructive"}
+              className="hidden gap-1.5 transition-all duration-300 sm:inline-flex"
+            >
+              {online ? (
+                <Wifi className="h-3.5 w-3.5 text-success" />
+              ) : (
+                <WifiOff className="h-3.5 w-3.5" />
+              )}
               {online ? "En ligne" : "Hors ligne"}
             </Badge>
+            <ThemeToggle />
             <div className="hidden items-center gap-2 sm:flex">
-              <Avatar className="h-8 w-8">
+              <Avatar className="h-8 w-8 ring-1 ring-border transition-transform duration-200 hover:scale-105">
                 <AvatarFallback className="bg-primary/10 text-xs text-primary">
                   {initials(profile?.first_name, profile?.last_name)}
                 </AvatarFallback>
@@ -54,11 +65,17 @@ function AuthenticatedLayout() {
                 <p className="text-xs text-muted-foreground">{roleLabel(profile?.role)}</p>
               </div>
             </div>
-            <Button variant="ghost" size="icon" aria-label="Se déconnecter" onClick={signOut}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="press rounded-full"
+              aria-label="Se déconnecter"
+              onClick={signOut}
+            >
               <LogOut className="h-4 w-4" />
             </Button>
           </header>
-          <main className="mx-auto w-full max-w-7xl flex-1 space-y-6 p-4 sm:p-6">
+          <main className="animate-fade-soft mx-auto w-full max-w-7xl flex-1 space-y-6 p-4 sm:p-6">
             <Outlet />
           </main>
         </div>
