@@ -352,3 +352,126 @@
     transform: none;
   }
 }
+
+/* --- Arrière-plans ambiants premium --- */
+
+@keyframes drift-a {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  33% { transform: translate3d(6%, 4%, 0) scale(1.08); }
+  66% { transform: translate3d(-4%, 7%, 0) scale(0.96); }
+}
+
+@keyframes drift-b {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.02); }
+  50% { transform: translate3d(-7%, -5%, 0) scale(1.12); }
+}
+
+@keyframes mesh-shift {
+  0%, 100% { background-position: 0% 0%, 100% 0%, 50% 100%; }
+  50% { background-position: 10% 20%, 80% 15%, 45% 85%; }
+}
+
+.animate-drift-slow {
+  animation: drift-a 22s ease-in-out infinite;
+}
+.animate-drift-slower {
+  animation: drift-b 30s ease-in-out infinite;
+}
+
+.aurora-mesh {
+  background-image:
+    radial-gradient(60% 55% at 12% 8%, oklch(0.55 0.14 258 / 16%), transparent 70%),
+    radial-gradient(50% 50% at 92% 4%, oklch(0.78 0.16 85 / 12%), transparent 70%),
+    radial-gradient(60% 60% at 50% 108%, oklch(0.62 0.12 200 / 12%), transparent 70%);
+  background-repeat: no-repeat;
+  animation: mesh-shift 26s ease-in-out infinite;
+}
+.dark .aurora-mesh {
+  background-image:
+    radial-gradient(60% 55% at 12% 8%, oklch(0.60 0.16 258 / 24%), transparent 70%),
+    radial-gradient(50% 50% at 92% 4%, oklch(0.78 0.16 85 / 14%), transparent 70%),
+    radial-gradient(60% 60% at 50% 108%, oklch(0.55 0.14 200 / 18%), transparent 70%);
+}
+
+.grain {
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+.dark .grain {
+  opacity: 0.05;
+}
+
+/* --- Verre dépoli et bordures lumineuses --- */
+
+@utility glass-panel {
+  background: color-mix(in oklab, var(--color-card) 72%, transparent);
+  backdrop-filter: blur(18px) saturate(150%);
+  border: 1px solid color-mix(in oklab, var(--color-border) 80%, transparent);
+}
+
+@utility gold-ring {
+  box-shadow:
+    0 0 0 1px oklch(0.78 0.16 85 / 35%),
+    0 12px 30px -18px oklch(0.78 0.16 85 / 55%);
+}
+
+.sheen {
+  position: relative;
+  overflow: hidden;
+}
+.sheen::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(120deg, transparent 40%, oklch(1 0 0 / 22%) 50%, transparent 60%);
+  transform: translateX(-120%);
+  transition: transform 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+.sheen:hover::before {
+  transform: translateX(120%);
+}
+
+/* --- Chargement / apparition en cascade --- */
+
+@keyframes shimmer-bg {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklab, var(--color-muted) 100%, transparent) 25%,
+    color-mix(in oklab, var(--color-foreground) 8%, var(--color-muted)) 50%,
+    color-mix(in oklab, var(--color-muted) 100%, transparent) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer-bg 1.6s linear infinite;
+}
+
+.stagger > * {
+  animation: rise-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.stagger > *:nth-child(1) { animation-delay: 0.02s; }
+.stagger > *:nth-child(2) { animation-delay: 0.08s; }
+.stagger > *:nth-child(3) { animation-delay: 0.14s; }
+.stagger > *:nth-child(4) { animation-delay: 0.2s; }
+.stagger > *:nth-child(5) { animation-delay: 0.26s; }
+.stagger > *:nth-child(6) { animation-delay: 0.32s; }
+.stagger > *:nth-child(7) { animation-delay: 0.38s; }
+.stagger > *:nth-child(8) { animation-delay: 0.44s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-drift-slow,
+  .animate-drift-slower,
+  .aurora-mesh,
+  .skeleton-shimmer,
+  .stagger > * {
+    animation: none !important;
+  }
+  .sheen::before {
+    display: none;
+  }
+}
