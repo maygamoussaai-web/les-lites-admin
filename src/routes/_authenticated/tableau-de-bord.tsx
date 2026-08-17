@@ -228,7 +228,7 @@ function QuickTeacherPaymentDialog({ open, onClose, data }: { open: boolean; onC
 
   const assignment = assignments.find((a) => a.id === assignmentId) ?? null;
   const teacher = assignment ? data.teachers.find((t) => t.id === assignment.teacher_id) : null;
-  const due = assignment ? teacherDue(assignment, data.sessions) : 0;
+  const due = assignment ? teacherDue(assignment, data.sessions, data.sessionCompletions) : 0;
   const paidSoFar = assignment
     ? sum(
         data.teacherPayments
