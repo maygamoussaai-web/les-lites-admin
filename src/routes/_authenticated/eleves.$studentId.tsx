@@ -18,6 +18,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { StudentDocuments } from "@/components/school/student-documents";
 import { useAdminProfile } from "@/hooks/use-auth";
 import { useSaveRow, useArchiveRow } from "@/lib/data";
 import { useSchoolData } from "@/lib/school-data";
