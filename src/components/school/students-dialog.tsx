@@ -57,7 +57,8 @@ export function StudentsDialog({
   const paidOf = (studentId: string) =>
     sum(data.tuitionPayments.filter((p) => p.student_id === studentId).map((p) => Number(p.amount)));
 
-{
+  const columns: Column<Student>[] = [
+    {
       key: "name",
       header: "Élève",
       cell: (s) => (
@@ -109,6 +110,22 @@ export function StudentsDialog({
         );
       },
     },
+    {
+      key: "goto",
+      header: "",
+      className: "text-right",
+      cell: (s) => (
+        <Link
+          to="/eleves/$studentId"
+          params={{ studentId: s.id }}
+          onClick={(e) => e.stopPropagation()}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          aria-label="Ouvrir la fiche de l'élève"
+        >
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+      ),
+    },
   ];
 
   return (
@@ -117,8 +134,8 @@ export function StudentsDialog({
         <DialogHeader>
           <DialogTitle className="font-display">Élèves — {klass?.name}</DialogTitle>
           <DialogDescription>
-            {students.length} élève(s) sur une capacité de {klass?.capacity ?? 0}. Cliquez sur un élève pour ouvrir sa
-            fiche complète (modifier, transférer, supprimer, résultats).
+            {students.length} élève(s) sur une capacité de {klass?.capacity ?? 0}. Cliquez sur la flèche pour ouvrir la
+            fiche complète d'un élève (modifier, transférer, supprimer, résultats).
           </DialogDescription>
         </DialogHeader>
 
