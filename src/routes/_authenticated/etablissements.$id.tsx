@@ -324,9 +324,7 @@ function PlanDialog({
   establishmentId: string;
   onSaved: () => void;
 }) {
-  const savePlan = useSaveRow("fee_plans", "Modèle de scolarité");
-  const saveInstallment = useSaveRow("fee_plan_installments", "Tranche");
-  const removeInstallment = useDeleteRow("fee_plan_installments", "Tranche");
+  const qc = useQueryClient();
 
   const [name, setName] = useState("");
   const [total, setTotal] = useState("");
@@ -360,15 +358,30 @@ function PlanDialog({
   const updateTranche = (id: string, patch: Partial<TrancheDraft>) =>
     setTranches((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
 
+  // Enregistre le modèle et toutes ses tranches comme une seule action : un seul
+  // message de succès à la fin, un seul point d'échec géré, pas de notifications
+  // séparées par tranche.
   const submit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
     try {
-      const planRow = await savePlan.mutateAsync({
-        id: editingPlan?.id,
-        values: { name: name.trim(), total_amount: totalNum, establishment_id: establishmentId },
-      });
-      const planId = editingPlan?.id ?? (planRow as { id?: string } | null)?.id;
+      let planId = editingPlan?.id ?? null;
+
+      if (planId) {
+        const { error } = await supabase
+          .from("fee_plans")
+          .update({ name: name.trim(), total_amount: totalNum })
+          .eq("id", planId);
+        if (error) throw error;
+      } else {
+        const { data: created, error } = await supabase
+          .from("fee_plans")
+          .insert({ name: name.trim(), total_amount: totalNum, establishment_id: establishmentId })
+          .select()
+          .single();
+        if (error) throw error;
+        planId = created.id;
+      }
       if (!planId) throw new Error("Modèle non créé");
 
       if (editingPlan) {
@@ -376,26 +389,44 @@ function PlanDialog({
           installments.filter((i) => i.fee_plan_id === editingPlan.id).map((i) => i.id),
         );
         const keptIds = new Set(tranches.filter((t) => existingIds.has(t.id)).map((t) => t.id));
-        for (const oldId of existingIds) {
-          if (!keptIds.has(oldId)) await removeInstallment.mutateAsync(oldId);
+        const toDelete = [...existingIds].filter((id) => !keptIds.has(id));
+        if (toDelete.length) {
+          const { error } = await supabase.from("fee_plan_installments").delete().in("id", toDelete);
+          if (error) throw error;
         }
       }
 
       let position = 1;
       for (const t of tranches) {
         const isExisting = !!editingPlan && installments.some((i) => i.id === t.id && i.fee_plan_id === editingPlan.id);
-        await saveInstallment.mutateAsync({
-          id: isExisting ? t.id : undefined,
-          values: {
-            fee_plan_id: planId,
-            label: t.label.trim(),
-            amount: Number(t.amount),
-            due_date: t.due_date,
-            position: position++,
-          },
-        });
+        const payload = {
+          fee_plan_id: planId,
+          label: t.label.trim(),
+          amount: Number(t.amount),
+          due_date: t.due_date,
+          position: position++,
+        };
+        if (isExisting) {
+          const { error } = await supabase.from("fee_plan_installments").update(payload).eq("id", t.id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase.from("fee_plan_installments").insert(payload);
+          if (error) throw error;
+        }
       }
+
+      await writeAudit(editingPlan ? "update" : "create", "fee_plans", planId, {
+        name: name.trim(),
+        total_amount: totalNum,
+        tranches: tranches.length,
+      });
+
+      qc.invalidateQueries({ queryKey: ["fee_plans"] });
+      qc.invalidateQueries({ queryKey: ["fee_plan_installments"] });
+      toast.success(editingPlan ? "Modèle de scolarité modifié" : "Modèle de scolarité créé");
       onSaved();
+    } catch (e) {
+      toast.error((e as Error).message || "Enregistrement impossible");
     } finally {
       setSubmitting(false);
     }
@@ -408,6 +439,7 @@ function PlanDialog({
           <DialogTitle>{editingPlan ? "Modifier le modèle" : "Nouveau modèle de scolarité"}</DialogTitle>
           <DialogDescription>
             Définissez le montant total et ses tranches — la somme des tranches doit être égale au montant total.
+            Tout est enregistré en une seule fois.
           </DialogDescription>
         </DialogHeader>
 
@@ -472,7 +504,7 @@ function PlanDialog({
             Annuler
           </Button>
           <Button onClick={submit} disabled={!canSubmit}>
-            Enregistrer
+            {submitting ? "Enregistrement..." : "Enregistrer"}
           </Button>
         </DialogFooter>
       </DialogContent>
