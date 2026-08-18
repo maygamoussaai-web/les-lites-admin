@@ -41,11 +41,26 @@ export function useAdminProfile() {
     },
   });
 
+  // Établissements auxquels ce compte a accès (peut en avoir plusieurs).
+  const establishmentsQuery = useQuery({
+    queryKey: ["admin_profile_establishments", user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("admin_profile_establishments")
+        .select("establishment_id")
+        .eq("profile_id", user!.id);
+      if (error) throw error;
+      return (data ?? []).map((r) => r.establishment_id);
+    },
+  });
+
   return {
     user,
     loading: loading || (!!user && query.isLoading),
     profile: query.data ?? null,
     isDG: query.data?.role === "director_general",
+    establishmentIds: establishmentsQuery.data ?? [],
     refetch: query.refetch,
   };
 }
