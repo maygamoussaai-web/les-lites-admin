@@ -18,7 +18,7 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { isDG, profile } = useAdminProfile();
+  const { isDG } = useAdminProfile();
 
   const dgGroups = [
     {
@@ -39,15 +39,14 @@ export function AppSidebar() {
     },
   ];
 
+  // Le personnel peut avoir accès à un ou plusieurs établissements : on
+  // réutilise la même page "Établissements" que le DG — RLS limite
+  // automatiquement la liste aux établissements auxquels ce compte a accès.
   const staffGroups = [
     {
       label: "Mon établissement",
       items: [
-        {
-          title: "Gestion",
-          url: profile?.establishment_id ? `/etablissements/${profile.establishment_id}` : "/mon-compte",
-          icon: School,
-        },
+        { title: "Établissements", url: "/etablissements", icon: School },
         { title: "Historique", url: "/historique", icon: History },
         { title: "Mon compte", url: "/mon-compte", icon: UserCircle },
       ],
@@ -57,7 +56,7 @@ export function AppSidebar() {
   const groups = isDG ? dgGroups : staffGroups;
 
   return (
-    <Sidebar collapsible="icon" className="border-sidebar-border/60">
+    <Sidebar collapsible="icon">
       <SidebarHeader className="px-3 py-4">
         <div className="flex items-center gap-2.5">
           <span className="shine-gold flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-sidebar-primary font-display text-sm font-bold text-sidebar-primary-foreground">
@@ -87,7 +86,6 @@ export function AppSidebar() {
                       asChild
                       isActive={pathname === item.url || pathname.startsWith(item.url + "/")}
                       tooltip={item.title}
-                      className="group/menu-item relative transition-all duration-200 data-[active=true]:shadow-[inset_2px_0_0_0_var(--sidebar-primary)]"
                     >
                       <Link to={item.url} className="flex items-center gap-2">
                         <item.icon className="h-4 w-4 transition-transform duration-200 group-hover/menu-item:scale-110" />
