@@ -86,6 +86,8 @@ export function StudentDocuments({
     try {
       let file = pendingFile;
       if (file.type.startsWith("image/") && file.type !== "image/gif") {
+        // Compression + conversion systématique en JPEG (image plus légère,
+        // et format unique dont on sait toujours lire les dimensions).
         file = await compressImage(file, 1600, 0.85);
       }
       if (file.size > MAX_SIZE) {
@@ -145,7 +147,7 @@ export function StudentDocuments({
         const blob = await res.blob();
         downloadBlob(blob, `${doc.name}.pdf`);
       } else {
-        const blob = await imageToPdfBlob(data.signedUrl, doc.file_type);
+        const blob = await imageToPdfBlob(data.signedUrl);
         downloadBlob(blob, `${doc.name}.pdf`);
       }
     } catch (e) {
