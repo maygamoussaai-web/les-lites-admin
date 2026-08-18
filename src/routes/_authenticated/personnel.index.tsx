@@ -93,7 +93,18 @@ function Page() {
       ),
     },
     { key: "role", header: "Rôle", cell: (r) => <Badge variant={r.role === "director_general" ? "default" : "secondary"}>{roleLabel(r.role)}</Badge> },
-    { key: "est", header: "Établissement", cell: (r) => establishments.find((e) => e.id === r.establishment_id)?.name ?? "Tout le complexe" },
+   {
+      key: "est",
+      header: "Établissement(s)",
+      cell: (r) => {
+        if (r.role === "director_general") return "Tout le complexe";
+        const ids = membershipsByProfile.get(r.id) ?? [];
+        const names = ids.map((eid) => establishments.find((e) => e.id === eid)?.name).filter(Boolean) as string[];
+        if (names.length === 0) return "Aucun";
+        if (names.length === 1) return names[0];
+        return `${names[0]} +${names.length - 1}`;
+      },
+    },
     { key: "active", header: "Accès", cell: (r) => <span className="text-sm">{r.is_active ? "Actif" : "Désactivé"}</span> },
     { key: "created", header: "Créé le", cell: (r) => formatDateTime(r.created_at) },
   ];
