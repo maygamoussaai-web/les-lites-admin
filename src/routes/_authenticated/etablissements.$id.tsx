@@ -99,12 +99,12 @@ export const Route = createFileRoute("/_authenticated/etablissements/$id")({
 
 function Page() {
   const { id } = Route.useParams();
-  const { isDG, profile } = useAdminProfile();
+  const { isDG, establishmentIds } = useAdminProfile();
   const data = useSchoolData();
   const stats = useEstablishmentStats(data);
   const est = data.establishments.find((e) => e.id === id);
   const s = stats.get(id);
-  const allowed = isDG || profile?.establishment_id === id;
+  const allowed = isDG || establishmentIds.includes(id);
 
   if (!data.loading && (!est || !allowed)) {
     return (
