@@ -42,6 +42,16 @@ function Page() {
     order: { column: "created_at", ascending: false },
     enabled: isDG,
   });
+  const { data: memberships = [] } = useRows<{ profile_id: string; establishment_id: string }>(
+    "admin_profile_establishments",
+  );
+
+  const membershipsByProfile = new Map<string, string[]>();
+  for (const m of memberships) {
+    const list = membershipsByProfile.get(m.profile_id) ?? [];
+    list.push(m.establishment_id);
+    membershipsByProfile.set(m.profile_id, list);
+  }
 
   const invite = useMutation({
     mutationFn: async (values: Record<string, any>) => {
@@ -86,14 +96,14 @@ function Page() {
             </AvatarFallback>
           </Avatar>
           <div>
-            <p className="font-medium">{r.last_name} {r.first_name}</p>
+            <p className="font-medium text-foreground">{r.last_name} {r.first_name}</p>
             <p className="text-xs text-muted-foreground">{r.phone ?? "—"}</p>
           </div>
         </div>
       ),
     },
     { key: "role", header: "Rôle", cell: (r) => <Badge variant={r.role === "director_general" ? "default" : "secondary"}>{roleLabel(r.role)}</Badge> },
-   {
+    {
       key: "est",
       header: "Établissement(s)",
       cell: (r) => {
@@ -169,7 +179,7 @@ function Page() {
         open={open}
         onOpenChange={setOpen}
         title="Inviter un membre du personnel"
-        description="Le lien généré permet d'activer un compte rattaché à un seul établissement."
+        description="Le lien généré permet d'activer un compte rattaché à un seul établissement. Vous pourrez lui en ajouter d'autres ensuite depuis sa fiche."
         submitting={invite.isPending}
         onSubmit={(v) => invite.mutate(v)}
         fields={[
