@@ -14,6 +14,39 @@ export type Database = {
   }
   public: {
     Tables: {
+admin_profile_establishments: {
+        Row: {
+          created_at: string
+          establishment_id: string
+          profile_id: string
+        }
+        Insert: {
+          created_at?: string
+          establishment_id: string
+          profile_id: string
+        }
+        Update: {
+          created_at?: string
+          establishment_id?: string
+          profile_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admin_profile_establishments_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "admin_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admin_profile_establishments_establishment_id_fkey"
+            columns: ["establishment_id"]
+            isOneToOne: false
+            referencedRelation: "establishments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       admin_profiles: {
         Row: {
           avatar_url: string | null
