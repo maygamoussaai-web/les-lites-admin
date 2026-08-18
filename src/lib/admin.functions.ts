@@ -77,7 +77,7 @@ export const listStaffAccounts = createServerFn({ method: "GET" }).handler(async
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data, error } = await supabaseAdmin
     .from("admin_profiles")
-    .select("id, first_name, last_name, avatar_url, establishment_id, establishments(name)")
+    .select("id, first_name, last_name, avatar_url, establishment_id, establishments!establishment_id(name)")
     .eq("role", "administrative_staff")
     .eq("is_active", true)
     .order("last_name");
