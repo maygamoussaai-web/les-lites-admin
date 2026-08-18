@@ -27,19 +27,17 @@ export const Route = createFileRoute("/_authenticated/historique")({
 });
 
 function Page() {
-  const { isDG, profile } = useAdminProfile();
+ const { isDG, establishmentIds } = useAdminProfile();
   const [establishmentFilter, setEstablishmentFilter] = useState("");
 
   const { data: establishments = [] } = useRows<Tables<"establishments">>("establishments", { order: { column: "name" } });
   const { data: admins = [] } = useRows<Tables<"admin_profiles">>("admin_profiles");
 
-  const scopedEstablishmentId = isDG ? establishmentFilter || undefined : profile?.establishment_id ?? undefined;
-
   const { data: logs = [], isLoading } = useRows<Tables<"audit_logs">>("audit_logs", {
     order: { column: "created_at", ascending: false },
     limit: 300,
-    ...(scopedEstablishmentId ? { eq: { establishment_id: scopedEstablishmentId } } : {}),
-    enabled: isDG || !!profile?.establishment_id,
+    eq: isDG && establishmentFilter ? { establishment_id: establishmentFilter } : undefined,
+    enabled: isDG || establishmentIds.length > 0,
   });
 
   const adminsById = new Map(admins.map((a) => [a.id, a]));
