@@ -72,15 +72,22 @@ export async function imageToPdfBlob(imageUrl: string): Promise<Blob> {
 
   return new Blob(parts, { type: "application/pdf" });
 }
-
-/** Déclenche le téléchargement d'un blob dans le navigateur. */
+/**
+ * Ouvre le PDF dans un nouvel onglet (le lecteur PDF du navigateur propose
+ * alors l'enregistrement) — plus fiable que le téléchargement forcé, qui est
+ * souvent ignoré silencieusement sur mobile et dans les PWA.
+ */
 export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  const win = window.open(url, "_blank", "noopener,noreferrer");
+  if (!win) {
+    // Si la fenêtre a été bloquée (rare), on retente via un lien classique.
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
