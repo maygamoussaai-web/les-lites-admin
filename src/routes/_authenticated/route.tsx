@@ -15,8 +15,14 @@ export const Route = createFileRoute("/_authenticated")({
   ssr: false,
   beforeLoad: async () => {
     const { data, error } = await supabase.auth.getUser();
-    if (error || !data.user) throw redirect({ to: "/auth" });
-    return { user: data.user };
+    if (!error && data.user) return { user: data.user };
+    // Hors ligne (ou erreur réseau ponctuelle) : getUser() a échoué faute de
+    // pouvoir joindre Supabase. On retombe sur la session déjà en mémoire
+    // (getSession() ne fait aucun appel réseau) plutôt que de déconnecter
+    // l'utilisateur — sinon l'app hors ligne renverrait tout le monde vers /auth.
+    const { data: sessionData } = await supabase.auth.getSession();
+    if (sessionData.session?.user) return { user: sessionData.session.user };
+    throw redirect({ to: "/auth" });
   },
   component: AuthenticatedLayout,
 });
