@@ -146,20 +146,11 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    // On passe par le module virtuel du plugin plutôt que par un chemin
-    // codé en dur : le fichier du service worker ne s'appelle pas pareil
-    // (ni ne se trouve au même endroit) en aperçu/dev qu'après un build de
-    // production, et ce module choisit le bon automatiquement.
-    import("virtual:pwa-register")
-      .then(({ registerSW }) => {
-        registerSW({
-          immediate: true,
-          onRegisteredSW: (swUrl) => console.info("[PWA] Service worker actif :", swUrl),
-          onRegisterError: (err) => console.error("[PWA] Échec d'enregistrement du service worker :", err),
-        });
-      })
-      .catch((err) => console.error("[PWA] Module de service worker introuvable :", err));
+    if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+    navigator.serviceWorker
+      .register("/sw.js")
+      .then((reg) => console.info("[SW] Enregistré :", reg.scope))
+      .catch((err) => console.error("[SW] Échec d'enregistrement :", err));
   }, []);
 
   return (
