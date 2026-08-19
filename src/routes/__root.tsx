@@ -145,6 +145,14 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
 
+  useEffect(() => {
+    if (typeof window === "undefined" || !("serviceWorker" in navigator)) return;
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      /* Pas de service worker disponible (ex. navigateur ancien) : l'app
+         continue de fonctionner normalement, simplement sans cache offline. */
+    });
+  }, []);
+
   return (
     <PersistQueryClientProvider
       client={queryClient}
