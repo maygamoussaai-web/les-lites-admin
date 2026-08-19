@@ -38,7 +38,7 @@ export const Route = createFileRoute("/_authenticated/eleves/$studentId")({
 function Page() {
   const { studentId } = Route.useParams();
   const navigate = useNavigate();
-  const { isDG, profile } = useAdminProfile();
+const { isDG, establishmentIds } = useAdminProfile();
   const data = useSchoolData();
   const save = useSaveRow("students", "Élève");
   const saveTransfer = useSaveRow("student_transfers", "Transfert");
@@ -47,7 +47,7 @@ function Page() {
   const [transferOpen, setTransferOpen] = useState(false);
 
   const student = data.students.find((s) => s.id === studentId);
-  const allowed = student && (isDG || profile?.establishment_id === student.establishment_id);
+const allowed = student && (isDG || establishmentIds.includes(student.establishment_id));
 
   if (!data.loading && (!student || !allowed)) {
     return (
