@@ -45,7 +45,7 @@ function AuthenticatedLayout() {
         <AppSidebar />
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="glass-panel sticky top-0 z-20 flex h-14 items-center gap-2 border-x-0 border-t-0 px-3">
-            <<SidebarTrigger />
+            <SidebarTrigger />
             <div className="flex-1" />
             <OfflineSyncIndicator />
             <Badge
