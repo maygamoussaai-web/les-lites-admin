@@ -54,7 +54,7 @@ export function OfflineSyncIndicator() {
       <Button
         variant="ghost"
         size="sm"
-        className="press hidden gap-1.5 sm:inline-flex"
+   className="press inline-flex gap-1.5"
         onClick={() => setOpen(true)}
       >
         {hasError ? (
