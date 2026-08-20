@@ -45,11 +45,17 @@ function isOnline() {
 
 /**
  * Applique un changement immédiatement à toutes les listes déjà en cache pour
- * cette table. Volontairement non générique (any[]) : le typage générique
- * inféré depuis un callback anonyme posait problème à la compilation.
+ * cette table — passe par getQueryCache().findAll + setQueryData plutôt que
+ * setQueriesData pour éviter toute ambiguïté de typage générique.
  */
 function applyOptimistic(qc: QueryClient, table: TableName, updater: (rows: any[]) => any[]) {
-  qc.setQueriesData({ queryKey: [table] }, (old: unknown) => (Array.isArray(old) ? updater(old) : old));
+  const queries = qc.getQueryCache().findAll({ queryKey: [table] });
+  for (const query of queries) {
+    const old = query.state.data;
+    if (Array.isArray(old)) {
+      qc.setQueryData(query.queryKey, updater(old));
+    }
+  }
 }
 
 function offlineErrorMessage(fallback: string) {
