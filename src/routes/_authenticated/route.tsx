@@ -48,9 +48,9 @@ function AuthenticatedLayout() {
             <SidebarTrigger />
             <div className="flex-1" />
             <OfflineSyncIndicator />
-            <Badge
+           <Badge
               variant={online ? "secondary" : "destructive"}
-              className="hidden gap-1.5 transition-all duration-300 sm:inline-flex"
+              className="inline-flex gap-1.5 transition-all duration-300"
             >
               {online ? (
                 <Wifi className="h-3.5 w-3.5 text-success" />
