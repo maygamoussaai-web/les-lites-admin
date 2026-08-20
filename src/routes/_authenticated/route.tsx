@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAdminProfile, useOnlineStatus } from "@/hooks/use-auth";
+import { OfflineSyncIndicator } from "@/components/app/offline-sync-indicator";
 import { initials, roleLabel } from "@/lib/format";
 import { ThemeToggle } from "@/components/app/theme-toggle";
 import { AuroraBackground } from "@/components/app/aurora-background";
