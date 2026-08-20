@@ -14,6 +14,8 @@ import {
   Minimize2,
   ArrowLeft,
   Pencil,
+  BarChart3,
+  RotateCcw,
 } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
