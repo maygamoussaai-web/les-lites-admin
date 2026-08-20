@@ -1,9 +1,12 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import type { Database } from "@/integrations/supabase/types";
+import { enqueue } from "@/lib/offline-queue";
+import { flushQueue } from "@/lib/offline-sync";
+import type { TableName } from "@/lib/audit";
 
-export type TableName = keyof Database["public"]["Tables"];
+export type { TableName };
+export { writeAudit } from "@/lib/audit";
 
 type ListOptions = {
   select?: string;
@@ -36,91 +39,78 @@ export function useRows<T = any>(table: TableName, options: ListOptions = {}) {
   });
 }
 
-/**
- * Écrit une entrée d'audit sans jamais bloquer l'opération appelante :
- * - utilise la session déjà en mémoire (getSession) plutôt qu'un aller-retour
- *   réseau de revalidation (getUser), nettement plus rapide ;
- * - n'est jamais "await" par ses appelants (voir useSaveRow/useDeleteRow/useArchiveRow) :
- *   l'audit s'écrit en arrière-plan, l'utilisateur n'attend pas dessus.
- */
-export async function writeAudit(action: string, table: TableName, entityId?: string | null, metadata: Record<string, unknown> = {}) {
-  try {
-    const { data } = await supabase.auth.getSession();
-    const userId = data.session?.user.id;
-    if (!userId) return;
-    await supabase.from("audit_logs").insert({
-      actor_id: userId,
-      action,
-      entity_type: table,
-      entity_id: entityId ?? null,
-      metadata: metadata as never,
-    });
-  } catch {
-    /* audit ne doit jamais bloquer l'opération */
-  }
+function isOnline() {
+  return typeof navigator === "undefined" || navigator.onLine;
+}
+
+/** Applique un changement immédiatement à toutes les listes déjà en cache pour cette table. */
+function applyOptimistic<T extends { id: string }>(
+  qc: QueryClient,
+  table: TableName,
+  updater: (rows: T[]) => T[],
+) {
+  qc.setQueriesData({ queryKey: [table] }, (old: unknown) => (Array.isArray(old) ? updater(old as T[]) : old));
+}
+
+function offlineErrorMessage(fallback: string) {
+  return isOnline() ? fallback : undefined;
 }
 
 export function useSaveRow(table: TableName, label = "Enregistrement") {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, values }: { id?: string | null | undefined; values: Record<string, unknown> }) => {
-      if (id) {
-        const { data, error } = await supabase.from(table).update(values as never).eq("id", id).select().maybeSingle();
-        if (error) throw error;
-        void writeAudit("update", table, id, values);
-        return data;
-      }
-      const { data, error } = await supabase.from(table).insert(values as never).select().maybeSingle();
-      if (error) throw error;
-      void writeAudit("create", table, (data as { id?: string } | null)?.id, values);
-      return data;
+    mutationFn: async ({ id, values }: { id?: string | null; values: Record<string, unknown> }) => {
+      const rowId = id ?? crypto.randomUUID();
+      const op: "insert" | "update" = id ? "update" : "insert";
+
+      applyOptimistic(qc, table, (rows) =>
+        op === "update"
+          ? rows.map((r) => (r.id === rowId ? { ...r, ...values } : r))
+          : [...rows, { id: rowId, ...values } as never],
+      );
+
+      enqueue({ id: crypto.randomUUID(), table, op, rowId, values, createdAt: Date.now(), label });
+
+      if (isOnline()) await flushQueue(qc);
+      return { id: rowId, ...values };
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: [table] });
-      toast.success(`${label} enregistré`);
+      toast.success(isOnline() ? `${label} enregistré` : `${label} enregistré — en attente de connexion`);
     },
-    onError: (error: Error) => toast.error(error.message || "Échec de l'enregistrement"),
+    onError: (error: Error) => toast.error(offlineErrorMessage(error.message) ?? "Échec de l'enregistrement"),
   });
 }
 
 export function useDeleteRow(table: TableName, label = "Élément") {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase.from(table).delete().eq("id", id);
-      if (error) throw error;
-      void writeAudit("delete", table, id);
-      return id;
+    mutationFn: async (rowId: string) => {
+      applyOptimistic(qc, table, (rows) => rows.filter((r) => r.id !== rowId));
+      enqueue({ id: crypto.randomUUID(), table, op: "delete", rowId, createdAt: Date.now(), label });
+      if (isOnline()) await flushQueue(qc);
+      return rowId;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: [table] });
-      toast.success(`${label} supprimé`);
-    },
-    onError: (error: Error) => toast.error(error.message || "Suppression impossible"),
+    onSuccess: () => toast.success(isOnline() ? `${label} supprimé` : `${label} supprimé — en attente de connexion`),
+    onError: (error: Error) => toast.error(offlineErrorMessage(error.message) ?? "Suppression impossible"),
   });
 }
 
 /**
  * Archive une ligne (soft-delete) au lieu de la supprimer définitivement.
- * Utilisé pour students et teachers : ils disparaissent des listes actives
- * mais restent en base pour l'historique (transferts, paiements, audit).
+ * Utilisé pour students et teachers.
  */
 export function useArchiveRow(table: TableName, label = "Élément") {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from(table)
-        .update({ archived_at: new Date().toISOString() } as never)
-        .eq("id", id);
-      if (error) throw error;
-      void writeAudit("archive", table, id);
-      return id;
+    mutationFn: async (rowId: string) => {
+      applyOptimistic(qc, table, (rows) =>
+        rows.map((r) => (r.id === rowId ? { ...r, archived_at: new Date().toISOString() } : r)),
+      );
+      enqueue({ id: crypto.randomUUID(), table, op: "archive", rowId, createdAt: Date.now(), label });
+      if (isOnline()) await flushQueue(qc);
+      return rowId;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: [table] });
-      toast.success(`${label} archivé`);
-    },
-    onError: (error: Error) => toast.error(error.message || "Archivage impossible"),
+    onSuccess: () => toast.success(isOnline() ? `${label} archivé` : `${label} archivé — en attente de connexion`),
+    onError: (error: Error) => toast.error(offlineErrorMessage(error.message) ?? "Archivage impossible"),
   });
 }
