@@ -6,6 +6,7 @@ import { StatCard } from "@/components/app/stat-card";
 import { EmptyState } from "@/components/app/empty-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { useAdminProfile } from "@/hooks/use-auth";
 import { useSchoolData } from "@/lib/school-data";
 import { generalAverage } from "@/lib/school";
