@@ -141,43 +141,49 @@ function Page() {
       {rows.length === 0 && !data.loading ? (
         <EmptyState icon={Users} title="Aucun élève" description="Cette classe n'a pas encore d'élève." />
       ) : (
-        <div className="overflow-hidden rounded-xl border border-border">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <tr>
-                <th className="p-3">#</th>
-                <th className="p-3">Élève</th>
-                <th className="p-3">T1</th>
-                <th className="p-3">T2</th>
-                <th className="p-3">T3</th>
-                <th className="p-3">Moyenne générale</th>
-                <th className="p-3">Statut</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, index) => (
-                <tr key={r.student.id} className="animate-rise border-t border-border" style={{ animationDelay: `${Math.min(index, 15) * 30}ms` }}>
-                  <td className="p-3 text-muted-foreground">{index + 1}</td>
-                  <td className="p-3 font-medium">
-                    {r.student.last_name} {r.student.first_name}
-                  </td>
-                  <td className="p-3">{r.student.term1_average ?? "—"}</td>
-                  <td className="p-3">{r.student.term2_average ?? "—"}</td>
-                  <td className="p-3">{r.student.term3_average ?? "—"}</td>
-                  <td className="p-3 font-medium">{r.average !== null ? formatNumber(r.average, 2) : "—"}</td>
-                  <td className="p-3">
-                    {r.average === null ? (
-                      <Badge variant="outline">Incomplet</Badge>
-                    ) : r.average >= 10 ? (
-                      <Badge>Admis</Badge>
-                    ) : (
-                      <Badge variant="destructive">Non admis</Badge>
-                    )}
-                  </td>
+        <div className="rounded-xl border border-border">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <tr>
+                  <th className="p-3">#</th>
+                  <th className="p-3">Élève</th>
+                  <th className="p-3">T1</th>
+                  <th className="p-3">T2</th>
+                  <th className="p-3">T3</th>
+                  <th className="p-3">Moyenne générale</th>
+                  <th className="p-3">Statut</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((r, index) => (
+                  <tr
+                    key={r.student.id}
+                    className="animate-rise border-t border-border"
+                    style={{ animationDelay: `${Math.min(index, 15) * 30}ms` }}
+                  >
+                    <td className="p-3 text-muted-foreground">{index + 1}</td>
+                    <td className="p-3 font-medium">
+                      {r.student.last_name} {r.student.first_name}
+                    </td>
+                    <td className="p-3">{r.student.term1_average ?? "—"}</td>
+                    <td className="p-3">{r.student.term2_average ?? "—"}</td>
+                    <td className="p-3">{r.student.term3_average ?? "—"}</td>
+                    <td className="p-3 font-medium">{r.average !== null ? formatNumber(r.average, 2) : "—"}</td>
+                    <td className="p-3">
+                      {r.average === null ? (
+                        <Badge variant="outline">Incomplet</Badge>
+                      ) : r.average >= 10 ? (
+                        <Badge>Admis</Badge>
+                      ) : (
+                        <Badge variant="destructive">Non admis</Badge>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </>
