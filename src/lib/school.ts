@@ -38,6 +38,20 @@ export function annualAverage(student: Pick<Student, "term1_average" | "term2_av
   return (Number(values[0]) + Number(values[1]) + Number(values[2])) / 3;
 }
 
+/**
+ * Moyenne générale : basée sur les trimestres déjà renseignés, quel que soit
+ * leur nombre (1, 2 ou 3) — somme divisée par le nombre de trimestres remplis.
+ * Utilisée pour les statistiques de résultats de classe (qui ne doivent pas
+ * attendre que les 3 trimestres soient saisis pour donner une indication).
+ */
+export function generalAverage(student: Pick<Student, "term1_average" | "term2_average" | "term3_average">) {
+  const values = [student.term1_average, student.term2_average, student.term3_average].filter(
+    (v): v is number => v !== null && v !== undefined,
+  );
+  if (values.length === 0) return null;
+  return values.reduce((acc, v) => acc + Number(v), 0) / values.length;
+}
+
 export const sum = (values: (number | null | undefined)[]) =>
   values.reduce<number>((acc, v) => acc + Number(v ?? 0), 0);
 
