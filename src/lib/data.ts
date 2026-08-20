@@ -43,13 +43,13 @@ function isOnline() {
   return typeof navigator === "undefined" || navigator.onLine;
 }
 
-/** Applique un changement immédiatement à toutes les listes déjà en cache pour cette table. */
-function applyOptimistic<T extends { id: string }>(
-  qc: QueryClient,
-  table: TableName,
-  updater: (rows: T[]) => T[],
-) {
-  qc.setQueriesData({ queryKey: [table] }, (old: unknown) => (Array.isArray(old) ? updater(old as T[]) : old));
+/**
+ * Applique un changement immédiatement à toutes les listes déjà en cache pour
+ * cette table. Volontairement non générique (any[]) : le typage générique
+ * inféré depuis un callback anonyme posait problème à la compilation.
+ */
+function applyOptimistic(qc: QueryClient, table: TableName, updater: (rows: any[]) => any[]) {
+  qc.setQueriesData({ queryKey: [table] }, (old: unknown) => (Array.isArray(old) ? updater(old) : old));
 }
 
 function offlineErrorMessage(fallback: string) {
@@ -66,7 +66,7 @@ export function useSaveRow(table: TableName, label = "Enregistrement") {
       applyOptimistic(qc, table, (rows) =>
         op === "update"
           ? rows.map((r) => (r.id === rowId ? { ...r, ...values } : r))
-          : [...rows, { id: rowId, ...values } as never],
+          : [...rows, { id: rowId, ...values }],
       );
 
       enqueue({ id: crypto.randomUUID(), table, op, rowId, values, createdAt: Date.now(), label });
