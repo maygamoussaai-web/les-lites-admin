@@ -123,6 +123,21 @@ function Page() {
         </div>
       )}
 
+      {withAverage.length > 0 && (
+        <div className="rounded-xl border border-border bg-card p-4">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-sm font-medium text-foreground">Taux de réussite</p>
+            <p className="text-sm font-semibold text-foreground">
+              {Math.round((passing / withAverage.length) * 100)}%
+              <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                ({passing} / {withAverage.length} admis)
+              </span>
+            </p>
+          </div>
+          <Progress value={(passing / withAverage.length) * 100} className="h-2.5" />
+        </div>
+      )}
+
       {rows.length === 0 && !data.loading ? (
         <EmptyState icon={Users} title="Aucun élève" description="Cette classe n'a pas encore d'élève." />
       ) : (
