@@ -170,9 +170,12 @@ type Data = ReturnType<typeof useSchoolData>;
 function ClassesTab({ establishmentId, data }: { establishmentId: string; data: Data }) {
   const save = useSaveRow("classes", "Classe");
   const remove = useDeleteRow("classes", "Classe");
+  const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<ClassRow | null>(null);
   const [viewing, setViewing] = useState<ClassRow | null>(null);
+  const [renewing, setRenewing] = useState<ClassRow | null>(null);
+  const [renewBusy, setRenewBusy] = useState(false);
 
   const rows = data.classes.filter((c) => c.establishment_id === establishmentId);
   const plans = data.feePlans.filter((p) => p.establishment_id === establishmentId);
@@ -188,6 +191,36 @@ function ClassesTab({ establishmentId, data }: { establishmentId: string; data: 
     },
     { name: "is_active", label: "Active", type: "switch" },
   ];
+
+  const renewingStudentIds = renewing ? data.students.filter((s) => s.class_id === renewing.id).map((s) => s.id) : [];
+
+  const renewClass = async () => {
+    if (!renewing) return;
+    setRenewBusy(true);
+    try {
+      if (renewingStudentIds.length) {
+        const { error: payError } = await supabase.from("tuition_payments").delete().in("student_id", renewingStudentIds);
+        if (payError) throw payError;
+        const { error: studError } = await supabase
+          .from("students")
+          .update({ class_id: null })
+          .in("id", renewingStudentIds);
+        if (studError) throw studError;
+      }
+      await writeAudit("update", "classes", renewing.id, {
+        renewed: true,
+        students_detached: renewingStudentIds.length,
+      });
+      qc.invalidateQueries({ queryKey: ["students"] });
+      qc.invalidateQueries({ queryKey: ["tuition_payments"] });
+      toast.success(`Classe "${renewing.name}" renouvelée`);
+      setRenewing(null);
+    } catch (e) {
+      toast.error((e as Error).message || "Renouvellement impossible");
+    } finally {
+      setRenewBusy(false);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -277,6 +310,21 @@ function ClassesTab({ establishmentId, data }: { establishmentId: string; data: 
                       </AlertDialogContent>
                     </AlertDialog>
                   </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" className="press flex-1" asChild>
+                      <Link to="/classes/$classId" params={{ classId: c.id }}>
+                        <BarChart3 className="mr-1.5 h-4 w-4" /> Résultats
+                      </Link>
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="press flex-1 text-[oklch(0.6_0.15_60)] hover:text-[oklch(0.6_0.15_60)]"
+                      onClick={() => setRenewing(c)}
+                    >
+                      <RotateCcw className="mr-1.5 h-4 w-4" /> Renouveler
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             );
@@ -299,6 +347,25 @@ function ClassesTab({ establishmentId, data }: { establishmentId: string; data: 
         }
       />
       <StudentsDialog klass={viewing} data={data} onClose={() => setViewing(null)} />
+
+      <AlertDialog open={!!renewing} onOpenChange={(v) => !v && setRenewing(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Renouveler la classe "{renewing?.name}" ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {renewingStudentIds.length} élève(s) seront retirés de cette classe (ils resteront dans le système,
+              non assignés) et leur historique de paiement de scolarité sera réinitialisé. Le nom de la classe et
+              son modèle de scolarité sont conservés. Cette action est définitive et ne peut pas être annulée.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={renewBusy}>Annuler</AlertDialogCancel>
+            <AlertDialogAction onClick={renewClass} disabled={renewBusy}>
+              {renewBusy ? "Renouvellement..." : "Renouveler"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
