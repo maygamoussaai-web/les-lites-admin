@@ -8,8 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useAdminProfile } from "@/hooks/use-auth";
 import { useSchoolData } from "@/lib/school-data";
-import { generalAverage, formatNumber } from "@/lib/school";
-import { formatNumber as fmtNum } from "@/lib/format";
+import { generalAverage } from "@/lib/school";
+import { formatNumber } from "@/lib/format";
 
 export const Route = createFileRoute("/_authenticated/classes/$classId")({
   head: () => ({
