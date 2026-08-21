@@ -51,7 +51,7 @@ const { classId } = Route.useParams();
     ? withAverage.reduce((acc, r) => acc + r.average, 0) / withAverage.length
     : null;
 
-  if (!data.loading && (!klass || !allowed)) {
+  if (!data.loading && !establishmentIdsLoading && (!klass || !allowed)) {
     return (
       <EmptyState icon={AlertTriangle} title="Accès refusé" description="Cette classe n'existe pas ou vous n'y avez pas accès." />
     );
