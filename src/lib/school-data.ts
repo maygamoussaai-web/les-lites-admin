@@ -40,12 +40,12 @@ export function useSchoolData() {
   });
 
   const loading =
-    establishments.isLoading ||
-    classes.isLoading ||
-    students.isLoading ||
-    feePlans.isLoading ||
-    installments.isLoading ||
-    tuitionPayments.isLoading;
+    establishments.isPending ||
+    classes.isPending ||
+    students.isPending ||
+    feePlans.isPending ||
+    installments.isPending ||
+    tuitionPayments.isPending;
 
   const allStudents = students.data ?? [];
   const allTeachers = teachers.data ?? [];
