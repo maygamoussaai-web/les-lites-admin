@@ -23,8 +23,8 @@ export const Route = createFileRoute("/_authenticated/classes/$classId")({
 });
 
 function Page() {
-  const { classId } = Route.useParams();
-  const { isDG, establishmentIds } = useAdminProfile();
+const { classId } = Route.useParams();
+  const { isDG, establishmentIds, establishmentIdsLoading } = useAdminProfile();
   const data = useSchoolData();
 
   const klass = data.classes.find((c) => c.id === classId);
