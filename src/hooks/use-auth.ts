@@ -61,7 +61,11 @@ export function useAdminProfile() {
     profile: query.data ?? null,
     isDG: query.data?.role === "director_general",
     establishmentIds: establishmentsQuery.data ?? [],
-    establishmentIdsLoading: establishmentsQuery.isLoading,
+    // isPending (et non isLoading) : reste vrai tant qu'aucune donnée n'est
+    // arrivée, y compris pendant l'instant initial où la requête est encore
+    // désactivée en attendant l'utilisateur — isLoading, lui, vaut faussement
+    // "false" à ce moment précis, ce qui causait l'accès refusé prématuré.
+    establishmentIdsLoading: establishmentsQuery.isPending,
     refetch: query.refetch,
   };
 }
