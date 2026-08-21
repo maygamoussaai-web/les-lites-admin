@@ -61,6 +61,7 @@ export function useAdminProfile() {
     profile: query.data ?? null,
     isDG: query.data?.role === "director_general",
     establishmentIds: establishmentsQuery.data ?? [],
+    establishmentIdsLoading: establishmentsQuery.isLoading,
     refetch: query.refetch,
   };
 }
