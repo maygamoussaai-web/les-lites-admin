@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Pencil, ArrowRightLeft, Trash2, ShieldAlert } from "lucide-react";
+import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { ArrowLeft, Pencil, ArrowRightLeft, Trash2, ShieldAlert, Receipt } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { EmptyState } from "@/components/app/empty-state";
 import { RecordDialog, type Field } from "@/components/app/record-dialog";
@@ -19,10 +21,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StudentDocuments } from "@/components/school/student-documents";
+import { supabase } from "@/integrations/supabase/client";
 import { useAdminProfile } from "@/hooks/use-auth";
-import { useSaveRow, useArchiveRow } from "@/lib/data";
+import { useSaveRow, useArchiveRow, writeAudit } from "@/lib/data";
 import { useSchoolData } from "@/lib/school-data";
-import { annualAverage, lateStatus, sum } from "@/lib/school";
+import { annualAverage, lateStatus, sum, type Installment } from "@/lib/school";
 import { formatDate, formatFCFA, formatNumber } from "@/lib/format";
 
 export const Route = createFileRoute("/_authenticated/eleves/$studentId")({
@@ -38,16 +41,17 @@ export const Route = createFileRoute("/_authenticated/eleves/$studentId")({
 function Page() {
   const { studentId } = Route.useParams();
   const navigate = useNavigate();
-const { isDG, establishmentIds, establishmentIdsLoading } = useAdminProfile();
+  const qc = useQueryClient();
+  const { isDG, establishmentIds, establishmentIdsLoading } = useAdminProfile();
   const data = useSchoolData();
   const save = useSaveRow("students", "Élève");
-  const saveTransfer = useSaveRow("student_transfers", "Transfert");
   const archive = useArchiveRow("students", "Élève");
   const [editOpen, setEditOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
+  const [transferring, setTransferring] = useState(false);
 
   const student = data.students.find((s) => s.id === studentId);
-const allowed = student && (isDG || establishmentIds.includes(student.establishment_id));
+  const allowed = student && (isDG || establishmentIds.includes(student.establishment_id));
 
   if (!data.loading && !establishmentIdsLoading && (!student || !allowed)) {
     return (
@@ -62,9 +66,12 @@ const allowed = student && (isDG || establishmentIds.includes(student.establishm
 
   const establishment = data.establishments.find((e) => e.id === student.establishment_id);
   const klass = data.classes.find((c) => c.id === student.class_id);
-  const installments = data.installments.filter((i) => i.fee_plan_id === klass?.fee_plan_id);
-  const paid = sum(data.tuitionPayments.filter((p) => p.student_id === student.id).map((p) => Number(p.amount)));
-  const totalDue = sum(installments.map((i) => Number(i.amount)));
+  const enrollment = data.activeEnrollmentByStudent.get(student.id);
+  const installments = (enrollment?.installments_snapshot as unknown as Installment[]) ?? [];
+  const paid = enrollment
+    ? sum(data.tuitionPayments.filter((p) => p.enrollment_id === enrollment.id).map((p) => Number(p.amount)))
+    : 0;
+  const totalDue = enrollment ? Number(enrollment.total_amount) : 0;
   const late = installments.length ? lateStatus(paid, installments) : null;
   const avg = annualAverage(student);
 
@@ -95,6 +102,70 @@ const allowed = student && (isDG || establishmentIds.includes(student.establishm
       value: c.id,
       label: `${data.establishments.find((e) => e.id === c.establishment_id)?.name ?? ""} — ${c.name}`,
     }));
+
+  // Transfert : ferme la période de scolarité en cours (elle reste consultable
+  // dans la fiche de scolarité) et en ouvre une nouvelle, figée sur le modèle
+  // actuel de la classe de destination.
+  const transferStudent = async (values: Record<string, any>) => {
+    const target = data.classes.find((c) => c.id === values["class_id"]);
+    if (!target) return;
+    setTransferring(true);
+    try {
+      const { error: studentError } = await supabase
+        .from("students")
+        .update({ class_id: target.id, establishment_id: target.establishment_id })
+        .eq("id", student.id);
+      if (studentError) throw studentError;
+
+      if (enrollment) {
+        const { error: closeError } = await supabase
+          .from("student_enrollments")
+          .update({ ended_at: new Date().toISOString() })
+          .eq("id", enrollment.id);
+        if (closeError) throw closeError;
+      }
+
+      const targetEstablishment = data.establishments.find((e) => e.id === target.establishment_id);
+      const targetPlan = data.feePlans.find((p) => p.id === target.fee_plan_id);
+      const targetInstallments = data.installments.filter((i) => i.fee_plan_id === target.fee_plan_id);
+
+      const { error: enrollError } = await supabase.from("student_enrollments").insert({
+        student_id: student.id,
+        establishment_id: target.establishment_id,
+        class_id: target.id,
+        establishment_name: targetEstablishment?.name ?? "",
+        class_name: target.name,
+        fee_plan_id: target.fee_plan_id,
+        total_amount: targetPlan ? Number(targetPlan.total_amount) : 0,
+        installments_snapshot: targetInstallments.map((i) => ({
+          label: i.label,
+          amount: i.amount,
+          due_date: i.due_date,
+          position: i.position,
+        })) as never,
+      });
+      if (enrollError) throw enrollError;
+
+      await supabase.from("student_transfers").insert({
+        student_id: student.id,
+        from_class_id: student.class_id,
+        from_establishment_id: student.establishment_id,
+        to_class_id: target.id,
+        to_establishment_id: target.establishment_id,
+      });
+      await writeAudit("update", "students", student.id, { transferred_to_class_id: target.id });
+
+      qc.invalidateQueries({ queryKey: ["students"] });
+      qc.invalidateQueries({ queryKey: ["student_enrollments"] });
+      toast.success("Élève transféré");
+      setTransferOpen(false);
+      navigate({ to: "/etablissements/$id", params: { id: target.establishment_id } });
+    } catch (e) {
+      toast.error((e as Error).message || "Transfert impossible");
+    } finally {
+      setTransferring(false);
+    }
+  };
 
   return (
     <>
@@ -129,8 +200,13 @@ const allowed = student && (isDG || establishmentIds.includes(student.establishm
         </Card>
 
         <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Scolarité</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between gap-2">
+            <CardTitle className="text-base">Scolarité (période en cours)</CardTitle>
+            <Button variant="ghost" size="sm" className="press" asChild>
+              <Link to="/eleves/$studentId/scolarite" params={{ studentId: student.id }}>
+                <Receipt className="mr-1.5 h-4 w-4" /> Fiche de scolarité
+              </Link>
+            </Button>
           </CardHeader>
           <CardContent className="space-y-2.5 text-sm">
             <Row label="Payé" value={formatFCFA(paid)} />
@@ -221,30 +297,10 @@ const allowed = student && (isDG || establishmentIds.includes(student.establishm
         open={transferOpen}
         onOpenChange={setTransferOpen}
         title={`Transférer ${student.first_name} ${student.last_name}`}
-        description="Le transfert conserve l'historique de l'élève."
+        description="Une nouvelle période de scolarité sera ouverte pour la classe de destination ; l'ancienne reste consultable dans la fiche de scolarité."
         fields={[{ name: "class_id", label: "Nouvelle classe", type: "select", required: true, colSpan: 2, options: classOptions }]}
-        onSubmit={(values) => {
-          const target = data.classes.find((c) => c.id === values["class_id"]);
-          if (!target) return;
-          save.mutate(
-            { id: student.id, values: { class_id: target.id, establishment_id: target.establishment_id } },
-            {
-              onSuccess: () => {
-                saveTransfer.mutate({
-                  values: {
-                    student_id: student.id,
-                    from_class_id: student.class_id,
-                    from_establishment_id: student.establishment_id,
-                    to_class_id: target.id,
-                    to_establishment_id: target.establishment_id,
-                  },
-                });
-                setTransferOpen(false);
-                navigate({ to: "/etablissements/$id", params: { id: target.establishment_id } });
-              },
-            },
-          );
-        }}
+        submitting={transferring}
+        onSubmit={transferStudent}
       />
     </>
   );
