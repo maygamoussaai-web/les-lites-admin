@@ -1,7 +1,6 @@
 import { useMemo } from "react";
 import { useRows } from "@/lib/data";
 import {
-  expectedTuition,
   lateStatus,
   teacherDue,
   sum,
@@ -10,6 +9,7 @@ import {
   type FeePlan,
   type Installment,
   type Student,
+  type StudentEnrollment,
   type Teacher,
   type TeacherAssignment,
   type TeacherPayment,
@@ -31,6 +31,7 @@ export function useSchoolData() {
   const tuitionPayments = useRows<TuitionPayment>("tuition_payments", {
     order: { column: "paid_at", ascending: false },
   });
+  const enrollments = useRows<StudentEnrollment>("student_enrollments", { order: { column: "started_at" } });
   const teachers = useRows<Teacher>("teachers", { order: { column: "last_name" } });
   const assignments = useRows<TeacherAssignment>("teacher_assignments");
   const sessions = useRows<TeacherSession>("teacher_sessions", { order: { column: "weekday" } });
@@ -45,10 +46,17 @@ export function useSchoolData() {
     students.isPending ||
     feePlans.isPending ||
     installments.isPending ||
-    tuitionPayments.isPending;
+    tuitionPayments.isPending ||
+    enrollments.isPending;
 
   const allStudents = students.data ?? [];
   const allTeachers = teachers.data ?? [];
+  const allEnrollments = enrollments.data ?? [];
+
+  const activeEnrollmentByStudent = new Map<string, StudentEnrollment>();
+  for (const e of allEnrollments) {
+    if (e.ended_at === null) activeEnrollmentByStudent.set(e.student_id, e);
+  }
 
   return {
     loading,
@@ -59,6 +67,8 @@ export function useSchoolData() {
     feePlans: feePlans.data ?? [],
     installments: installments.data ?? [],
     tuitionPayments: tuitionPayments.data ?? [],
+    enrollments: allEnrollments,
+    activeEnrollmentByStudent,
     teachers: allTeachers.filter((t) => !t.archived_at),
     assignments: assignments.data ?? [],
     sessions: sessions.data ?? [],
@@ -95,18 +105,23 @@ export function useEstablishmentStats(data: SchoolData, since?: string) {
         (p) => p.establishment_id === est.id && (!since || p.paid_at >= since),
       );
       const collected = sum(payments.map((p) => Number(p.amount)));
+
       let expected = 0;
+      let outstanding = 0;
       let lateStudents = 0;
       for (const student of estStudents) {
-        const due = expectedTuition(student, data.classes, data.feePlans);
-        expected += due;
-        const klass = data.classes.find((c) => c.id === student.class_id);
-        const planInstallments = data.installments.filter((i) => i.fee_plan_id === klass?.fee_plan_id);
-        const paid = sum(
-          data.tuitionPayments.filter((p) => p.student_id === student.id).map((p) => Number(p.amount)),
+        const enrollment = data.activeEnrollmentByStudent.get(student.id);
+        if (!enrollment) continue;
+        const total = Number(enrollment.total_amount);
+        const paidForEnrollment = sum(
+          data.tuitionPayments.filter((p) => p.enrollment_id === enrollment.id).map((p) => Number(p.amount)),
         );
-        if (planInstallments.length && lateStatus(paid, planInstallments).isLate) lateStudents += 1;
+        expected += total;
+        outstanding += Math.max(0, total - paidForEnrollment);
+        const status = lateStatus(paidForEnrollment, (enrollment.installments_snapshot as unknown as Installment[]) ?? []);
+        if (status.isLate) lateStudents += 1;
       }
+
       const estAssignments = data.assignments.filter(
         (a) => a.establishment_id === est.id && a.is_active && data.teachers.some((t) => t.id === a.teacher_id),
       );
@@ -119,16 +134,13 @@ export function useEstablishmentStats(data: SchoolData, since?: string) {
           .filter((p) => p.establishment_id === est.id && (!since || p.paid_at >= since))
           .map((p) => Number(p.amount)),
       );
-      const allCollected = sum(
-        data.tuitionPayments.filter((p) => p.establishment_id === est.id).map((p) => Number(p.amount)),
-      );
 
       map.set(est.id, {
         students: estStudents.length,
         classes: estClasses.length,
         expected,
         collected,
-        outstanding: Math.max(0, expected - allCollected),
+        outstanding,
         lateStudents,
         teachers: estAssignments.length,
         teacherDue: dueTeachers,
