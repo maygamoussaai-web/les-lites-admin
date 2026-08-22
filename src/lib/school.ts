@@ -187,3 +187,11 @@ export const ESTABLISHMENT_VISUALS: Record<
     accent: "text-[oklch(0.80_0.14_80)]",
   },
 };
+export type StudentEnrollment = Tables<"student_enrollments">;
+
+/** Statut de retard d'une période d'inscription figée, à partir de son propre modèle de scolarité. */
+export function enrollmentLateStatus(enrollment: StudentEnrollment, paid: number): LateDetail | null {
+  const installments = (enrollment.installments_snapshot as unknown as Installment[]) ?? [];
+  if (!installments.length) return null;
+  return lateStatus(paid, installments);
+}
