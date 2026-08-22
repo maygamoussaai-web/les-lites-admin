@@ -340,19 +340,21 @@ function QuickTeacherPaymentDialog({ open, onClose, data }: { open: boolean; onC
 /* ---------------------------------------------------------------------- */
 
 function Page() {
-  const { isDG, profile, loading: authLoading } = useAdminProfile();
+  const { isDG, loading: authLoading, establishmentIds, establishmentIdsLoading } = useAdminProfile();
   const navigate = useNavigate();
   const data = useSchoolData();
   const stats = useEstablishmentStats(data);
   const [tuitionPayOpen, setTuitionPayOpen] = useState(false);
   const [teacherPayOpen, setTeacherPayOpen] = useState(false);
 
+  // Le personnel administratif peut avoir accès à plusieurs établissements :
+  // on le renvoie vers la liste (qui affichera automatiquement, via les
+  // règles de sécurité, uniquement les établissements auxquels il a accès —
+  // qu'il y en ait un seul ou plusieurs), jamais vers un établissement fixe.
   useEffect(() => {
-    if (authLoading || isDG) return;
-    if (profile?.establishment_id) {
-      navigate({ to: "/etablissements/$id", params: { id: profile.establishment_id }, replace: true });
-    }
-  }, [authLoading, isDG, profile?.establishment_id, navigate]);
+    if (authLoading || isDG || establishmentIdsLoading) return;
+    navigate({ to: "/etablissements", replace: true });
+  }, [authLoading, isDG, establishmentIdsLoading, navigate]);
 
   const totals = [...stats.values()].reduce(
     (acc, s) => ({
