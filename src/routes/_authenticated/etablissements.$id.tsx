@@ -16,6 +16,7 @@ import {
   Pencil,
   BarChart3,
   RotateCcw,
+  Receipt,
 } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
@@ -73,13 +74,13 @@ import {
   teacherDue,
   validatedHours,
   weekdayLabel,
-  expectedTuition,
   WEEKDAYS,
   formatDuration,
   PERIODS,
   periodStart,
   currentWeekStart,
   type ClassRow,
+  type Installment,
   type TeacherAssignment,
   type Period,
   type TeacherSessionCompletion,
@@ -100,7 +101,7 @@ export const Route = createFileRoute("/_authenticated/etablissements/$id")({
 });
 
 function Page() {
- const { id } = Route.useParams();
+  const { id } = Route.useParams();
   const { isDG, establishmentIds, establishmentIdsLoading } = useAdminProfile();
   const data = useSchoolData();
   const stats = useEstablishmentStats(data);
@@ -194,6 +195,9 @@ function ClassesTab({ establishmentId, data }: { establishmentId: string; data: 
 
   const renewingStudentIds = renewing ? data.students.filter((s) => s.class_id === renewing.id).map((s) => s.id) : [];
 
+  // Renouvellement : ferme les périodes de scolarité en cours (elles restent
+  // consultables), efface les paiements, et détache les élèves de la classe —
+  // le nom et le modèle de scolarité de la classe elle-même sont conservés.
   const renewClass = async () => {
     if (!renewing) return;
     setRenewBusy(true);
@@ -201,6 +205,12 @@ function ClassesTab({ establishmentId, data }: { establishmentId: string; data: 
       if (renewingStudentIds.length) {
         const { error: payError } = await supabase.from("tuition_payments").delete().in("student_id", renewingStudentIds);
         if (payError) throw payError;
+        const { error: enrollError } = await supabase
+          .from("student_enrollments")
+          .update({ ended_at: new Date().toISOString() })
+          .in("student_id", renewingStudentIds)
+          .is("ended_at", null);
+        if (enrollError) throw enrollError;
         const { error: studError } = await supabase
           .from("students")
           .update({ class_id: null })
@@ -213,6 +223,7 @@ function ClassesTab({ establishmentId, data }: { establishmentId: string; data: 
       });
       qc.invalidateQueries({ queryKey: ["students"] });
       qc.invalidateQueries({ queryKey: ["tuition_payments"] });
+      qc.invalidateQueries({ queryKey: ["student_enrollments"] });
       toast.success(`Classe "${renewing.name}" renouvelée`);
       setRenewing(null);
     } catch (e) {
@@ -429,8 +440,10 @@ function PlanDialog({
   const updateTranche = (id: string, patch: Partial<TrancheDraft>) =>
     setTranches((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
 
-  // Enregistre le modèle et toutes ses tranches comme une seule action : un seul
-  // message de succès à la fin, un seul point d'échec géré.
+  // Note : ceci ne modifie que le modèle et ses tranches — jamais les périodes
+  // de scolarité déjà figées pour les élèves déjà inscrits (voir
+  // student_enrollments). Seules les futures inscriptions/transferts verront
+  // ce nouveau montant.
   const submit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
@@ -509,7 +522,7 @@ function PlanDialog({
           <DialogTitle>{editingPlan ? "Modifier le modèle" : "Nouveau modèle de scolarité"}</DialogTitle>
           <DialogDescription>
             Définissez le montant total et ses tranches — la somme des tranches doit être égale au montant total.
-            Tout est enregistré en une seule fois.
+            Les élèves déjà inscrits ne sont pas affectés par ce changement.
           </DialogDescription>
         </DialogHeader>
 
@@ -630,15 +643,16 @@ function PaymentDialog({
   }, [students, classFilter, search]);
 
   const student = students.find((s) => s.id === studentId) ?? null;
-  const expected = student ? expectedTuition(student, data.classes, data.feePlans) : 0;
-  const paidSoFar = student
-    ? sum(data.tuitionPayments.filter((p) => p.student_id === student.id).map((p) => Number(p.amount)))
+  const enrollment = student ? data.activeEnrollmentByStudent.get(student.id) : undefined;
+  const expected = enrollment ? Number(enrollment.total_amount) : 0;
+  const paidSoFar = enrollment
+    ? sum(data.tuitionPayments.filter((p) => p.enrollment_id === enrollment.id).map((p) => Number(p.amount)))
     : 0;
   const remaining = Math.max(0, expected - paidSoFar);
   const hasPlan = expected > 0;
   const amountNum = Number(amount || 0);
   const exceeds = hasPlan && amountNum > remaining;
-  const canSubmit = !!studentId && amountNum > 0 && !exceeds && !savePayment.isPending;
+  const canSubmit = !!studentId && !!enrollment && amountNum > 0 && !exceeds && !savePayment.isPending;
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -689,7 +703,11 @@ function PaymentDialog({
             </Select>
             {student ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                {hasPlan ? `Reste dû : ${formatFCFA(remaining)}` : "Aucun modèle de scolarité associé à la classe de cet élève."}
+                {enrollment
+                  ? hasPlan
+                    ? `Reste dû : ${formatFCFA(remaining)}`
+                    : "Aucun modèle de scolarité associé à cette période."
+                  : "Cet élève n'a pas de période de scolarité active."}
               </p>
             ) : null}
           </div>
@@ -697,7 +715,13 @@ function PaymentDialog({
             <Label className="mb-1.5 block text-sm">
               Montant (FCFA)<span className="ml-0.5 text-destructive">*</span>
             </Label>
-            <Input type="number" step="any" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <Input
+              type="number"
+              step="any"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              disabled={!enrollment}
+            />
             {exceeds ? (
               <p className="mt-1 text-xs font-medium text-destructive">
                 Le montant dépasse le reste dû ({formatFCFA(remaining)}).
@@ -737,6 +761,7 @@ function PaymentDialog({
                 {
                   values: {
                     student_id: studentId,
+                    enrollment_id: enrollment!.id,
                     amount: amountNum,
                     paid_at: paidAt,
                     method,
@@ -770,21 +795,23 @@ function TuitionTab({ establishmentId, data }: { establishmentId: string; data: 
     () =>
       students
         .map((student) => {
+          const enrollment = data.activeEnrollmentByStudent.get(student.id);
           const klass = data.classes.find((c) => c.id === student.class_id);
-          const plan = plans.find((p) => p.id === klass?.fee_plan_id);
-          const insts = data.installments.filter((i) => i.fee_plan_id === klass?.fee_plan_id);
-          const paid = sum(data.tuitionPayments.filter((p) => p.student_id === student.id).map((p) => Number(p.amount)));
-          const status = lateStatus(paid, insts);
-          const expected = plan ? Number(plan.total_amount) : 0;
-          return { student, klass, plan, paid, expected, remaining: Math.max(0, expected - paid), status };
+          const installments = (enrollment?.installments_snapshot as unknown as Installment[]) ?? [];
+          const paid = enrollment
+            ? sum(data.tuitionPayments.filter((p) => p.enrollment_id === enrollment.id).map((p) => Number(p.amount)))
+            : 0;
+          const status = installments.length ? lateStatus(paid, installments) : null;
+          const expected = enrollment ? Number(enrollment.total_amount) : 0;
+          return { student, klass, enrollment, paid, expected, remaining: Math.max(0, expected - paid), status };
         })
         .sort((a, b) =>
           `${a.student.last_name}${a.student.first_name}`.localeCompare(`${b.student.last_name}${b.student.first_name}`),
         ),
-    [students, plans, data],
+    [students, data],
   );
 
-  const late = studentRows.filter((r) => r.status.isLate);
+  const late = studentRows.filter((r) => r.status?.isLate);
 
   const openPayment = (studentId: string | null) => {
     setPayStudent(studentId);
@@ -867,7 +894,7 @@ function TuitionTab({ establishmentId, data }: { establishmentId: string; data: 
                     <td className="p-3">{klass?.name ?? "—"}</td>
                     <td className="p-3">{formatFCFA(paid)}</td>
                     <td className="p-3">
-                      <Badge variant="destructive">{formatFCFA(status.overdueAmount)}</Badge>
+                      <Badge variant="destructive">{formatFCFA(status?.overdueAmount ?? 0)}</Badge>
                     </td>
                     <td className="p-3 text-right">
                       <Button size="sm" variant="outline" className="press" onClick={() => openPayment(student.id)}>
@@ -912,14 +939,16 @@ function TuitionTab({ establishmentId, data }: { establishmentId: string; data: 
                 ),
               },
               { key: "class", header: "Classe", cell: (r) => r.klass?.name ?? "—" },
-              { key: "plan", header: "Modèle", cell: (r) => r.plan?.name ?? "—" },
+              { key: "expected", header: "Scolarité attendue", cell: (r) => (r.enrollment ? formatFCFA(r.expected) : "—") },
               { key: "paid", header: "Payé", cell: (r) => formatFCFA(r.paid) },
               { key: "remaining", header: "Reste dû", cell: (r) => formatFCFA(r.remaining) },
               {
                 key: "status",
                 header: "Statut",
                 cell: (r) =>
-                  !r.plan ? (
+                  !r.enrollment ? (
+                    <Badge variant="outline">Sans période</Badge>
+                  ) : !r.status ? (
                     <Badge variant="outline">Sans modèle</Badge>
                   ) : r.status.isLate ? (
                     <Badge variant="destructive">En retard</Badge>
@@ -1469,6 +1498,13 @@ function TeachersTab({
                     <Button size="sm" className="press" onClick={() => setPayFor(a)}>
                       <Banknote className="mr-1.5 h-4 w-4" /> Payer
                     </Button>
+                    {teacher && (
+                      <Button size="sm" variant="outline" className="press" asChild>
+                        <Link to="/enseignants/$teacherId" params={{ teacherId: teacher.id }}>
+                          <Receipt className="mr-1.5 h-4 w-4" /> Fiche de paie
+                        </Link>
+                      </Button>
+                    )}
                     {isDG && teacher ? (
                       <Button
                         size="sm"
