@@ -576,6 +576,59 @@ admin_profile_establishments: {
           },
         ]
       }
+student_enrollments: {
+        Row: {
+          class_id: string | null
+          class_name: string
+          created_at: string
+          ended_at: string | null
+          establishment_id: string
+          establishment_name: string
+          fee_plan_id: string | null
+          id: string
+          installments_snapshot: Json
+          started_at: string
+          student_id: string
+          total_amount: number
+        }
+        Insert: {
+          class_id?: string | null
+          class_name: string
+          created_at?: string
+          ended_at?: string | null
+          establishment_id: string
+          establishment_name: string
+          fee_plan_id?: string | null
+          id?: string
+          installments_snapshot?: Json
+          started_at?: string
+          student_id: string
+          total_amount?: number
+        }
+        Update: {
+          class_id?: string | null
+          class_name?: string
+          created_at?: string
+          ended_at?: string | null
+          establishment_id?: string
+          establishment_name?: string
+          fee_plan_id?: string | null
+          id?: string
+          installments_snapshot?: Json
+          started_at?: string
+          student_id?: string
+          total_amount?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_enrollments_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
 student_documents: {
         Row: {
           created_at: string
