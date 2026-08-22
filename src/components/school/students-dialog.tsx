@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { Plus, Users, ArrowRight } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
@@ -7,9 +9,10 @@ import { Badge } from "@/components/ui/badge";
 import { DataTable, type Column } from "@/components/app/data-table";
 import { RecordDialog, type Field } from "@/components/app/record-dialog";
 import { EmptyState } from "@/components/app/empty-state";
-import { useSaveRow, useArchiveRow } from "@/lib/data";
+import { supabase } from "@/integrations/supabase/client";
+import { useArchiveRow, writeAudit } from "@/lib/data";
 import { formatDate, formatNumber, formatFCFA } from "@/lib/format";
-import { annualAverage, lateStatus, sum, type ClassRow, type Student } from "@/lib/school";
+import { annualAverage, lateStatus, sum, type ClassRow, type Installment, type Student } from "@/lib/school";
 import type { SchoolData } from "@/lib/school-data";
 
 export function StudentsDialog({
@@ -21,18 +24,14 @@ export function StudentsDialog({
   data: SchoolData;
   onClose: () => void;
 }) {
-  const save = useSaveRow("students", "Élève");
+  const qc = useQueryClient();
   const archive = useArchiveRow("students", "Élève");
   const [open, setOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   const students = useMemo(
     () => data.students.filter((s) => s.class_id === klass?.id),
     [data.students, klass?.id],
-  );
-
-  const installments = useMemo(
-    () => data.installments.filter((i) => i.fee_plan_id === klass?.fee_plan_id),
-    [data.installments, klass?.fee_plan_id],
   );
 
   const fields: Field[] = [
@@ -54,8 +53,52 @@ export function StudentsDialog({
     { name: "parent_phone_2", label: "Téléphone parent 2", placeholder: "+223 ..." },
   ];
 
-  const paidOf = (studentId: string) =>
-    sum(data.tuitionPayments.filter((p) => p.student_id === studentId).map((p) => Number(p.amount)));
+  // Création d'un élève + ouverture immédiate de sa première période de
+  // scolarité, avec une "photo" du modèle de scolarité actuel de la classe —
+  // les changements futurs de ce modèle ne le concerneront plus.
+  const createStudent = async (values: Record<string, any>) => {
+    if (!klass) return;
+    setSubmitting(true);
+    try {
+      const { data: created, error } = await supabase
+        .from("students")
+        .insert({ ...values, class_id: klass.id, establishment_id: klass.establishment_id })
+        .select()
+        .single();
+      if (error) throw error;
+
+      const establishment = data.establishments.find((e) => e.id === klass.establishment_id);
+      const plan = data.feePlans.find((p) => p.id === klass.fee_plan_id);
+      const planInstallments = data.installments.filter((i) => i.fee_plan_id === klass.fee_plan_id);
+
+      const { error: enrollError } = await supabase.from("student_enrollments").insert({
+        student_id: created.id,
+        establishment_id: klass.establishment_id,
+        class_id: klass.id,
+        establishment_name: establishment?.name ?? "",
+        class_name: klass.name,
+        fee_plan_id: klass.fee_plan_id,
+        total_amount: plan ? Number(plan.total_amount) : 0,
+        installments_snapshot: planInstallments.map((i) => ({
+          label: i.label,
+          amount: i.amount,
+          due_date: i.due_date,
+          position: i.position,
+        })) as never,
+      });
+      if (enrollError) throw enrollError;
+
+      await writeAudit("create", "students", created.id, { class_id: klass.id });
+      qc.invalidateQueries({ queryKey: ["students"] });
+      qc.invalidateQueries({ queryKey: ["student_enrollments"] });
+      toast.success("Élève ajouté");
+      setOpen(false);
+    } catch (e) {
+      toast.error((e as Error).message || "Ajout impossible");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const columns: Column<Student>[] = [
     {
@@ -98,9 +141,14 @@ export function StudentsDialog({
     },
     {
       key: "tuition",
-      header: "Scolarité",
+      header: "Scolarité (période en cours)",
       cell: (s) => {
-        const paid = paidOf(s.id);
+        const enrollment = data.activeEnrollmentByStudent.get(s.id);
+        if (!enrollment) return <span className="text-sm text-muted-foreground">Aucune période</span>;
+        const paid = sum(
+          data.tuitionPayments.filter((p) => p.enrollment_id === enrollment.id).map((p) => Number(p.amount)),
+        );
+        const installments = (enrollment.installments_snapshot as unknown as Installment[]) ?? [];
         if (!installments.length) return <span className="text-sm text-muted-foreground">Aucun modèle</span>;
         const late = lateStatus(paid, installments);
         return late.isLate ? (
@@ -135,7 +183,7 @@ export function StudentsDialog({
           <DialogTitle className="font-display">Élèves — {klass?.name}</DialogTitle>
           <DialogDescription>
             {students.length} élève(s) sur une capacité de {klass?.capacity ?? 0}. Cliquez sur la flèche pour ouvrir la
-            fiche complète d'un élève (modifier, transférer, supprimer, résultats).
+            fiche complète d'un élève (modifier, transférer, supprimer, résultats, scolarité).
           </DialogDescription>
         </DialogHeader>
 
@@ -157,19 +205,8 @@ export function StudentsDialog({
           title="Nouvel élève"
           description="La fiche complète (résultats, scolarité, transfert) est accessible depuis la liste après création."
           fields={fields}
-          submitting={save.isPending}
-          onSubmit={(values) =>
-            save.mutate(
-              {
-                values: {
-                  ...values,
-                  class_id: klass!.id,
-                  establishment_id: klass!.establishment_id,
-                },
-              },
-              { onSuccess: () => setOpen(false) },
-            )
-          }
+          submitting={submitting}
+          onSubmit={createStudent}
         />
       </DialogContent>
     </Dialog>
