@@ -30,7 +30,7 @@ import { useAdminProfile } from "@/hooks/use-auth";
 import { useSchoolData, useEstablishmentStats } from "@/lib/school-data";
 import { useSaveRow } from "@/lib/data";
 import { formatFCFA } from "@/lib/format";
-import { expectedTuition, teacherDue, sum } from "@/lib/school";
+import { teacherDue, sum } from "@/lib/school";
 
 export const Route = createFileRoute("/_authenticated/tableau-de-bord")({
   head: () => ({
@@ -84,15 +84,16 @@ function QuickTuitionPaymentDialog({ open, onClose, data }: { open: boolean; onC
   }, [establishmentId]);
 
   const student = students.find((s) => s.id === studentId) ?? null;
-  const expected = student ? expectedTuition(student, data.classes, data.feePlans) : 0;
-  const paidSoFar = student
-    ? sum(data.tuitionPayments.filter((p) => p.student_id === student.id).map((p) => Number(p.amount)))
+  const enrollment = student ? data.activeEnrollmentByStudent.get(student.id) : undefined;
+  const expected = enrollment ? Number(enrollment.total_amount) : 0;
+  const paidSoFar = enrollment
+    ? sum(data.tuitionPayments.filter((p) => p.enrollment_id === enrollment.id).map((p) => Number(p.amount)))
     : 0;
   const remaining = Math.max(0, expected - paidSoFar);
   const hasPlan = expected > 0;
   const amountNum = Number(amount || 0);
   const exceeds = hasPlan && amountNum > remaining;
-  const canSubmit = !!establishmentId && !!studentId && amountNum > 0 && !exceeds && !savePayment.isPending;
+  const canSubmit = !!establishmentId && !!studentId && !!enrollment && amountNum > 0 && !exceeds && !savePayment.isPending;
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -136,7 +137,11 @@ function QuickTuitionPaymentDialog({ open, onClose, data }: { open: boolean; onC
             </Select>
             {student ? (
               <p className="mt-1 text-xs text-muted-foreground">
-                {hasPlan ? `Reste dû : ${formatFCFA(remaining)}` : "Aucun modèle de scolarité associé à la classe de cet élève."}
+                {enrollment
+                  ? hasPlan
+                    ? `Reste dû : ${formatFCFA(remaining)}`
+                    : "Aucun modèle de scolarité associé à cette période."
+                  : "Cet élève n'a pas de période de scolarité active."}
               </p>
             ) : null}
           </div>
@@ -144,7 +149,7 @@ function QuickTuitionPaymentDialog({ open, onClose, data }: { open: boolean; onC
             <Label className="mb-1.5 block text-sm">
               Montant (FCFA)<span className="ml-0.5 text-destructive">*</span>
             </Label>
-            <Input type="number" step="any" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <Input type="number" step="any" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={!enrollment} />
             {exceeds ? (
               <p className="mt-1 text-xs font-medium text-destructive">
                 Le montant dépasse le reste dû ({formatFCFA(remaining)}).
@@ -184,6 +189,7 @@ function QuickTuitionPaymentDialog({ open, onClose, data }: { open: boolean; onC
                 {
                   values: {
                     student_id: studentId,
+                    enrollment_id: enrollment!.id,
                     amount: amountNum,
                     paid_at: paidAt,
                     method,
@@ -227,7 +233,6 @@ function QuickTeacherPaymentDialog({ open, onClose, data }: { open: boolean; onC
   }, [establishmentId]);
 
   const assignment = assignments.find((a) => a.id === assignmentId) ?? null;
-  const teacher = assignment ? data.teachers.find((t) => t.id === assignment.teacher_id) : null;
   const due = assignment ? teacherDue(assignment, data.sessions, data.sessionCompletions) : 0;
   const paidSoFar = assignment
     ? sum(
@@ -347,10 +352,6 @@ function Page() {
   const [tuitionPayOpen, setTuitionPayOpen] = useState(false);
   const [teacherPayOpen, setTeacherPayOpen] = useState(false);
 
-  // Le personnel administratif peut avoir accès à plusieurs établissements :
-  // on le renvoie vers la liste (qui affichera automatiquement, via les
-  // règles de sécurité, uniquement les établissements auxquels il a accès —
-  // qu'il y en ait un seul ou plusieurs), jamais vers un établissement fixe.
   useEffect(() => {
     if (authLoading || isDG || establishmentIdsLoading) return;
     navigate({ to: "/etablissements", replace: true });
