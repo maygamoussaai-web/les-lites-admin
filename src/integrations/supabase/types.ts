@@ -792,8 +792,8 @@ teacher_session_completions: {
       tuition_payments: {
         Row: {
           amount: number
-          created_at: string
           establishment_id: string
+          enrollment_id: string | null
           id: string
           method: string
           note: string | null
@@ -811,6 +811,7 @@ teacher_session_completions: {
           paid_at?: string
           recorded_by?: string | null
           student_id: string
+enrollment_id?: string | null
         }
         Update: {
           amount?: number
@@ -822,6 +823,7 @@ teacher_session_completions: {
           paid_at?: string
           recorded_by?: string | null
           student_id?: string
+enrollment_id?: string | null
         }
         Relationships: [
           {
