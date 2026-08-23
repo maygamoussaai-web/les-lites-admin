@@ -198,31 +198,50 @@ function ClassesTab({ establishmentId, data }: { establishmentId: string; data: 
   // Renouvellement : ferme les périodes de scolarité en cours (elles restent
   // consultables), efface les paiements, et détache les élèves de la classe —
   // le nom et le modèle de scolarité de la classe elle-même sont conservés.
+ // Renouvellement : les élèves RESTENT dans la classe. On ferme la période
+  // de scolarité en cours de chacun (elle reste consultable dans sa fiche de
+  // scolarité, avec ce qu'il a réellement payé) et on en ouvre aussitôt une
+  // nouvelle à zéro, sur le modèle de scolarité actuel de la classe.
   const renewClass = async () => {
     if (!renewing) return;
     setRenewBusy(true);
     try {
+      const establishment = data.establishments.find((e) => e.id === renewing.establishment_id);
+      const plan = data.feePlans.find((p) => p.id === renewing.fee_plan_id);
+      const planInstallments = data.installments.filter((i) => i.fee_plan_id === renewing.fee_plan_id);
+      const snapshot = planInstallments.map((i) => ({
+        label: i.label,
+        amount: i.amount,
+        due_date: i.due_date,
+        position: i.position,
+      }));
+
       if (renewingStudentIds.length) {
-        const { error: payError } = await supabase.from("tuition_payments").delete().in("student_id", renewingStudentIds);
-        if (payError) throw payError;
-        const { error: enrollError } = await supabase
+        const { error: closeError } = await supabase
           .from("student_enrollments")
           .update({ ended_at: new Date().toISOString() })
           .in("student_id", renewingStudentIds)
           .is("ended_at", null);
-        if (enrollError) throw enrollError;
-        const { error: studError } = await supabase
-          .from("students")
-          .update({ class_id: null })
-          .in("id", renewingStudentIds);
-        if (studError) throw studError;
+        if (closeError) throw closeError;
+
+        const newEnrollments = renewingStudentIds.map((studentId) => ({
+          student_id: studentId,
+          establishment_id: renewing.establishment_id,
+          class_id: renewing.id,
+          establishment_name: establishment?.name ?? "",
+          class_name: renewing.name,
+          fee_plan_id: renewing.fee_plan_id,
+          total_amount: plan ? Number(plan.total_amount) : 0,
+          installments_snapshot: snapshot as never,
+        }));
+        const { error: insertError } = await supabase.from("student_enrollments").insert(newEnrollments);
+        if (insertError) throw insertError;
       }
+
       await writeAudit("update", "classes", renewing.id, {
         renewed: true,
-        students_detached: renewingStudentIds.length,
+        students_renewed: renewingStudentIds.length,
       });
-      qc.invalidateQueries({ queryKey: ["students"] });
-      qc.invalidateQueries({ queryKey: ["tuition_payments"] });
       qc.invalidateQueries({ queryKey: ["student_enrollments"] });
       toast.success(`Classe "${renewing.name}" renouvelée`);
       setRenewing(null);
