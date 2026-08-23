@@ -383,9 +383,11 @@ function ClassesTab({ establishmentId, data }: { establishmentId: string; data: 
           <AlertDialogHeader>
             <AlertDialogTitle>Renouveler la classe "{renewing?.name}" ?</AlertDialogTitle>
             <AlertDialogDescription>
-              {renewingStudentIds.length} élève(s) seront retirés de cette classe (ils resteront dans le système,
-              non assignés) et leur historique de paiement de scolarité sera réinitialisé. Le nom de la classe et
-              son modèle de scolarité sont conservés. Cette action est définitive et ne peut pas être annulée.
+              Les {renewingStudentIds.length} élève(s) de cette classe restent dedans. Leur scolarité de cette année
+              sera close et conservée dans leur fiche de scolarité (avec ce qu'ils ont réellement payé), et une
+              nouvelle période à zéro démarre aussitôt pour la nouvelle année. Cette action est définitive et ne
+              peut pas être annulée.
+Vous pourrez alors transférer ou garder les élêves de cette classe.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
