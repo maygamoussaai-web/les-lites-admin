@@ -286,13 +286,20 @@ function Page() {
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Annuler</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={() =>
+              <<AlertDialogAction
+                onClick={async () => {
+                  if (enrollment) {
+                    await supabase
+                      .from("student_enrollments")
+                      .update({ ended_at: new Date().toISOString() })
+                      .eq("id", enrollment.id)
+                      .then(() => qc.invalidateQueries({ queryKey: ["student_enrollments"] }));
+                  }
                   archive.mutate(student.id, {
                     onSuccess: () =>
                       navigate({ to: "/etablissements/$id", params: { id: student.establishment_id } }),
-                  })
-                }
+                  });
+                }}
               >
                 Supprimer
               </AlertDialogAction>
