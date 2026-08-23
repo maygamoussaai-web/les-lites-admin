@@ -381,13 +381,17 @@ function ClassesTab({ establishmentId, data }: { establishmentId: string; data: 
       <AlertDialog open={!!renewing} onOpenChange={(v) => !v && setRenewing(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Renouveler la classe "{renewing?.name}" ?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Les {renewingStudentIds.length} élève(s) de cette classe restent dedans. Leur scolarité de cette année
-              sera close et conservée dans leur fiche de scolarité (avec ce qu'ils ont réellement payé), et une
-              nouvelle période à zéro démarre aussitôt pour la nouvelle année. Cette action est définitive et ne
-              peut pas être annulée.
-Vous pourrez alors transférer ou garder les élêves de cette classe.
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">
+                Les {renewingStudentIds.length} élève(s) de cette classe restent dedans. Leur scolarité de cette année
+                sera close et conservée dans leur fiche de scolarité (avec ce qu'ils ont réellement payé), et une
+                nouvelle période à zéro démarre aussitôt pour la nouvelle année. Cette action est définitive et ne
+                peut pas être annulée.
+              </span>
+              <span className="block rounded-md border border-[oklch(0.75_0.15_80)]/40 bg-[oklch(0.75_0.15_80)]/10 px-3 py-2 text-xs font-medium text-[oklch(0.5_0.13_70)]">
+                ⚠️ Pensez à vérifier/mettre à jour les échéances du modèle de scolarité de cette classe avant de
+                continuer — sinon les élèves pourraient apparaître "en retard" immédiatement après le renouvellement.
+              </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
