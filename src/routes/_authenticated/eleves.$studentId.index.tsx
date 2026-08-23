@@ -103,6 +103,10 @@ function Page() {
       label: `${data.establishments.find((e) => e.id === c.establishment_id)?.name ?? ""} — ${c.name}`,
     }));
 
+  // Transfert : si la période active n'a AUCUN paiement, elle est redirigée
+  // vers la nouvelle classe (même ligne, pas de trace fantôme dans
+  // l'historique) — sinon elle est close (elle a une vraie valeur
+  // historique) et une nouvelle période démarre.
   const transferStudent = async (values: Record<string, any>) => {
     const target = data.classes.find((c) => c.id === values["class_id"]);
     if (!target) return;
@@ -114,34 +118,51 @@ function Page() {
         .eq("id", student.id);
       if (studentError) throw studentError;
 
-      if (enrollment) {
-        const { error: closeError } = await supabase
-          .from("student_enrollments")
-          .update({ ended_at: new Date().toISOString() })
-          .eq("id", enrollment.id);
-        if (closeError) throw closeError;
-      }
-
       const targetEstablishment = data.establishments.find((e) => e.id === target.establishment_id);
       const targetPlan = data.feePlans.find((p) => p.id === target.fee_plan_id);
       const targetInstallments = data.installments.filter((i) => i.fee_plan_id === target.fee_plan_id);
+      const targetSnapshot = targetInstallments.map((i) => ({
+        label: i.label,
+        amount: i.amount,
+        due_date: i.due_date,
+        position: i.position,
+      }));
 
-      const { error: enrollError } = await supabase.from("student_enrollments").insert({
-        student_id: student.id,
-        establishment_id: target.establishment_id,
-        class_id: target.id,
-        establishment_name: targetEstablishment?.name ?? "",
-        class_name: target.name,
-        fee_plan_id: target.fee_plan_id,
-        total_amount: targetPlan ? Number(targetPlan.total_amount) : 0,
-        installments_snapshot: targetInstallments.map((i) => ({
-          label: i.label,
-          amount: i.amount,
-          due_date: i.due_date,
-          position: i.position,
-        })) as never,
-      });
-      if (enrollError) throw enrollError;
+      if (enrollment && paid === 0) {
+        const { error: redirectError } = await supabase
+          .from("student_enrollments")
+          .update({
+            establishment_id: target.establishment_id,
+            class_id: target.id,
+            establishment_name: targetEstablishment?.name ?? "",
+            class_name: target.name,
+            fee_plan_id: target.fee_plan_id,
+            total_amount: targetPlan ? Number(targetPlan.total_amount) : 0,
+            installments_snapshot: targetSnapshot as never,
+            started_at: new Date().toISOString(),
+          })
+          .eq("id", enrollment.id);
+        if (redirectError) throw redirectError;
+      } else {
+        if (enrollment) {
+          const { error: closeError } = await supabase
+            .from("student_enrollments")
+            .update({ ended_at: new Date().toISOString() })
+            .eq("id", enrollment.id);
+          if (closeError) throw closeError;
+        }
+        const { error: enrollError } = await supabase.from("student_enrollments").insert({
+          student_id: student.id,
+          establishment_id: target.establishment_id,
+          class_id: target.id,
+          establishment_name: targetEstablishment?.name ?? "",
+          class_name: target.name,
+          fee_plan_id: target.fee_plan_id,
+          total_amount: targetPlan ? Number(targetPlan.total_amount) : 0,
+          installments_snapshot: targetSnapshot as never,
+        });
+        if (enrollError) throw enrollError;
+      }
 
       await supabase.from("student_transfers").insert({
         student_id: student.id,
