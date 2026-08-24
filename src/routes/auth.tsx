@@ -80,6 +80,12 @@ function AuthPage() {
     setPassword("");
   };
 
+// Distingue un vrai échec d'identifiants d'une simple coupure réseau, pour
+  // ne pas dire "mot de passe incorrect" à quelqu'un dont la connexion a
+  // juste flanché.
+  const isNetworkFailure = (message: string) =>
+    (typeof navigator !== "undefined" && !navigator.onLine) || /fetch|network|timeout/i.test(message);
+
   const signIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setSigningIn(true);
@@ -96,14 +102,25 @@ function AuthPage() {
 
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) {
-        toast.error("Mot de passe incorrect. Vérifiez et réessayez.");
+        if (isNetworkFailure(error.message)) {
+          toast.error("Connexion réseau impossible. Vérifiez votre connexion et réessayez.");
+        } else if (/invalid login credentials/i.test(error.message)) {
+          toast.error("Mot de passe incorrect. Vérifiez et réessayez.");
+        } else {
+          toast.error(error.message || "Connexion impossible. Réessayez.");
+        }
         setSigningIn(false);
         return;
       }
       toast.success("Connexion réussie");
       navigate({ to: "/tableau-de-bord" });
     } catch (err) {
-      toast.error((err as Error).message || "Connexion impossible. Réessayez.");
+      const message = (err as Error).message || "";
+      if (isNetworkFailure(message)) {
+        toast.error("Connexion réseau impossible. Vérifiez votre connexion et réessayez.");
+      } else {
+        toast.error(message || "Connexion impossible. Réessayez.");
+      }
       setSigningIn(false);
     }
   };
