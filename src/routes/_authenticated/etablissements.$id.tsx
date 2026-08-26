@@ -17,6 +17,7 @@ import {
   BarChart3,
   RotateCcw,
   Receipt,
+  UserPlus,
 } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
@@ -195,27 +196,14 @@ function ClassesTab({ establishmentId, data }: { establishmentId: string; data: 
 
   const renewingStudentIds = renewing ? data.students.filter((s) => s.class_id === renewing.id).map((s) => s.id) : [];
 
-  // Renouvellement : ferme les périodes de scolarité en cours (elles restent
-  // consultables), efface les paiements, et détache les élèves de la classe —
-  // le nom et le modèle de scolarité de la classe elle-même sont conservés.
- // Renouvellement : les élèves RESTENT dans la classe. On ferme la période
-  // de scolarité en cours de chacun (elle reste consultable dans sa fiche de
-  // scolarité, avec ce qu'il a réellement payé) et on en ouvre aussitôt une
-  // nouvelle à zéro, sur le modèle de scolarité actuel de la classe.
+  // Renouvellement : les élèves sont retirés de la classe (retrouvables et
+  // ré-affectables depuis l'onglet "Élèves", filtre "Classe : Non assignée").
+  // Leur période de scolarité en cours est close et reste consultable dans
+  // leur fiche de scolarité. Le nom de la classe et son modèle sont conservés.
   const renewClass = async () => {
     if (!renewing) return;
     setRenewBusy(true);
     try {
-      const establishment = data.establishments.find((e) => e.id === renewing.establishment_id);
-      const plan = data.feePlans.find((p) => p.id === renewing.fee_plan_id);
-      const planInstallments = data.installments.filter((i) => i.fee_plan_id === renewing.fee_plan_id);
-      const snapshot = planInstallments.map((i) => ({
-        label: i.label,
-        amount: i.amount,
-        due_date: i.due_date,
-        position: i.position,
-      }));
-
       if (renewingStudentIds.length) {
         const { error: closeError } = await supabase
           .from("student_enrollments")
@@ -224,24 +212,18 @@ function ClassesTab({ establishmentId, data }: { establishmentId: string; data: 
           .is("ended_at", null);
         if (closeError) throw closeError;
 
-        const newEnrollments = renewingStudentIds.map((studentId) => ({
-          student_id: studentId,
-          establishment_id: renewing.establishment_id,
-          class_id: renewing.id,
-          establishment_name: establishment?.name ?? "",
-          class_name: renewing.name,
-          fee_plan_id: renewing.fee_plan_id,
-          total_amount: plan ? Number(plan.total_amount) : 0,
-          installments_snapshot: snapshot as never,
-        }));
-        const { error: insertError } = await supabase.from("student_enrollments").insert(newEnrollments);
-        if (insertError) throw insertError;
+        const { error: studError } = await supabase
+          .from("students")
+          .update({ class_id: null })
+          .in("id", renewingStudentIds);
+        if (studError) throw studError;
       }
 
       await writeAudit("update", "classes", renewing.id, {
         renewed: true,
-        students_renewed: renewingStudentIds.length,
+        students_removed: renewingStudentIds.length,
       });
+      qc.invalidateQueries({ queryKey: ["students"] });
       qc.invalidateQueries({ queryKey: ["student_enrollments"] });
       toast.success(`Classe "${renewing.name}" renouvelée`);
       setRenewing(null);
@@ -381,16 +363,16 @@ function ClassesTab({ establishmentId, data }: { establishmentId: string; data: 
       <AlertDialog open={!!renewing} onOpenChange={(v) => !v && setRenewing(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
+            <AlertDialogTitle>Renouveler la classe "{renewing?.name}" ?</AlertDialogTitle>
             <AlertDialogDescription className="space-y-2">
               <span className="block">
-                Les {renewingStudentIds.length} élève(s) de cette classe restent dedans. Leur scolarité de cette année
-                sera close et conservée dans leur fiche de scolarité (avec ce qu'ils ont réellement payé), et une
-                nouvelle période à zéro démarre aussitôt pour la nouvelle année. Cette action est définitive et ne
-                peut pas être annulée.
+                Les {renewingStudentIds.length} élève(s) de cette classe en seront retirés — vous les retrouverez
+                dans l'onglet "Élèves" (filtre Classe : Non assignée) pour les réaffecter. Leur scolarité de cette
+                année sera close et conservée dans leur fiche de scolarité (avec ce qu'ils ont réellement payé).
+                Le nom de la classe et son modèle de scolarité sont conservés. Cette action est définitive.
               </span>
               <span className="block rounded-md border border-[oklch(0.75_0.15_80)]/40 bg-[oklch(0.75_0.15_80)]/10 px-3 py-2 text-xs font-medium text-[oklch(0.5_0.13_70)]">
-                ⚠️ Pensez à vérifier/mettre à jour les échéances du modèle de scolarité de cette classe avant de
-                continuer — sinon les élèves pourraient apparaître "en retard" immédiatement après le renouvellement.
+                ⚠️ Pensez à vérifier/mettre à jour les échéances du modèle de scolarité avant de continuer.
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -465,10 +447,6 @@ function PlanDialog({
   const updateTranche = (id: string, patch: Partial<TrancheDraft>) =>
     setTranches((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
 
-  // Note : ceci ne modifie que le modèle et ses tranches — jamais les périodes
-  // de scolarité déjà figées pour les élèves déjà inscrits (voir
-  // student_enrollments). Seules les futures inscriptions/transferts verront
-  // ce nouveau montant.
   const submit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
@@ -1043,25 +1021,20 @@ function TuitionTab({ establishmentId, data }: { establishmentId: string; data: 
 /* Enseignants                                                             */
 /* ---------------------------------------------------------------------- */
 
-type SessionDraft = { id: string; name: string; weekday: string; duration_minutes: string };
-
-function newSessionDraft(): SessionDraft {
-  return { id: crypto.randomUUID(), name: "", weekday: "1", duration_minutes: "60" };
-}
-
-function TeacherDialog({
+function AssignTeacherDialog({
   open,
   onClose,
   establishmentId,
+  data,
 }: {
   open: boolean;
   onClose: () => void;
   establishmentId: string;
+  data: Data;
 }) {
-  const saveTeacher = useSaveRow("teachers", "Enseignant");
-  const saveAssignment = useSaveRow("teacher_assignments", "Affectation");
-  const saveSession = useSaveRow("teacher_sessions", "Séance");
-
+  const qc = useQueryClient();
+  const [mode, setMode] = useState<"existing" | "new">("existing");
+  const [teacherId, setTeacherId] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
@@ -1069,11 +1042,12 @@ function TeacherDialog({
   const [paymentMethod, setPaymentMethod] = useState<"fixed_salary" | "hourly">("fixed_salary");
   const [salaryAmount, setSalaryAmount] = useState("");
   const [hourlyRate, setHourlyRate] = useState("");
-  const [sessions, setSessions] = useState<SessionDraft[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     if (!open) return;
+    setMode("existing");
+    setTeacherId("");
     setFirstName("");
     setLastName("");
     setPhone("");
@@ -1081,62 +1055,51 @@ function TeacherDialog({
     setPaymentMethod("fixed_salary");
     setSalaryAmount("");
     setHourlyRate("");
-    setSessions([]);
     setSubmitting(false);
   }, [open]);
 
-  const changePaymentMethod = (v: string) => {
-    const val = v as "fixed_salary" | "hourly";
-    setPaymentMethod(val);
-    if (val === "fixed_salary") setSessions([]);
-  };
+  const alreadyAssignedIds = new Set(
+    data.assignments.filter((a) => a.establishment_id === establishmentId).map((a) => a.teacher_id),
+  );
+  const availableTeachers = data.teachers.filter((t) => !alreadyAssignedIds.has(t.id));
 
-  const addSession = () => setSessions((prev) => [...prev, newSessionDraft()]);
-  const removeSession = (id: string) => setSessions((prev) => prev.filter((s) => s.id !== id));
-  const updateSession = (id: string, patch: Partial<SessionDraft>) =>
-    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)));
-
-  const paymentValid =
-    paymentMethod === "fixed_salary" ? Number(salaryAmount) > 0 : Number(hourlyRate) > 0;
-  const sessionsValid = sessions.every((s) => s.name.trim() && s.weekday !== "" && Number(s.duration_minutes) > 0);
-  const canSubmit = !!firstName.trim() && !!lastName.trim() && paymentValid && sessionsValid && !submitting;
+  const paymentValid = paymentMethod === "fixed_salary" ? Number(salaryAmount) > 0 : Number(hourlyRate) > 0;
+  const canSubmit =
+    mode === "existing"
+      ? !!teacherId && paymentValid && !submitting
+      : !!firstName.trim() && !!lastName.trim() && paymentValid && !submitting;
 
   const submit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
     try {
-      const teacherRow = await saveTeacher.mutateAsync({
-        values: { first_name: firstName.trim(), last_name: lastName.trim(), phone: phone || null, domain: domain || null },
-      });
-      const teacherId = (teacherRow as { id?: string } | null)?.id;
-      if (!teacherId) throw new Error("Enseignant non créé");
-
-      const assignmentRow = await saveAssignment.mutateAsync({
-        values: {
-          teacher_id: teacherId,
-          establishment_id: establishmentId,
-          payment_method: paymentMethod,
-          salary_amount: paymentMethod === "fixed_salary" ? Number(salaryAmount) : 0,
-          hourly_rate: paymentMethod === "hourly" ? Number(hourlyRate) : 0,
-        },
-      });
-      const assignmentId = (assignmentRow as { id?: string } | null)?.id;
-
-      if (assignmentId && paymentMethod === "hourly" && sessions.length) {
-        await Promise.all(
-          sessions.map((s) =>
-            saveSession.mutateAsync({
-              values: {
-                name: s.name.trim(),
-                weekday: Number(s.weekday),
-                duration_minutes: Number(s.duration_minutes),
-                assignment_id: assignmentId,
-              },
-            }),
-          ),
-        );
+      let finalTeacherId = teacherId;
+      if (mode === "new") {
+        const { data: created, error } = await supabase
+          .from("teachers")
+          .insert({ first_name: firstName.trim(), last_name: lastName.trim(), phone: phone || null, domain: domain || null })
+          .select()
+          .single();
+        if (error) throw error;
+        finalTeacherId = created.id;
       }
+
+      const { error: assignError } = await supabase.from("teacher_assignments").insert({
+        teacher_id: finalTeacherId,
+        establishment_id: establishmentId,
+        payment_method: paymentMethod,
+        salary_amount: paymentMethod === "fixed_salary" ? Number(salaryAmount) : 0,
+        hourly_rate: paymentMethod === "hourly" ? Number(hourlyRate) : 0,
+      });
+      if (assignError) throw assignError;
+
+      await writeAudit("create", "teacher_assignments", finalTeacherId, { establishment_id: establishmentId });
+      qc.invalidateQueries({ queryKey: ["teachers"] });
+      qc.invalidateQueries({ queryKey: ["teacher_assignments"] });
+      toast.success("Enseignant assigné");
       onClose();
+    } catch (e) {
+      toast.error((e as Error).message || "Assignation impossible");
     } finally {
       setSubmitting(false);
     }
@@ -1144,41 +1107,88 @@ function TeacherDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Nouvel enseignant</DialogTitle>
+          <DialogTitle>Assigner un enseignant</DialogTitle>
           <DialogDescription>
-            La fiche, la méthode de rémunération et l'emploi du temps sont créés en une seule fois pour cet établissement.
+            Choisissez un enseignant déjà présent dans le complexe, ou créez-en un nouveau.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <Label className="mb-1.5 block text-sm">
-              Prénom<span className="ml-0.5 text-destructive">*</span>
-            </Label>
-            <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
-          </div>
-          <div>
-            <Label className="mb-1.5 block text-sm">
-              Nom<span className="ml-0.5 text-destructive">*</span>
-            </Label>
-            <Input value={lastName} onChange={(e) => setLastName(e.target.value)} />
-          </div>
-          <div>
-            <Label className="mb-1.5 block text-sm">Téléphone</Label>
-            <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
-          </div>
-          <div>
-            <Label className="mb-1.5 block text-sm">Domaine</Label>
-            <Input value={domain} placeholder="Mathématiques" onChange={(e) => setDomain(e.target.value)} />
-          </div>
+        <div className="flex gap-1 rounded-lg border border-border bg-card p-1">
+          <Button
+            size="sm"
+            variant={mode === "existing" ? "default" : "ghost"}
+            className="press flex-1"
+            onClick={() => setMode("existing")}
+          >
+            Enseignant existant
+          </Button>
+          <Button
+            size="sm"
+            variant={mode === "new" ? "default" : "ghost"}
+            className="press flex-1"
+            onClick={() => setMode("new")}
+          >
+            Nouvel enseignant
+          </Button>
+        </div>
 
+        {mode === "existing" ? (
+          <div>
+            <Label className="mb-1.5 block text-sm">
+              Enseignant<span className="ml-0.5 text-destructive">*</span>
+            </Label>
+            <Select value={teacherId} onValueChange={setTeacherId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Sélectionner" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableTeachers.length === 0 ? (
+                  <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                    Tous les enseignants du complexe sont déjà assignés ici.
+                  </div>
+                ) : (
+                  availableTeachers.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.last_name} {t.first_name} {t.domain ? `— ${t.domain}` : ""}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label className="mb-1.5 block text-sm">
+                Prénom<span className="ml-0.5 text-destructive">*</span>
+              </Label>
+              <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+            </div>
+            <div>
+              <Label className="mb-1.5 block text-sm">
+                Nom<span className="ml-0.5 text-destructive">*</span>
+              </Label>
+              <Input value={lastName} onChange={(e) => setLastName(e.target.value)} />
+            </div>
+            <div>
+              <Label className="mb-1.5 block text-sm">Téléphone</Label>
+              <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </div>
+            <div>
+              <Label className="mb-1.5 block text-sm">Domaine</Label>
+              <Input value={domain} placeholder="Mathématiques" onChange={(e) => setDomain(e.target.value)} />
+            </div>
+          </div>
+        )}
+
+        <div className="grid gap-4 sm:grid-cols-2">
           <div className="sm:col-span-2">
             <Label className="mb-1.5 block text-sm">
-              Méthode de rémunération<span className="ml-0.5 text-destructive">*</span>
+              Méthode de rémunération (pour cet établissement)<span className="ml-0.5 text-destructive">*</span>
             </Label>
-            <Select value={paymentMethod} onValueChange={changePaymentMethod}>
+            <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as "fixed_salary" | "hourly")}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -1205,63 +1215,12 @@ function TeacherDialog({
           )}
         </div>
 
-        {paymentMethod === "hourly" && (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-medium">Emploi du temps (optionnel, modifiable ensuite)</p>
-              <Button size="sm" variant="outline" className="press" onClick={addSession}>
-                <Plus className="mr-1.5 h-4 w-4" /> Ajouter une séance
-              </Button>
-            </div>
-            {sessions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Aucune séance ajoutée pour l'instant.</p>
-            ) : (
-              <div className="space-y-2">
-                {sessions.map((s) => (
-                  <div key={s.id} className="grid grid-cols-[1fr_1fr_1fr_auto] items-end gap-2 rounded-lg border border-border/70 p-2">
-                    <div>
-                      <Label className="mb-1 block text-xs text-muted-foreground">Intitulé</Label>
-                      <Input value={s.name} placeholder="Maths 6ème A" onChange={(e) => updateSession(s.id, { name: e.target.value })} />
-                    </div>
-                    <div>
-                      <Label className="mb-1 block text-xs text-muted-foreground">Jour</Label>
-                      <Select value={s.weekday} onValueChange={(v) => updateSession(s.id, { weekday: v })}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {WEEKDAYS.map((d) => (
-                            <SelectItem key={d.value} value={String(d.value)}>
-                              {d.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label className="mb-1 block text-xs text-muted-foreground">Durée (min)</Label>
-                      <Input
-                        type="number"
-                        value={s.duration_minutes}
-                        onChange={(e) => updateSession(s.id, { duration_minutes: e.target.value })}
-                      />
-                    </div>
-                    <Button variant="ghost" size="sm" className="text-destructive" onClick={() => removeSession(s.id)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Annuler
           </Button>
           <Button onClick={submit} disabled={!canSubmit}>
-            Enregistrer
+            {submitting ? "Enregistrement..." : "Assigner"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1314,7 +1273,7 @@ function TeacherPaymentDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Paiement enseignant — {teacherName}</DialogTitle>
-          <DialogDescription>Reste dû : {formatFCFA(remaining)}</DialogDescription>
+          <DialogDescription>Reste dû (pour cet établissement) : {formatFCFA(remaining)}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
@@ -1375,7 +1334,6 @@ function TeachersTab({
   data: Data;
   isDG: boolean;
 }) {
-  const archiveTeacher = useArchiveRow("teachers", "Enseignant");
   const saveAssignment = useSaveRow("teacher_assignments", "Affectation");
   const saveSession = useSaveRow("teacher_sessions", "Séance");
   const removeSession = useDeleteRow("teacher_sessions", "Séance");
@@ -1393,7 +1351,7 @@ function TeachersTab({
     }
   };
 
-  const [teacherOpen, setTeacherOpen] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
   const [assignmentEdit, setAssignmentEdit] = useState<TeacherAssignment | null>(null);
   const [sessionFor, setSessionFor] = useState<TeacherAssignment | null>(null);
   const [payFor, setPayFor] = useState<TeacherAssignment | null>(null);
@@ -1411,19 +1369,17 @@ function TeachersTab({
 
   return (
     <div className="space-y-4">
-      {isDG ? (
-        <div className="flex justify-end">
-          <Button className="press" onClick={() => setTeacherOpen(true)}>
-            <Plus className="mr-1.5 h-4 w-4" /> Nouvel enseignant
-          </Button>
-        </div>
-      ) : null}
+      <div className="flex justify-end">
+        <Button className="press" onClick={() => setAssignOpen(true)}>
+          <UserPlus className="mr-1.5 h-4 w-4" /> Assigner un enseignant
+        </Button>
+      </div>
 
       {assignments.length === 0 && !data.loading ? (
         <EmptyState
           icon={Users}
           title="Aucun enseignant affecté"
-          description={isDG ? "Créez une fiche enseignant et affectez-la à cet établissement." : "La direction générale doit affecter des enseignants."}
+          description="Assignez un enseignant déjà présent dans le complexe, ou créez-en un nouveau."
         />
       ) : (
         <div className="grid gap-4 md:grid-cols-2">
@@ -1468,7 +1424,7 @@ function TeachersTab({
                       <p className="font-medium">{validatedHours(a.id, data.sessions, data.sessionCompletions).toFixed(1)} h</p>
                     </div>
                     <div>
-                      <p className="text-xs text-muted-foreground">Dû</p>
+                      <p className="text-xs text-muted-foreground">Dû (cet établissement)</p>
                       <p className="font-medium">{formatFCFA(due)}</p>
                     </div>
                     <div>
@@ -1526,20 +1482,10 @@ function TeachersTab({
                     {teacher && (
                       <Button size="sm" variant="outline" className="press" asChild>
                         <Link to="/enseignants/$teacherId" params={{ teacherId: teacher.id }}>
-                          <Receipt className="mr-1.5 h-4 w-4" /> Fiche de paie
+                          <Receipt className="mr-1.5 h-4 w-4" /> Fiche
                         </Link>
                       </Button>
                     )}
-                    {isDG && teacher ? (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="text-destructive"
-                        onClick={() => archiveTeacher.mutate(teacher.id)}
-                      >
-                        <Archive className="mr-1.5 h-4 w-4" /> Archiver la fiche
-                      </Button>
-                    ) : null}
                   </div>
                 </CardContent>
                 )}
@@ -1549,7 +1495,12 @@ function TeachersTab({
         </div>
       )}
 
-      <TeacherDialog open={teacherOpen} onClose={() => setTeacherOpen(false)} establishmentId={establishmentId} />
+      <AssignTeacherDialog
+        open={assignOpen}
+        onClose={() => setAssignOpen(false)}
+        establishmentId={establishmentId}
+        data={data}
+      />
 
       <RecordDialog
         open={!!assignmentEdit}
