@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, Building2, ShieldCheck, Wallet, UserCircle, School, History } from "lucide-react";
+import { LayoutDashboard, Building2, ShieldCheck, Wallet, UserCircle, School, History, Users, GraduationCap } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -26,6 +26,8 @@ export function AppSidebar() {
       items: [
         { title: "Tableau de bord", url: "/tableau-de-bord", icon: LayoutDashboard },
         { title: "Établissements", url: "/etablissements", icon: Building2 },
+        { title: "Élèves", url: "/eleves", icon: Users },
+        { title: "Enseignants", url: "/enseignants", icon: GraduationCap },
       ],
     },
     {
@@ -39,14 +41,13 @@ export function AppSidebar() {
     },
   ];
 
-  // Le personnel peut avoir accès à un ou plusieurs établissements : on
-  // réutilise la même page "Établissements" que le DG — RLS limite
-  // automatiquement la liste aux établissements auxquels ce compte a accès.
   const staffGroups = [
     {
       label: "Mon établissement",
       items: [
         { title: "Établissements", url: "/etablissements", icon: School },
+        { title: "Élèves", url: "/eleves", icon: Users },
+        { title: "Enseignants", url: "/enseignants", icon: GraduationCap },
         { title: "Historique", url: "/historique", icon: History },
         { title: "Mon compte", url: "/mon-compte", icon: UserCircle },
       ],
