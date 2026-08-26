@@ -2,12 +2,30 @@ import { useState } from "react";
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, Pencil, ArrowRightLeft, Trash2, ShieldAlert, Receipt } from "lucide-react";
+import { ArrowLeft, Pencil, ArrowRightLeft, Trash2, ShieldAlert, Receipt, Wallet } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { EmptyState } from "@/components/app/empty-state";
 import { RecordDialog, type Field } from "@/components/app/record-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,6 +67,7 @@ function Page() {
   const [editOpen, setEditOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferring, setTransferring] = useState(false);
+  const [payOpen, setPayOpen] = useState(false);
 
   const student = data.students.find((s) => s.id === studentId);
   const allowed = student && (isDG || establishmentIds.includes(student.establishment_id));
@@ -103,10 +122,10 @@ function Page() {
       label: `${data.establishments.find((e) => e.id === c.establishment_id)?.name ?? ""} — ${c.name}`,
     }));
 
-  // Transfert : si la période active n'a AUCUN paiement, elle est redirigée
-  // vers la nouvelle classe (même ligne, pas de trace fantôme dans
-  // l'historique) — sinon elle est close (elle a une vraie valeur
-  // historique) et une nouvelle période démarre.
+  // Transfert (ou première affectation si l'élève n'a pas de classe) : si la
+  // période active n'a AUCUN paiement, elle est redirigée vers la nouvelle
+  // classe (pas de trace fantôme) — sinon elle est close et une nouvelle
+  // période démarre.
   const transferStudent = async (values: Record<string, any>) => {
     const target = data.classes.find((c) => c.id === values["class_id"]);
     if (!target) return;
@@ -175,11 +194,11 @@ function Page() {
 
       qc.invalidateQueries({ queryKey: ["students"] });
       qc.invalidateQueries({ queryKey: ["student_enrollments"] });
-      toast.success("Élève transféré");
+      toast.success(student.class_id ? "Élève transféré" : "Élève assigné");
       setTransferOpen(false);
       navigate({ to: "/etablissements/$id", params: { id: target.establishment_id } });
     } catch (e) {
-      toast.error((e as Error).message || "Transfert impossible");
+      toast.error((e as Error).message || "Opération impossible");
     } finally {
       setTransferring(false);
     }
@@ -213,7 +232,7 @@ function Page() {
             <Row label="Téléphone parent 1" value={student.parent_phone_1 ?? "—"} />
             <Row label="Téléphone parent 2" value={student.parent_phone_2 ?? "—"} />
             <Row label="Date d'inscription" value={formatDate(student.enrolled_at)} />
-            <Row label="Classe actuelle" value={klass?.name ?? "—"} />
+            <Row label="Classe actuelle" value={klass ? klass.name : <Badge variant="outline">Non assignée</Badge>} />
           </CardContent>
         </Card>
 
@@ -227,22 +246,31 @@ function Page() {
             </Button>
           </CardHeader>
           <CardContent className="space-y-2.5 text-sm">
-            <Row label="Payé" value={formatFCFA(paid)} />
-            <Row label="Total attendu" value={formatFCFA(totalDue)} />
-            <Row
-              label="Statut"
-              value={
-                late ? (
-                  late.isLate ? (
-                    <Badge variant="destructive">Retard {formatFCFA(late.overdueAmount)}</Badge>
-                  ) : (
-                    <Badge className="bg-success text-success-foreground">À jour</Badge>
-                  )
-                ) : (
-                  "Aucun modèle"
-                )
-              }
-            />
+            {enrollment ? (
+              <>
+                <Row label="Payé" value={formatFCFA(paid)} />
+                <Row label="Total attendu" value={formatFCFA(totalDue)} />
+                <Row
+                  label="Statut"
+                  value={
+                    late ? (
+                      late.isLate ? (
+                        <Badge variant="destructive">Retard {formatFCFA(late.overdueAmount)}</Badge>
+                      ) : (
+                        <Badge className="bg-success text-success-foreground">À jour</Badge>
+                      )
+                    ) : (
+                      "Aucun modèle"
+                    )
+                  }
+                />
+                <Button size="sm" className="press w-full" onClick={() => setPayOpen(true)}>
+                  <Wallet className="mr-1.5 h-4 w-4" /> Enregistrer un paiement de scolarité
+                </Button>
+              </>
+            ) : (
+              <p className="text-muted-foreground">Aucune période active — assignez l'élève à une classe.</p>
+            )}
           </CardContent>
         </Card>
 
@@ -266,7 +294,7 @@ function Page() {
           <Pencil className="mr-1.5 h-4 w-4" /> Modifier
         </Button>
         <Button variant="outline" className="press" onClick={() => setTransferOpen(true)}>
-          <ArrowRightLeft className="mr-1.5 h-4 w-4" /> Transférer l'élève
+          <ArrowRightLeft className="mr-1.5 h-4 w-4" /> {student.class_id ? "Transférer l'élève" : "Assigner l'élève"}
         </Button>
         <AlertDialog>
           <AlertDialogTrigger asChild>
@@ -286,7 +314,7 @@ function Page() {
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Annuler</AlertDialogCancel>
-              <<AlertDialogAction
+              <AlertDialogAction
                 onClick={async () => {
                   if (enrollment) {
                     await supabase
@@ -321,13 +349,129 @@ function Page() {
       <RecordDialog
         open={transferOpen}
         onOpenChange={setTransferOpen}
-        title={`Transférer ${student.first_name} ${student.last_name}`}
+        title={student.class_id ? `Transférer ${student.first_name} ${student.last_name}` : `Assigner ${student.first_name} ${student.last_name}`}
         description="Une nouvelle période de scolarité sera ouverte pour la classe de destination ; l'ancienne reste consultable dans la fiche de scolarité."
-        fields={[{ name: "class_id", label: "Nouvelle classe", type: "select", required: true, colSpan: 2, options: classOptions }]}
+        fields={[{ name: "class_id", label: "Classe", type: "select", required: true, colSpan: 2, options: classOptions }]}
         submitting={transferring}
         onSubmit={transferStudent}
       />
+
+      <PayDialog
+        open={payOpen}
+        onClose={() => setPayOpen(false)}
+        student={student}
+        enrollment={enrollment}
+        paid={paid}
+        totalDue={totalDue}
+      />
     </>
+  );
+}
+
+function PayDialog({
+  open,
+  onClose,
+  student,
+  enrollment,
+  paid,
+  totalDue,
+}: {
+  open: boolean;
+  onClose: () => void;
+  student: NonNullable<ReturnType<typeof useSchoolData>["students"][number]>;
+  enrollment: ReturnType<typeof useSchoolData>["activeEnrollmentByStudent"] extends Map<string, infer V> ? V | undefined : never;
+  paid: number;
+  totalDue: number;
+}) {
+  const qc = useQueryClient();
+  const [amount, setAmount] = useState("");
+  const [paidAt, setPaidAt] = useState(new Date().toISOString().slice(0, 10));
+  const [method, setMethod] = useState("cash");
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  const remaining = Math.max(0, totalDue - paid);
+  const amountNum = Number(amount || 0);
+  const exceeds = totalDue > 0 && amountNum > remaining;
+  const canSubmit = !!enrollment && amountNum > 0 && !exceeds && !submitting;
+
+  const submit = async () => {
+    if (!canSubmit || !enrollment) return;
+    setSubmitting(true);
+    try {
+      const { error } = await supabase.from("tuition_payments").insert({
+        student_id: student.id,
+        enrollment_id: enrollment.id,
+        amount: amountNum,
+        paid_at: paidAt,
+        method,
+        note: note || null,
+        establishment_id: student.establishment_id,
+      });
+      if (error) throw error;
+      qc.invalidateQueries({ queryKey: ["tuition_payments"] });
+      toast.success("Paiement enregistré");
+      setAmount("");
+      setNote("");
+      onClose();
+    } catch (e) {
+      toast.error((e as Error).message || "Enregistrement impossible");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Paiement de scolarité — {student.last_name} {student.first_name}</DialogTitle>
+          <DialogDescription>Reste dû : {formatFCFA(remaining)}</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <Label className="mb-1.5 block text-sm">
+              Montant (FCFA)<span className="ml-0.5 text-destructive">*</span>
+            </Label>
+            <Input type="number" step="any" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            {exceeds ? (
+              <p className="mt-1 text-xs font-medium text-destructive">
+                Le montant dépasse le reste dû ({formatFCFA(remaining)}).
+              </p>
+            ) : null}
+          </div>
+          <div>
+            <Label className="mb-1.5 block text-sm">Date</Label>
+            <Input type="date" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
+          </div>
+          <div>
+            <Label className="mb-1.5 block text-sm">Moyen de paiement</Label>
+            <Select value={method} onValueChange={setMethod}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="cash">Espèces</SelectItem>
+                <SelectItem value="mobile_money">Mobile money</SelectItem>
+                <SelectItem value="bank">Banque</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="sm:col-span-2">
+            <Label className="mb-1.5 block text-sm">Note</Label>
+            <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Annuler
+          </Button>
+          <Button disabled={!canSubmit} onClick={submit}>
+            Enregistrer
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
