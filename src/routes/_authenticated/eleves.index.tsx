@@ -49,7 +49,11 @@ function Page() {
     const term = search.trim().toLowerCase();
     return data.students
       .filter((s) => (establishmentFilter ? s.establishment_id === establishmentFilter : true))
-      .filter((s) => (classFilter ? s.class_id === classFilter : true))
+      .filter((s) => {
+        if (classFilter === "unassigned") return !s.class_id;
+        if (classFilter) return s.class_id === classFilter;
+        return true;
+      })
       .filter((s) => (term ? `${s.first_name} ${s.last_name}`.toLowerCase().includes(term) : true))
       .sort((a, b) => `${a.last_name}${a.first_name}`.localeCompare(`${b.last_name}${b.first_name}`));
   }, [data.students, establishmentFilter, classFilter, search]);
