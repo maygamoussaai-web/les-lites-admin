@@ -164,7 +164,7 @@ function Page() {
             key: "student",
             header: "Élève",
             cell: (p) => {
-              const st = data.students.find((s) => s.id === p.student_id);
+              const st = data.studentsById.get(p.student_id);
               return st ? `${st.last_name} ${st.first_name}` : "—";
             },
           },
