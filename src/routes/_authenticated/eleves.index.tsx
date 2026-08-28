@@ -148,6 +148,7 @@ function Page() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Toutes les classes</SelectItem>
+            <SelectItem value="unassigned">Non assignée</SelectItem>
             {classOptions.map((c) => (
               <SelectItem key={c.id} value={c.id}>
                 {c.name}
