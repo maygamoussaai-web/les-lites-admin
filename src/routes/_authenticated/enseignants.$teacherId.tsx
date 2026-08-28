@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAdminProfile } from "@/hooks/use-auth";
-import { useSaveRow, writeAudit } from "@/lib/data";
+import { useSaveRow, useArchiveRow, writeAudit } from "@/lib/data";
 import { useSchoolData } from "@/lib/school-data";
 import { teacherDue, sum, type TeacherAssignment } from "@/lib/school";
 import { formatFCFA, formatDate } from "@/lib/format";
