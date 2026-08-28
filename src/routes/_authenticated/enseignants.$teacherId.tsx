@@ -55,6 +55,7 @@ function Page() {
   const { isDG, establishmentIds, establishmentIdsLoading } = useAdminProfile();
   const data = useSchoolData();
   const saveTeacher = useSaveRow("teachers", "Enseignant");
+  const archiveTeacher = useArchiveRow("teachers", "Enseignant");
   const [editOpen, setEditOpen] = useState(false);
   const [payFor, setPayFor] = useState<TeacherAssignment | null>(null);
   const [removing, setRemoving] = useState<TeacherAssignment | null>(null);
@@ -297,6 +298,34 @@ function Page() {
           </div>
         )}
       </div>
+
+      {isDG && (
+        <div className="border-t border-border pt-4">
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" size="sm" className="press">
+                <Trash2 className="mr-1.5 h-4 w-4" /> Archiver définitivement cet enseignant
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Archiver {teacher.last_name} {teacher.first_name} ?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  L'enseignant disparaîtra de tous les établissements et de la liste des enseignants disponibles.
+                  Son historique de paiements reste conservé. À utiliser quand l'enseignant quitte définitivement
+                  le complexe.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Annuler</AlertDialogCancel>
+                <AlertDialogAction onClick={() => archiveTeacher.mutate(teacher.id, { onSuccess: () => navigate({ to: "/enseignants" }) })}>
+                  Archiver
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      )}
 
       <RecordDialog
         open={editOpen}
