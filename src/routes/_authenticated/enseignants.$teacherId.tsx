@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, Banknote, ShieldAlert, Pencil, X, Building2 } from "lucide-react";
+import { ArrowLeft, Banknote, ShieldAlert, Pencil, X, Building2, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { EmptyState } from "@/components/app/empty-state";
 import { RecordDialog, type Field } from "@/components/app/record-dialog";
