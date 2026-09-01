@@ -62,7 +62,7 @@ export function StudentsDialog({
     try {
       const { data: created, error } = await supabase
         .from("students")
-        .insert({ ...values, class_id: klass.id, establishment_id: klass.establishment_id })
+        .insert({ ...values, class_id: klass.id, establishment_id: klass.establishment_id } as never)
         .select()
         .single();
       if (error) throw error;

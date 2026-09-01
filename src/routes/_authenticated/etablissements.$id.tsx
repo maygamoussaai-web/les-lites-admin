@@ -353,7 +353,7 @@ function ClassesTab({ establishmentId, data }: { establishmentId: string; data: 
         submitting={save.isPending}
         onSubmit={(values) =>
           save.mutate(
-            { id: editing?.id, values: { ...values, establishment_id: establishmentId } },
+            { id: editing?.id ?? null, values: { ...values, establishment_id: establishmentId } },
             { onSuccess: () => setOpen(false) },
           )
         }
@@ -1602,7 +1602,7 @@ function buildPeriodBuckets(period: Period, since: string) {
   const buckets: { key: string; label: string }[] = [];
   if (period === "year") {
     for (let m = start.getMonth(); m <= now.getMonth(); m++) {
-      buckets.push({ key: `${now.getFullYear()}-${String(m + 1).padStart(2, "0")}`, label: MONTH_SHORT[m] });
+      buckets.push({ key: `${now.getFullYear()}-${String(m + 1).padStart(2, "0")}`, label: MONTH_SHORT[m] ?? "" });
     }
   } else {
     const cursor = new Date(start);
