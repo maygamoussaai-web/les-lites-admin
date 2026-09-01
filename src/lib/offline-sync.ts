@@ -7,24 +7,22 @@ let syncing = false;
 
 async function runEntry(entry: QueueEntry) {
   if (entry.op === "insert") {
-    const { error } = await supabase
-      .from(entry.table)
+    const { error } = await (supabase.from(entry.table) as any)
       .upsert({ id: entry.rowId, ...entry.values } as never, { onConflict: "id" });
     if (error) throw error;
     void writeAudit("create", entry.table, entry.rowId, entry.values);
   } else if (entry.op === "update") {
-    const { error } = await supabase.from(entry.table).update(entry.values as never).eq("id", entry.rowId);
+    const { error } = await (supabase.from(entry.table) as any).update(entry.values as never).eq("id", entry.rowId);
     if (error) throw error;
     void writeAudit("update", entry.table, entry.rowId, entry.values);
   } else if (entry.op === "archive") {
-    const { error } = await supabase
-      .from(entry.table)
+    const { error } = await (supabase.from(entry.table) as any)
       .update({ archived_at: new Date().toISOString() } as never)
       .eq("id", entry.rowId);
     if (error) throw error;
     void writeAudit("archive", entry.table, entry.rowId);
   } else if (entry.op === "delete") {
-    const { error } = await supabase.from(entry.table).delete().eq("id", entry.rowId);
+    const { error } = await (supabase.from(entry.table) as any).delete().eq("id", entry.rowId);
     if (error) throw error;
     void writeAudit("delete", entry.table, entry.rowId);
   }

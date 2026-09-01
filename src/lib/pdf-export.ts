@@ -71,7 +71,7 @@ export async function imageToPdfBlob(imageUrl: string): Promise<Blob> {
   }
   push(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`);
 
-  return new Blob(parts, { type: "application/pdf" });
+  return new Blob(parts as BlobPart[], { type: "application/pdf" });
 }
 /**
  * Ouvre le PDF dans un nouvel onglet (le lecteur PDF du navigateur propose
