@@ -10,11 +10,11 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.15"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
-admin_profile_establishments: {
+      admin_profile_establishments: {
         Row: {
           created_at: string
           establishment_id: string
@@ -32,17 +32,17 @@ admin_profile_establishments: {
         }
         Relationships: [
           {
-            foreignKeyName: "admin_profile_establishments_profile_id_fkey"
-            columns: ["profile_id"]
-            isOneToOne: false
-            referencedRelation: "admin_profiles"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "admin_profile_establishments_establishment_id_fkey"
             columns: ["establishment_id"]
             isOneToOne: false
             referencedRelation: "establishments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "admin_profile_establishments_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "admin_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -336,6 +336,124 @@ admin_profile_establishments: {
           },
         ]
       }
+      student_documents: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          establishment_id: string
+          file_path: string
+          file_size: number
+          file_type: string
+          id: string
+          name: string
+          student_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          establishment_id: string
+          file_path: string
+          file_size?: number
+          file_type: string
+          id?: string
+          name: string
+          student_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          establishment_id?: string
+          file_path?: string
+          file_size?: number
+          file_type?: string
+          id?: string
+          name?: string
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_documents_establishment_id_fkey"
+            columns: ["establishment_id"]
+            isOneToOne: false
+            referencedRelation: "establishments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_documents_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      student_enrollments: {
+        Row: {
+          class_id: string | null
+          class_name: string
+          created_at: string
+          ended_at: string | null
+          establishment_id: string
+          establishment_name: string
+          fee_plan_id: string | null
+          id: string
+          installments_snapshot: Json
+          started_at: string
+          student_id: string
+          total_amount: number
+        }
+        Insert: {
+          class_id?: string | null
+          class_name: string
+          created_at?: string
+          ended_at?: string | null
+          establishment_id: string
+          establishment_name: string
+          fee_plan_id?: string | null
+          id?: string
+          installments_snapshot?: Json
+          started_at?: string
+          student_id: string
+          total_amount?: number
+        }
+        Update: {
+          class_id?: string | null
+          class_name?: string
+          created_at?: string
+          ended_at?: string | null
+          establishment_id?: string
+          establishment_name?: string
+          fee_plan_id?: string | null
+          id?: string
+          installments_snapshot?: Json
+          started_at?: string
+          student_id?: string
+          total_amount?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_enrollments_class_id_fkey"
+            columns: ["class_id"]
+            isOneToOne: false
+            referencedRelation: "classes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_enrollments_establishment_id_fkey"
+            columns: ["establishment_id"]
+            isOneToOne: false
+            referencedRelation: "establishments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_enrollments_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       student_transfers: {
         Row: {
           created_at: string
@@ -576,111 +694,7 @@ admin_profile_establishments: {
           },
         ]
       }
-student_enrollments: {
-        Row: {
-          class_id: string | null
-          class_name: string
-          created_at: string
-          ended_at: string | null
-          establishment_id: string
-          establishment_name: string
-          fee_plan_id: string | null
-          id: string
-          installments_snapshot: Json
-          started_at: string
-          student_id: string
-          total_amount: number
-        }
-        Insert: {
-          class_id?: string | null
-          class_name: string
-          created_at?: string
-          ended_at?: string | null
-          establishment_id: string
-          establishment_name: string
-          fee_plan_id?: string | null
-          id?: string
-          installments_snapshot?: Json
-          started_at?: string
-          student_id: string
-          total_amount?: number
-        }
-        Update: {
-          class_id?: string | null
-          class_name?: string
-          created_at?: string
-          ended_at?: string | null
-          establishment_id?: string
-          establishment_name?: string
-          fee_plan_id?: string | null
-          id?: string
-          installments_snapshot?: Json
-          started_at?: string
-          student_id?: string
-          total_amount?: number
-        }
-        Relationships: [
-          {
-            foreignKeyName: "student_enrollments_student_id_fkey"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "students"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-student_documents: {
-        Row: {
-          created_at: string
-          created_by: string | null
-          establishment_id: string
-          file_path: string
-          file_size: number
-          file_type: string
-          id: string
-          name: string
-          student_id: string
-        }
-        Insert: {
-          created_at?: string
-          created_by?: string | null
-          establishment_id: string
-          file_path: string
-          file_size?: number
-          file_type: string
-          id?: string
-          name: string
-          student_id: string
-        }
-        Update: {
-          created_at?: string
-          created_by?: string | null
-          establishment_id?: string
-          file_path?: string
-          file_size?: number
-          file_type?: string
-          id?: string
-          name?: string
-          student_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "student_documents_student_id_fkey"
-            columns: ["student_id"]
-            isOneToOne: false
-            referencedRelation: "students"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "student_documents_establishment_id_fkey"
-            columns: ["establishment_id"]
-            isOneToOne: false
-            referencedRelation: "establishments"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-teacher_session_completions: {
+      teacher_session_completions: {
         Row: {
           completed_at: string
           completed_by: string | null
@@ -792,8 +806,9 @@ teacher_session_completions: {
       tuition_payments: {
         Row: {
           amount: number
-          establishment_id: string
+          created_at: string
           enrollment_id: string | null
+          establishment_id: string
           id: string
           method: string
           note: string | null
@@ -804,6 +819,7 @@ teacher_session_completions: {
         Insert: {
           amount: number
           created_at?: string
+          enrollment_id?: string | null
           establishment_id: string
           id?: string
           method?: string
@@ -811,11 +827,11 @@ teacher_session_completions: {
           paid_at?: string
           recorded_by?: string | null
           student_id: string
-enrollment_id?: string | null
         }
         Update: {
           amount?: number
           created_at?: string
+          enrollment_id?: string | null
           establishment_id?: string
           id?: string
           method?: string
@@ -823,9 +839,15 @@ enrollment_id?: string | null
           paid_at?: string
           recorded_by?: string | null
           student_id?: string
-enrollment_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "tuition_payments_enrollment_id_fkey"
+            columns: ["enrollment_id"]
+            isOneToOne: false
+            referencedRelation: "student_enrollments"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "tuition_payments_establishment_id_fkey"
             columns: ["establishment_id"]
