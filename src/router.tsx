@@ -11,6 +11,9 @@ export const getRouter = () => {
         // mémoire au moins aussi longtemps que ce qui est persisté en local,
         // pour un fonctionnement hors ligne cohérent.
         gcTime: QUERY_PERSIST_MAX_AGE,
+        staleTime: 60_000,
+        refetchOnWindowFocus: false,
+        retry: 1,
       },
     },
   });
@@ -19,6 +22,7 @@ export const getRouter = () => {
     routeTree,
     context: { queryClient },
     scrollRestoration: true,
+    defaultPreload: "intent",
     defaultPreloadStaleTime: 0,
   });
 

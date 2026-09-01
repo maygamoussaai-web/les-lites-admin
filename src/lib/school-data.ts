@@ -65,6 +65,7 @@ export function useSchoolData() {
     const allTuitionPayments = tuitionPayments.data ?? [];
     const paidByEnrollment = new Map<string, number>();
     for (const p of allTuitionPayments) {
+      if (!p.enrollment_id) continue;
       paidByEnrollment.set(p.enrollment_id, (paidByEnrollment.get(p.enrollment_id) ?? 0) + Number(p.amount));
     }
 
