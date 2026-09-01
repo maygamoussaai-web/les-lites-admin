@@ -49,36 +49,62 @@ export function useSchoolData() {
     tuitionPayments.isPending ||
     enrollments.isPending;
 
-  const allStudents = students.data ?? [];
-  const allTeachers = teachers.data ?? [];
-  const allEnrollments = enrollments.data ?? [];
+  // Mémorisé : sans cela, chaque rendu recréait listes et index, ce qui
+  // invalidait tous les useMemo en aval (statistiques, tableaux) et rendait
+  // l'interface lourde sur mobile.
+  return useMemo(() => {
+    const allStudents = students.data ?? [];
+    const allTeachers = teachers.data ?? [];
+    const allEnrollments = enrollments.data ?? [];
 
-  const activeEnrollmentByStudent = new Map<string, StudentEnrollment>();
-  for (const e of allEnrollments) {
-    if (e.ended_at === null) activeEnrollmentByStudent.set(e.student_id, e);
-  }
+    const activeEnrollmentByStudent = new Map<string, StudentEnrollment>();
+    for (const e of allEnrollments) {
+      if (e.ended_at === null) activeEnrollmentByStudent.set(e.student_id, e);
+    }
 
-  return {
+    const allTuitionPayments = tuitionPayments.data ?? [];
+    const paidByEnrollment = new Map<string, number>();
+    for (const p of allTuitionPayments) {
+      paidByEnrollment.set(p.enrollment_id, (paidByEnrollment.get(p.enrollment_id) ?? 0) + Number(p.amount));
+    }
+
+    return {
+      loading,
+      establishments: establishments.data ?? [],
+      classes: classes.data ?? [],
+      // Listes actives (archivés exclus) — utilisées pour les cartes, formulaires et pickers.
+      students: allStudents.filter((s) => !s.archived_at),
+      feePlans: feePlans.data ?? [],
+      installments: installments.data ?? [],
+      tuitionPayments: allTuitionPayments,
+      enrollments: allEnrollments,
+      activeEnrollmentByStudent,
+      paidByEnrollment,
+      teachers: allTeachers.filter((t) => !t.archived_at),
+      assignments: assignments.data ?? [],
+      sessions: sessions.data ?? [],
+      sessionCompletions: sessionCompletions.data ?? [],
+      teacherPayments: teacherPayments.data ?? [],
+      // Recherches non filtrées — utilisées pour retrouver le NOM dans l'historique
+      // (paiements, journal d'audit) même après archivage d'un élève ou d'un enseignant.
+      studentsById: new Map(allStudents.map((s) => [s.id, s])),
+      teachersById: new Map(allTeachers.map((t) => [t.id, t])),
+    };
+  }, [
     loading,
-    establishments: establishments.data ?? [],
-    classes: classes.data ?? [],
-    // Listes actives (archivés exclus) — utilisées pour les cartes, formulaires et pickers.
-    students: allStudents.filter((s) => !s.archived_at),
-    feePlans: feePlans.data ?? [],
-    installments: installments.data ?? [],
-    tuitionPayments: tuitionPayments.data ?? [],
-    enrollments: allEnrollments,
-    activeEnrollmentByStudent,
-    teachers: allTeachers.filter((t) => !t.archived_at),
-    assignments: assignments.data ?? [],
-    sessions: sessions.data ?? [],
-    sessionCompletions: sessionCompletions.data ?? [],
-    teacherPayments: teacherPayments.data ?? [],
-    // Recherches non filtrées — utilisées pour retrouver le NOM dans l'historique
-    // (paiements, journal d'audit) même après archivage d'un élève ou d'un enseignant.
-    studentsById: new Map(allStudents.map((s) => [s.id, s])),
-    teachersById: new Map(allTeachers.map((t) => [t.id, t])),
-  };
+    establishments.data,
+    classes.data,
+    students.data,
+    feePlans.data,
+    installments.data,
+    tuitionPayments.data,
+    enrollments.data,
+    teachers.data,
+    assignments.data,
+    sessions.data,
+    sessionCompletions.data,
+    teacherPayments.data,
+  ]);
 }
 
 export type SchoolData = ReturnType<typeof useSchoolData>;
