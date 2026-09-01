@@ -9,14 +9,15 @@ function readJpegSize(data: Uint8Array): { width: number; height: number } {
       offset++;
       continue;
     }
-    const marker = data[offset + 1];
+    const at = (i: number) => data[i] ?? 0;
+    const marker = at(offset + 1);
     const isSof = marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
     if (isSof) {
-      const height = (data[offset + 5] << 8) | data[offset + 6];
-      const width = (data[offset + 7] << 8) | data[offset + 8];
+      const height = (at(offset + 5) << 8) | at(offset + 6);
+      const width = (at(offset + 7) << 8) | at(offset + 8);
       return { width, height };
     }
-    const length = (data[offset + 2] << 8) | data[offset + 3];
+    const length = (at(offset + 2) << 8) | at(offset + 3);
     offset += 2 + length;
   }
   throw new Error("Dimensions de l'image introuvables");
