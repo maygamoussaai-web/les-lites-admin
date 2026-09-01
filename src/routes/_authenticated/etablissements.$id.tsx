@@ -806,7 +806,7 @@ function TuitionTab({ establishmentId, data }: { establishmentId: string; data: 
             : 0;
           const status = installments.length ? lateStatus(paid, installments) : null;
           const expected = enrollment ? Number(enrollment.total_amount) : 0;
-          return { student, klass, enrollment, paid, expected, remaining: Math.max(0, expected - paid), status };
+          return { id: student.id, student, klass, enrollment, paid, expected, remaining: Math.max(0, expected - paid), status };
         })
         .sort((a, b) =>
           `${a.student.last_name}${a.student.first_name}`.localeCompare(`${b.student.last_name}${b.student.first_name}`),
