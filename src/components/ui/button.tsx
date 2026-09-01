@@ -9,12 +9,13 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "shine-gold bg-primary text-primary-foreground shadow hover:bg-primary/90 hover:shadow-md",
-        destructive: "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
+        default:
+          "shine-gold btn-glow bg-gradient-to-b from-primary to-[color-mix(in_oklab,var(--primary)_88%,black)] text-primary-foreground shadow-sm hover:brightness-110",
+        destructive: "btn-glow bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
         outline:
-          "border border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground",
-        secondary: "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
+          "btn-glow border border-input bg-background/70 shadow-sm backdrop-blur-sm hover:border-accent/60 hover:bg-accent/10 hover:text-foreground",
+        secondary: "btn-glow bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80",
+        ghost: "transition-colors hover:bg-accent/15 hover:text-foreground",
         link: "text-primary underline-offset-4 hover:underline",
       },
       size: {

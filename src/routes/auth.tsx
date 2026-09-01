@@ -3,7 +3,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, GraduationCap, Loader2, ShieldCheck, Crown, Users } from "lucide-react";
+import { ArrowLeft, Loader2, ShieldCheck, Crown, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { DG_EMAIL, getDirectorGeneralAccount, listStaffAccounts, getStaffEmail } from "@/lib/admin.functions";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { initials } from "@/lib/format";
 import { ThemeToggle } from "@/components/app/theme-toggle";
 import { AuroraBackground } from "@/components/app/aurora-background";
+import { BrandLogo } from "@/components/app/brand-logo";
 
 export const Route = createFileRoute("/auth")({
   ssr: false,
@@ -145,9 +146,7 @@ function AuthPage() {
         <div aria-hidden className="pointer-events-none absolute -bottom-32 -left-16 h-80 w-80 rounded-full bg-[oklch(0.78_0.16_85/12%)] blur-3xl animate-glow-pulse" style={{ animationDelay: "1.2s" }} />
 
         <div className="animate-rise relative flex items-center gap-3">
-          <span className="shine-gold flex h-11 w-11 items-center justify-center rounded-xl bg-sidebar-primary font-display text-base font-bold text-sidebar-primary-foreground">
-            EG
-          </span>
+          <BrandLogo size={44} />
           <div>
             <p className="font-display text-lg font-semibold">Les Élites de Gao</p>
             <p className="text-sm text-sidebar-foreground/70">Complexe scolaire — Gao, Mali</p>
@@ -155,9 +154,7 @@ function AuthPage() {
         </div>
 
         <div className="stagger relative max-w-md space-y-5">
-          <div className="animate-emblem-float gold-ring flex h-16 w-16 items-center justify-center rounded-2xl border border-sidebar-primary/40 bg-sidebar-primary/10 text-sidebar-primary shadow-lg">
-            <GraduationCap className="h-8 w-8" />
-          </div>
+          <BrandLogo size={132} halo float />
           <h2 className="gold-underline font-display text-3xl font-semibold leading-tight">
             Une administration unifiée pour l'Université, le Lycée, le Collège et la Fondamentale.
           </h2>
@@ -175,7 +172,8 @@ function AuthPage() {
       {/* Panneau de connexion */}
       <div className="flex items-center justify-center p-6">
         <div className="w-full max-w-md space-y-6 duration-300 animate-in fade-in slide-in-from-bottom-2">
-          <div className="text-center lg:hidden">
+          <div className="flex flex-col items-center gap-3 text-center lg:hidden">
+            <BrandLogo size={92} halo float />
             <p className="font-display text-xl font-semibold text-foreground">LES ÉLITES DE GAO</p>
             <p className="text-sm text-muted-foreground">Administration du complexe scolaire</p>
           </div>
@@ -183,6 +181,9 @@ function AuthPage() {
           {mode === null && (
             <Card className="glass-panel card-lift animate-rise shadow-xl">
               <CardHeader className="text-center">
+                <div className="mb-1 hidden justify-center lg:flex">
+                  <BrandLogo size={72} halo />
+                </div>
                 <CardTitle className="font-display text-2xl">LES ÉLITES DE GAO</CardTitle>
                 <CardDescription>Administration du complexe scolaire</CardDescription>
               </CardHeader>

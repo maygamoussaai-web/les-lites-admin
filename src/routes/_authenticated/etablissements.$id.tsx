@@ -353,7 +353,7 @@ function ClassesTab({ establishmentId, data }: { establishmentId: string; data: 
         submitting={save.isPending}
         onSubmit={(values) =>
           save.mutate(
-            { id: editing?.id, values: { ...values, establishment_id: establishmentId } },
+            { id: editing?.id ?? null, values: { ...values, establishment_id: establishmentId } },
             { onSuccess: () => setOpen(false) },
           )
         }
@@ -806,7 +806,7 @@ function TuitionTab({ establishmentId, data }: { establishmentId: string; data: 
             : 0;
           const status = installments.length ? lateStatus(paid, installments) : null;
           const expected = enrollment ? Number(enrollment.total_amount) : 0;
-          return { student, klass, enrollment, paid, expected, remaining: Math.max(0, expected - paid), status };
+          return { id: student.id, student, klass, enrollment, paid, expected, remaining: Math.max(0, expected - paid), status };
         })
         .sort((a, b) =>
           `${a.student.last_name}${a.student.first_name}`.localeCompare(`${b.student.last_name}${b.student.first_name}`),
@@ -1526,7 +1526,7 @@ function TeachersTab({
         onSubmit={(values) =>
           saveAssignment.mutate(
             {
-              id: assignmentEdit?.id,
+              id: assignmentEdit?.id ?? null,
               values: {
                 payment_method: values['payment_method'],
                 salary_amount: values['salary_amount'] ?? 0,
@@ -1602,13 +1602,13 @@ function buildPeriodBuckets(period: Period, since: string) {
   const buckets: { key: string; label: string }[] = [];
   if (period === "year") {
     for (let m = start.getMonth(); m <= now.getMonth(); m++) {
-      buckets.push({ key: `${now.getFullYear()}-${String(m + 1).padStart(2, "0")}`, label: MONTH_SHORT[m] });
+      buckets.push({ key: `${now.getFullYear()}-${String(m + 1).padStart(2, "0")}`, label: MONTH_SHORT[m] ?? "" });
     }
   } else {
     const cursor = new Date(start);
     while (cursor <= now) {
       const key = cursor.toISOString().slice(0, 10);
-      const label = period === "week" ? WEEKDAY_SHORT[(cursor.getDay() + 6) % 7] : String(cursor.getDate());
+      const label = period === "week" ? (WEEKDAY_SHORT[(cursor.getDay() + 6) % 7] ?? "") : String(cursor.getDate());
       buckets.push({ key, label });
       cursor.setDate(cursor.getDate() + 1);
     }
