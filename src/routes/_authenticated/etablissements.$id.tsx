@@ -1526,7 +1526,7 @@ function TeachersTab({
         onSubmit={(values) =>
           saveAssignment.mutate(
             {
-              id: assignmentEdit?.id,
+              id: assignmentEdit?.id ?? null,
               values: {
                 payment_method: values['payment_method'],
                 salary_amount: values['salary_amount'] ?? 0,
@@ -1608,7 +1608,7 @@ function buildPeriodBuckets(period: Period, since: string) {
     const cursor = new Date(start);
     while (cursor <= now) {
       const key = cursor.toISOString().slice(0, 10);
-      const label = period === "week" ? WEEKDAY_SHORT[(cursor.getDay() + 6) % 7] : String(cursor.getDate());
+      const label = period === "week" ? (WEEKDAY_SHORT[(cursor.getDay() + 6) % 7] ?? "") : String(cursor.getDate());
       buckets.push({ key, label });
       cursor.setDate(cursor.getDate() + 1);
     }
