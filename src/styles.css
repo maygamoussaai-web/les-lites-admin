@@ -475,3 +475,99 @@
     display: none;
   }
 }
+
+/* --- Logo institutionnel : filigrane et rendu net --- */
+
+.logo-crisp {
+  image-rendering: auto;
+  -webkit-user-drag: none;
+}
+
+@keyframes watermark-breathe {
+  0%, 100% { transform: scale(1) translateY(0); opacity: var(--wm-opacity); }
+  50% { transform: scale(1.04) translateY(-10px); opacity: calc(var(--wm-opacity) * 1.5); }
+}
+
+.logo-watermark {
+  --wm-opacity: 0.035;
+  opacity: var(--wm-opacity);
+  filter: blur(0.3px) saturate(85%);
+  animation: watermark-breathe 24s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+.dark .logo-watermark {
+  --wm-opacity: 0.055;
+}
+
+/* --- Voile de faisceaux lumineux (arrière-plan) --- */
+
+@keyframes beam-slide {
+  0% { transform: translate3d(-8%, 0, 0); }
+  100% { transform: translate3d(8%, 0, 0); }
+}
+
+.beam-veil {
+  background-image:
+    linear-gradient(115deg, transparent 44%, oklch(0.78 0.16 85 / 7%) 50%, transparent 56%),
+    linear-gradient(75deg, transparent 62%, oklch(0.55 0.14 258 / 8%) 68%, transparent 74%);
+  animation: beam-slide 18s ease-in-out infinite alternate;
+  will-change: transform;
+}
+.dark .beam-veil {
+  background-image:
+    linear-gradient(115deg, transparent 44%, oklch(0.78 0.16 85 / 9%) 50%, transparent 56%),
+    linear-gradient(75deg, transparent 62%, oklch(0.65 0.15 258 / 12%) 68%, transparent 74%);
+}
+
+/* --- Boutons : relief, éclat doré et retour tactile --- */
+
+.btn-glow {
+  position: relative;
+  isolation: isolate;
+  transition:
+    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.28s ease,
+    filter 0.28s ease;
+}
+.btn-glow:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 10px 26px -14px oklch(0.32 0.15 258 / 70%),
+    0 0 0 1px oklch(0.78 0.16 85 / 28%);
+}
+.btn-glow:active {
+  transform: translateY(0) scale(0.975);
+}
+
+/* Halo au focus clavier, cohérent partout */
+:where(button, a, [role="button"], input, textarea, select):focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px var(--color-background),
+    0 0 0 4px color-mix(in oklab, var(--color-accent) 65%, transparent);
+}
+
+/* --- Performances : allègements sur petits écrans et machines modestes --- */
+
+@media (max-width: 767px) {
+  .aurora-mesh,
+  .beam-veil,
+  .logo-watermark,
+  .animate-drift-slow,
+  .animate-drift-slower {
+    animation: none !important;
+  }
+  .grain {
+    display: none;
+  }
+  .glass-panel {
+    backdrop-filter: blur(10px) saturate(130%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .logo-watermark,
+  .beam-veil {
+    animation: none !important;
+  }
+}
