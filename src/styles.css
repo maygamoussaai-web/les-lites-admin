@@ -483,22 +483,6 @@
   -webkit-user-drag: none;
 }
 
-@keyframes watermark-breathe {
-  0%, 100% { transform: scale(1) translateY(0); opacity: var(--wm-opacity); }
-  50% { transform: scale(1.04) translateY(-10px); opacity: calc(var(--wm-opacity) * 1.5); }
-}
-
-.logo-watermark {
-  --wm-opacity: 0.035;
-  opacity: var(--wm-opacity);
-  filter: blur(0.3px) saturate(85%);
-  animation: watermark-breathe 24s ease-in-out infinite;
-  will-change: transform, opacity;
-}
-.dark .logo-watermark {
-  --wm-opacity: 0.055;
-}
-
 /* --- Tombeau des Askia : silhouette patrimoniale en arrière-plan --- */
 
 .tomb-veil {
@@ -579,7 +563,6 @@
 @media (max-width: 767px) {
   .aurora-mesh,
   .beam-veil,
-  .logo-watermark,
   .animate-drift-slow,
   .animate-drift-slower {
     animation: none !important;
@@ -593,7 +576,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .logo-watermark,
   .beam-veil {
     animation: none !important;
   }
