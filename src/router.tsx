@@ -23,7 +23,10 @@ export const getRouter = () => {
     context: { queryClient },
     scrollRestoration: true,
     defaultPreload: "intent",
-    defaultPreloadStaleTime: 0,
+    // Un survol/intent répété sur le même lien ne redéclenche pas une requête
+    // si les données ont moins de 30s — réduit les appels réseau redondants
+    // sans nuire à la fraîcheur perçue par l'utilisateur.
+    defaultPreloadStaleTime: 30_000,
   });
 
   return router;
