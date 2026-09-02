@@ -563,7 +563,6 @@
 @media (max-width: 767px) {
   .aurora-mesh,
   .beam-veil,
-  .logo-watermark,
   .animate-drift-slow,
   .animate-drift-slower {
     animation: none !important;
@@ -577,7 +576,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .logo-watermark,
   .beam-veil {
     animation: none !important;
   }
