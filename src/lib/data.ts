@@ -1,8 +1,15 @@
-import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  keepPreviousData,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { enqueue } from "@/lib/offline-queue";
 import { flushQueue } from "@/lib/offline-sync";
+import { describeError } from "@/lib/errors";
 import type { TableName } from "@/lib/audit";
 
 export type { TableName };
@@ -22,6 +29,13 @@ export function useRows<T = any>(table: TableName, options: ListOptions = {}) {
     queryKey: [table, select, order, eq, limit],
     enabled,
     staleTime: 30_000,
+    // Fluidité : garde l'ancienne page de données visible pendant qu'une
+    // nouvelle requête (changement de filtre, etc.) est en cours, plutôt que
+    // de vider l'écran — et partage la structure des objets inchangés entre
+    // deux résultats pour éviter des re-rendus inutiles dans toute l'app.
+    structuralSharing: true,
+    placeholderData: keepPreviousData,
+    refetchOnMount: false,
     queryFn: async () => {
       let q = supabase.from(table).select(select);
       if (eq) {
@@ -43,11 +57,7 @@ function isOnline() {
   return typeof navigator === "undefined" || navigator.onLine;
 }
 
-/**
- * Applique un changement immédiatement à toutes les listes déjà en cache pour
- * cette table — passe par getQueryCache().findAll + setQueryData plutôt que
- * setQueriesData pour éviter toute ambiguïté de typage générique.
- */
+/** Applique un changement immédiatement à toutes les listes déjà en cache pour cette table. */
 function applyOptimistic(qc: QueryClient, table: TableName, updater: (rows: any[]) => any[]) {
   const queries = qc.getQueryCache().findAll({ queryKey: [table] });
   for (const query of queries) {
@@ -56,10 +66,6 @@ function applyOptimistic(qc: QueryClient, table: TableName, updater: (rows: any[
       qc.setQueryData(query.queryKey, updater(old));
     }
   }
-}
-
-function offlineErrorMessage(fallback: string) {
-  return isOnline() ? fallback : undefined;
 }
 
 export function useSaveRow(table: TableName, label = "Enregistrement") {
@@ -83,7 +89,7 @@ export function useSaveRow(table: TableName, label = "Enregistrement") {
     onSuccess: () => {
       toast.success(isOnline() ? `${label} enregistré` : `${label} enregistré — en attente de connexion`);
     },
-    onError: (error: Error) => toast.error(offlineErrorMessage(error.message) ?? "Échec de l'enregistrement"),
+    onError: (error: unknown) => toast.error(describeError(error, `Échec de l'enregistrement (${label})`, table)),
   });
 }
 
@@ -97,7 +103,7 @@ export function useDeleteRow(table: TableName, label = "Élément") {
       return rowId;
     },
     onSuccess: () => toast.success(isOnline() ? `${label} supprimé` : `${label} supprimé — en attente de connexion`),
-    onError: (error: Error) => toast.error(offlineErrorMessage(error.message) ?? "Suppression impossible"),
+    onError: (error: unknown) => toast.error(describeError(error, `Suppression impossible (${label})`, table)),
   });
 }
 
@@ -117,6 +123,6 @@ export function useArchiveRow(table: TableName, label = "Élément") {
       return rowId;
     },
     onSuccess: () => toast.success(isOnline() ? `${label} archivé` : `${label} archivé — en attente de connexion`),
-    onError: (error: Error) => toast.error(offlineErrorMessage(error.message) ?? "Archivage impossible"),
+    onError: (error: unknown) => toast.error(describeError(error, `Archivage impossible (${label})`, table)),
   });
 }
