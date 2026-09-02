@@ -499,6 +499,33 @@
   --wm-opacity: 0.055;
 }
 
+/* --- Tombeau des Askia : silhouette patrimoniale en arrière-plan --- */
+
+.tomb-veil {
+  background-image: url("/tombeau-askia.jpg");
+  background-size: cover;
+  background-position: center 32%;
+  opacity: 0.17;
+  filter: saturate(85%) sepia(8%);
+  -webkit-mask-image: linear-gradient(to top, black 30%, transparent 96%);
+  mask-image: linear-gradient(to top, black 30%, transparent 96%);
+}
+.dark .tomb-veil {
+  opacity: 0.24;
+  filter: saturate(75%) sepia(10%) brightness(0.9);
+}
+
+@media (max-width: 767px) {
+  .tomb-veil {
+    opacity: 0.11;
+    background-position: center 40%;
+  }
+}
+.dark .tomb-veil {
+  -webkit-mask-image: linear-gradient(to top, black 24%, transparent 94%);
+  mask-image: linear-gradient(to top, black 24%, transparent 94%);
+}
+
 /* --- Voile de faisceaux lumineux (arrière-plan) --- */
 
 @keyframes beam-slide {
