@@ -14,6 +14,7 @@ export function AuroraBackground({
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
       <div className="absolute inset-0 bg-background" />
+      <div className="tomb-veil absolute inset-x-0 bottom-0 h-[52vh] min-h-[280px]" />
       <div className="aurora-mesh absolute inset-0" />
       <div className="beam-veil absolute inset-0" />
       <div
