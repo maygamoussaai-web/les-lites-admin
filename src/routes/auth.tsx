@@ -162,6 +162,9 @@ function AuthPage() {
             Élèves, enseignants, évaluations, scolarité et paiements — dans un seul espace sécurisé,
             utilisable même avec une connexion instable.
           </p>
+          <p className="border-l-2 border-[oklch(0.78_0.16_85)] pl-4 text-sm italic leading-relaxed text-sidebar-foreground/70">
+            « Digitaliser nos administrations au XXIᵉ siècle n'est plus un luxe, mais une nécessité. »
+          </p>
         </div>
 
         <p className="relative flex items-center gap-2 text-xs text-sidebar-foreground/60">
