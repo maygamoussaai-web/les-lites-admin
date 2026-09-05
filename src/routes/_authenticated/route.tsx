@@ -14,13 +14,15 @@ import { AuroraBackground } from "@/components/app/aurora-background";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
+  // Lit la session déjà en mémoire locale (aucun appel réseau, instantané) au
+  // lieu d'interroger le serveur à chaque changement d'onglet. La vérification
+  // serveur via getUser() faisait attendre TOUTE navigation sur une réponse
+  // réseau, ce qui bloquait le changement de page pendant de longues secondes
+  // (voire plus) dès que la connexion était mauvaise. La vraie protection des
+  // données reste de toute façon assurée par les règles de sécurité appliquées
+  // à chaque requête côté base de données — ce garde-fou ici ne sert qu'à
+  // décider quel écran afficher, pas à sécuriser l'accès aux données.
   beforeLoad: async () => {
-    const { data, error } = await supabase.auth.getUser();
-    if (!error && data.user) return { user: data.user };
-    // Hors ligne (ou erreur réseau ponctuelle) : getUser() a échoué faute de
-    // pouvoir joindre Supabase. On retombe sur la session déjà en mémoire
-    // (getSession() ne fait aucun appel réseau) plutôt que de déconnecter
-    // l'utilisateur — sinon l'app hors ligne renverrait tout le monde vers /auth.
     const { data: sessionData } = await supabase.auth.getSession();
     if (sessionData.session?.user) return { user: sessionData.session.user };
     throw redirect({ to: "/auth" });
