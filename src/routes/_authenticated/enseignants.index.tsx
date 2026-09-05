@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { GraduationCap, Search } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { DataTable, type Column } from "@/components/app/data-table";
 import { EmptyState } from "@/components/app/empty-state";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -28,12 +29,18 @@ export const Route = createFileRoute("/_authenticated/enseignants/")({
   component: Page,
 });
 
+// Nombre de lignes affichées par lot — toutes les données restent chargées et
+// disponibles hors ligne, seul l'AFFICHAGE est limité pour rester fluide même
+// avec un grand nombre d'enseignants.
+const PAGE_SIZE = 50;
+
 function Page() {
   const navigate = useNavigate();
   const { isDG, establishmentIds } = useAdminProfile();
   const data = useSchoolData();
   const [establishmentFilter, setEstablishmentFilter] = useState("");
   const [search, setSearch] = useState("");
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   const accessibleEstablishments = isDG
     ? data.establishments
@@ -54,6 +61,14 @@ function Page() {
       .filter((t) => (term ? `${t.first_name} ${t.last_name}`.toLowerCase().includes(term) : true))
       .sort((a, b) => `${a.last_name}${a.first_name}`.localeCompare(`${b.last_name}${b.first_name}`));
   }, [data.teachers, teacherIds, search]);
+
+  // Revenir au premier lot à chaque changement de filtre ou de recherche.
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [establishmentFilter, search]);
+
+  const visibleRows = rows.slice(0, visibleCount);
+  const hasMore = rows.length > visibleRows.length;
 
   const columns: Column<Teacher>[] = [
     {
@@ -133,12 +148,24 @@ function Page() {
       {rows.length === 0 && !data.loading ? (
         <EmptyState icon={GraduationCap} title="Aucun enseignant" description="Aucun enseignant ne correspond à ces critères." />
       ) : (
-        <DataTable
-          columns={columns}
-          rows={rows}
-          loading={data.loading}
-          onRowClick={(t) => navigate({ to: "/enseignants/$teacherId", params: { teacherId: t.id } })}
-        />
+        <>
+          <DataTable
+            columns={columns}
+            rows={visibleRows}
+            loading={data.loading}
+            onRowClick={(t) => navigate({ to: "/enseignants/$teacherId", params: { teacherId: t.id } })}
+          />
+          <div className="flex items-center justify-between text-sm text-muted-foreground">
+            <span>
+              {visibleRows.length} / {rows.length} enseignant(s) affiché(s)
+            </span>
+            {hasMore && (
+              <Button variant="outline" size="sm" className="press" onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}>
+                Afficher {Math.min(PAGE_SIZE, rows.length - visibleRows.length)} de plus
+              </Button>
+            )}
+          </div>
+        </>
       )}
     </>
   );
