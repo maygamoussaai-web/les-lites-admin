@@ -5,6 +5,17 @@ import { AppSidebar } from "@/components/app/app-sidebar";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAdminProfile, useOnlineStatus } from "@/hooks/use-auth";
 import { OfflineSyncIndicator } from "@/components/app/offline-sync-indicator";
@@ -75,15 +86,30 @@ function AuthenticatedLayout() {
                 <p className="text-xs text-muted-foreground">{roleLabel(profile?.role)}</p>
               </div>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="press rounded-full"
-              aria-label="Se déconnecter"
-              onClick={signOut}
-            >
-              <LogOut className="h-4 w-4" />
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="press rounded-full"
+                  aria-label="Se déconnecter"
+                >
+                  <LogOut className="h-4 w-4" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Se déconnecter ?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Vous devrez ressaisir votre mot de passe pour vous reconnecter.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Annuler</AlertDialogCancel>
+                  <AlertDialogAction onClick={signOut}>Se déconnecter</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </header>
           <main className="animate-fade-soft mx-auto w-full max-w-7xl flex-1 space-y-6 p-4 sm:p-6">
             <Outlet />
