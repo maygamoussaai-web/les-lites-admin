@@ -23,7 +23,7 @@ export const Route = createFileRoute("/_authenticated/finance")({
   head: () => ({
     meta: [
       { title: "Finance globale – Les Élites de Gao" },
-      { name: "description", content: "Recettes, dépenses et impayés consolidés des quatre établissements du complexe." },
+      { name: "description", content: "Recettes, dépenses et impayés consolidés des établissements du complexe." },
       { property: "og:title", content: "Finance globale – Les Élites de Gao" },
       { property: "og:description", content: "Suivi financier consolidé : encaissements, paiements enseignants et impayés." },
       { property: "og:type", content: "website" },
