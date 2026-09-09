@@ -156,7 +156,7 @@ function AuthPage() {
         <div className="stagger relative max-w-md space-y-5">
           <BrandLogo size={132} halo float />
           <h2 className="gold-underline font-display text-3xl font-semibold leading-tight">
-            Une administration unifiée pour l'Université, le Lycée, le Collège et la Fondamentale.
+            Une administration unifiée pour le Lycée, le Collège et la Fondamentale.
           </h2>
           <p className="pt-2 text-sm text-sidebar-foreground/80">
             Élèves, enseignants, évaluations, scolarité et paiements — dans un seul espace sécurisé,
