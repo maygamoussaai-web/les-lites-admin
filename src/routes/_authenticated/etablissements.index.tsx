@@ -12,7 +12,7 @@ export const Route = createFileRoute("/_authenticated/etablissements/")({
       { title: "Établissements – Les Élites de Gao" },
       {
         name: "description",
-        content: "Les quatre établissements du complexe Les Élites de Gao : université, lycée, collège et fondamentale.",
+        content: "Les établissements du complexe Les Élites de Gao : lycée, collège et fondamentale.",
       },
       { property: "og:title", content: "Établissements – Les Élites de Gao" },
       {
@@ -38,8 +38,8 @@ function Page() {
         description="Ouvrez un établissement pour gérer ses classes, sa scolarité, ses enseignants et sa finance."
       />
       {data.loading ? (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {[0, 1, 2].map((i) => (
             <Skeleton key={i} className="h-64 rounded-2xl" />
           ))}
         </div>
@@ -50,7 +50,7 @@ function Page() {
           description="Votre compte n'est rattaché à aucun établissement. Contactez la direction générale."
         />
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {data.establishments.map((est, index) => {
             const s = stats.get(est.id);
             return (
