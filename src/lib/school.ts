@@ -162,15 +162,12 @@ export function periodStart(period: Period, now = new Date()): string {
 /** Lundi de la semaine en cours (YYYY-MM-DD) — sert de clé pour les cases à cocher. */
 export const currentWeekStart = (now = new Date()) => periodStart("week", now);
 
+// L'Université Technosup ne fait plus partie du complexe : plus d'entrée
+// visuelle pour ce type d'établissement.
 export const ESTABLISHMENT_VISUALS: Record<
   string,
   { gradient: string; ring: string; accent: string }
 > = {
-  universite: {
-    gradient: "from-[oklch(0.32_0.15_258)] to-[oklch(0.45_0.16_285)]",
-    ring: "oklch(0.55 0.16 275)",
-    accent: "text-[oklch(0.75_0.14_275)]",
-  },
   lycee: {
     gradient: "from-[oklch(0.30_0.13_215)] to-[oklch(0.46_0.13_195)]",
     ring: "oklch(0.55 0.13 200)",
