@@ -20,7 +20,9 @@ export function EstablishmentCard({
   expected: number;
   delay?: number;
 }) {
-  const visual = ESTABLISHMENT_VISUALS[establishment.type] ?? ESTABLISHMENT_VISUALS['universite']!;
+  // Université Technosup retirée du complexe : secours désormais sur "lycee"
+  // plutôt que sur une entrée qui n'existe plus.
+  const visual = ESTABLISHMENT_VISUALS[establishment.type] ?? ESTABLISHMENT_VISUALS['lycee']!;
   const ratio = expected > 0 ? Math.min(100, Math.round((collected / expected) * 100)) : 0;
 
   return (
