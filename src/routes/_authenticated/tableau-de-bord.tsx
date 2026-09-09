@@ -43,7 +43,7 @@ export const Route = createFileRoute("/_authenticated/tableau-de-bord")({
       { property: "og:title", content: "Tableau de bord – Les Élites de Gao" },
       {
         property: "og:description",
-        content: "Pilotage global des quatre établissements : élèves, classes, scolarité encaissée et retards.",
+        content: "Pilotage global des établissements du complexe : élèves, classes, scolarité encaissée et retards.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -385,7 +385,7 @@ function Page() {
       <PageHeader
         eyebrow="Complexe scolaire"
         title="Tableau de bord"
-        description="Situation consolidée des quatre établissements : effectifs, scolarité et rémunération des enseignants."
+        description="Situation consolidée des établissements du complexe : effectifs, scolarité et rémunération des enseignants."
       />
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -429,7 +429,7 @@ function Page() {
           <h2 className="font-display text-lg font-semibold text-foreground">Établissements</h2>
           {data.loading ? (
             <div className="grid gap-4 sm:grid-cols-2">
-              {[0, 1, 2, 3].map((i) => (
+              {[0, 1, 2].map((i) => (
                 <Skeleton key={i} className="h-64 rounded-2xl" />
               ))}
             </div>
