@@ -20,8 +20,7 @@ export function EstablishmentCard({
   expected: number;
   delay?: number;
 }) {
-  // Université Technosup retirée du complexe : secours désormais sur "lycee"
-  // plutôt que sur une entrée qui n'existe plus.
+  // Secours sur "lycee" si le type de l'établissement n'a pas d'entrée visuelle dédiée.
   const visual = ESTABLISHMENT_VISUALS[establishment.type] ?? ESTABLISHMENT_VISUALS['lycee']!;
   const ratio = expected > 0 ? Math.min(100, Math.round((collected / expected) * 100)) : 0;
 

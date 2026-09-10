@@ -10,8 +10,6 @@ export const formatDate = (value: string | null | undefined) =>
 export const formatDateTime = (value: string | null | undefined) =>
   value ? new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "—";
 
-// L'Université Technosup ne fait plus partie du complexe (retirée à la
-// demande des promoteurs) : ce type n'est plus proposé pour un établissement.
 export const ESTABLISHMENT_TYPES = [
   { value: "lycee", label: "Lycée" },
   { value: "college", label: "Collège" },
