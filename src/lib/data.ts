@@ -33,9 +33,13 @@ export function useRows<T = any>(table: TableName, options: ListOptions = {}) {
     // nouvelle requête (changement de filtre, etc.) est en cours, plutôt que
     // de vider l'écran — et partage la structure des objets inchangés entre
     // deux résultats pour éviter des re-rendus inutiles dans toute l'app.
+    // IMPORTANT : refetchOnMount reste sur son réglage par défaut (true) —
+    // le désactiver empêchait la copie locale de se mettre à jour tant que la
+    // donnée était considérée "fraîche" (staleTime), y compris après un
+    // changement fait directement en base — un établissement supprimé pouvait
+    // ainsi rester affiché indéfiniment sur les appareils déjà connectés.
     structuralSharing: true,
     placeholderData: keepPreviousData,
-    refetchOnMount: false,
     queryFn: async () => {
       let q = supabase.from(table).select(select);
       if (eq) {
