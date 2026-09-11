@@ -21,14 +21,25 @@ type ListOptions = {
   eq?: Record<string, string | number | boolean | null | undefined>;
   enabled?: boolean;
   limit?: number;
+  /**
+   * Durée (ms) pendant laquelle la donnée est considérée à jour avant qu'une
+   * revalidation silencieuse en arrière-plan soit tentée au prochain montage.
+   * Par défaut 30s (données qui bougent souvent : paiements, séances...).
+   * Les tables qui changent rarement (établissements, classes, modèles de
+   * scolarité) peuvent passer une valeur plus longue pour réduire le nombre
+   * de requêtes réseau silencieuses, sans jamais affecter l'affichage —
+   * celui-ci reste instantané grâce à placeholderData, quelle que soit cette
+   * valeur.
+   */
+  staleTime?: number;
 };
 
 export function useRows<T = any>(table: TableName, options: ListOptions = {}) {
-  const { select = "*", order, eq, enabled = true, limit } = options;
+  const { select = "*", order, eq, enabled = true, limit, staleTime = 30_000 } = options;
   return useQuery({
     queryKey: [table, select, order, eq, limit],
     enabled,
-    staleTime: 30_000,
+    staleTime,
     // Fluidité : garde l'ancienne page de données visible pendant qu'une
     // nouvelle requête (changement de filtre, etc.) est en cours, plutôt que
     // de vider l'écran — et partage la structure des objets inchangés entre
