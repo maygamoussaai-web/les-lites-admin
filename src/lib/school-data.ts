@@ -18,16 +18,29 @@ import {
   type TuitionPayment,
 } from "@/lib/school";
 
+// Données structurelles qui changent rarement (un établissement, une classe,
+// un modèle de scolarité ne se modifient pas d'une minute à l'autre) : on
+// espace les revalidations silencieuses en arrière-plan à 5 minutes au lieu
+// des 30 secondes par défaut, pour réduire le nombre de requêtes réseau sans
+// jamais affecter l'affichage (toujours instantané grâce au cache).
+const STABLE_STALE_TIME = 5 * 60_000;
+
 /**
  * Charge l'ensemble des données visibles par l'utilisateur courant.
  * Les RLS Supabase limitent automatiquement le personnel à son établissement.
  */
 export function useSchoolData() {
-  const establishments = useRows<Establishment>("establishments", { order: { column: "name" } });
-  const classes = useRows<ClassRow>("classes", { order: { column: "name" } });
+  const establishments = useRows<Establishment>("establishments", {
+    order: { column: "name" },
+    staleTime: STABLE_STALE_TIME,
+  });
+  const classes = useRows<ClassRow>("classes", { order: { column: "name" }, staleTime: STABLE_STALE_TIME });
   const students = useRows<Student>("students", { order: { column: "last_name" } });
-  const feePlans = useRows<FeePlan>("fee_plans", { order: { column: "name" } });
-  const installments = useRows<Installment>("fee_plan_installments", { order: { column: "position" } });
+  const feePlans = useRows<FeePlan>("fee_plans", { order: { column: "name" }, staleTime: STABLE_STALE_TIME });
+  const installments = useRows<Installment>("fee_plan_installments", {
+    order: { column: "position" },
+    staleTime: STABLE_STALE_TIME,
+  });
   const tuitionPayments = useRows<TuitionPayment>("tuition_payments", {
     order: { column: "paid_at", ascending: false },
   });
