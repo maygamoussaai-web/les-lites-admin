@@ -68,7 +68,7 @@ function assemblePdf(jpegBytes: Uint8Array, width: number, height: number): Blob
   }
   push(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`);
 
-  return new Blob(parts, { type: "application/pdf" });
+  return new Blob(parts as BlobPart[], { type: "application/pdf" });
 }
 
 /** Convertit une image (URL) en PDF d'une page. */
