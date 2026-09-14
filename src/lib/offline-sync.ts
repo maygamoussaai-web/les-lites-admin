@@ -7,25 +7,23 @@ import { loadQueue, removeFromQueue, markError, type QueueEntry } from "@/lib/of
 let syncing = false;
 
 async function runEntry(entry: QueueEntry) {
+  // Le nom de table est dynamique : les types générés ne peuvent pas
+  // l'inférer, d'où le client non typé local (uniquement ici).
+  const table = supabase.from(entry.table) as any;
   if (entry.op === "insert") {
-    const { error } = await supabase
-      .from(entry.table)
-      .upsert({ id: entry.rowId, ...entry.values } as never, { onConflict: "id" });
+    const { error } = await table.upsert({ id: entry.rowId, ...entry.values }, { onConflict: "id" });
     if (error) throw error;
     void writeAudit("create", entry.table, entry.rowId, entry.values);
   } else if (entry.op === "update") {
-    const { error } = await supabase.from(entry.table).update(entry.values as never).eq("id", entry.rowId);
+    const { error } = await table.update(entry.values).eq("id", entry.rowId);
     if (error) throw error;
     void writeAudit("update", entry.table, entry.rowId, entry.values);
   } else if (entry.op === "archive") {
-    const { error } = await supabase
-      .from(entry.table)
-      .update({ archived_at: new Date().toISOString() } as never)
-      .eq("id", entry.rowId);
+    const { error } = await table.update({ archived_at: new Date().toISOString() }).eq("id", entry.rowId);
     if (error) throw error;
     void writeAudit("archive", entry.table, entry.rowId);
   } else if (entry.op === "delete") {
-    const { error } = await supabase.from(entry.table).delete().eq("id", entry.rowId);
+    const { error } = await table.delete().eq("id", entry.rowId);
     if (error) throw error;
     void writeAudit("delete", entry.table, entry.rowId);
   }
