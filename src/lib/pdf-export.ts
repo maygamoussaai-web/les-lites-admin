@@ -9,25 +9,21 @@ function readJpegSize(data: Uint8Array): { width: number; height: number } {
       offset++;
       continue;
     }
-    const at = (i: number) => data[i] ?? 0;
-    const marker = at(offset + 1);
+    const marker = data[offset + 1];
     const isSof = marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
     if (isSof) {
-      const height = (at(offset + 5) << 8) | at(offset + 6);
-      const width = (at(offset + 7) << 8) | at(offset + 8);
+      const height = (data[offset + 5] << 8) | data[offset + 6];
+      const width = (data[offset + 7] << 8) | data[offset + 8];
       return { width, height };
     }
-    const length = (at(offset + 2) << 8) | at(offset + 3);
+    const length = (data[offset + 2] << 8) | data[offset + 3];
     offset += 2 + length;
   }
   throw new Error("Dimensions de l'image introuvables");
 }
 
-export async function imageToPdfBlob(imageUrl: string): Promise<Blob> {
-  const res = await fetch(imageUrl);
-  const jpegBytes = new Uint8Array(await res.arrayBuffer());
-  const { width, height } = readJpegSize(jpegBytes);
-
+/** Assemble un PDF d'une page autour d'un JPEG déjà encodé (bytes connus). */
+function assemblePdf(jpegBytes: Uint8Array, width: number, height: number): Blob {
   const enc = new TextEncoder();
   const parts: Uint8Array[] = [];
   const offsets: number[] = [];
@@ -71,18 +67,35 @@ export async function imageToPdfBlob(imageUrl: string): Promise<Blob> {
   }
   push(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`);
 
-  return new Blob(parts as BlobPart[], { type: "application/pdf" });
+  return new Blob(parts, { type: "application/pdf" });
 }
+
+/** Convertit une image (URL) en PDF d'une page. */
+export async function imageToPdfBlob(imageUrl: string): Promise<Blob> {
+  const res = await fetch(imageUrl);
+  const jpegBytes = new Uint8Array(await res.arrayBuffer());
+  const { width, height } = readJpegSize(jpegBytes);
+  return assemblePdf(jpegBytes, width, height);
+}
+
 /**
- * Ouvre le PDF dans un nouvel onglet (le lecteur PDF du navigateur propose
- * alors l'enregistrement) — plus fiable que le téléchargement forcé, qui est
- * souvent ignoré silencieusement sur mobile et dans les PWA.
+ * Convertit un <canvas> (utilisé pour dessiner bulletins et rapports à la
+ * main, en texte natif) directement en PDF d'une page — réutilise le même
+ * assemblage PDF que pour les documents élèves, sans nouvelle dépendance.
  */
+export async function canvasToPdfBlob(canvas: HTMLCanvasElement, quality = 0.92): Promise<Blob> {
+  const blob = await new Promise<Blob>((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Génération de l'image échouée"))), "image/jpeg", quality),
+  );
+  const jpegBytes = new Uint8Array(await blob.arrayBuffer());
+  return assemblePdf(jpegBytes, canvas.width, canvas.height);
+}
+
+/** Déclenche le téléchargement d'un blob (ouvre dans un nouvel onglet — plus fiable que le téléchargement forcé sur mobile). */
 export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const win = window.open(url, "_blank", "noopener,noreferrer");
   if (!win) {
-    // Si la fenêtre a été bloquée (rare), on retente via un lien classique.
     const a = document.createElement("a");
     a.href = url;
     a.download = filename;
