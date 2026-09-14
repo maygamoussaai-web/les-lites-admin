@@ -37,3 +37,153 @@ export function groupGradesBySubject(grades: Grade[], studentId: string): Map<st
   }
   return map;
 }
+
+// ============================================================================
+// NOTE POUR CLAUDE :
+// Section ajoutée pour le système de notes / bulletins. Elle réutilise
+// `useRows` (src/lib/data.ts) — même cache, même fonctionnement hors ligne
+// que le reste de l'app — et les tables déjà présentes en base
+// (class_subjects, grade_periods, grades). Toute moyenne affichée dans
+// l'application (fiche élève, résultats de classe, bulletin, rapport) DOIT
+// passer par les fonctions de calcul de ce fichier, jamais par un calcul
+// local, sous peine d'incohérences.
+// ============================================================================
+
+import { useMemo } from "react";
+import { useRows } from "@/lib/data";
+
+/** Charge matières, périodes et notes d'une classe (une requête par table, mises en cache). */
+export function useClassGrades(classId: string, enabled = true) {
+  const subjects = useRows<ClassSubject>("class_subjects", {
+    eq: { class_id: classId },
+    order: { column: "name" },
+    enabled,
+  });
+  const periods = useRows<GradePeriod>("grade_periods", {
+    eq: { class_id: classId },
+    order: { column: "period_number" },
+    enabled,
+  });
+  const grades = useRows<Grade>("grades", {
+    eq: { class_id: classId },
+    order: { column: "created_at" },
+    enabled,
+  });
+
+  return useMemo(() => {
+    const allPeriods = periods.data ?? [];
+    // Période active = la dernière ouverte (ended_at null). Les anciennes
+    // périodes restent en base et restent consultables dans l'historique.
+    const activePeriod = [...allPeriods].reverse().find((p) => p.ended_at === null) ?? null;
+    return {
+      loading: subjects.isPending || periods.isPending || grades.isPending,
+      subjects: subjects.data ?? [],
+      periods: allPeriods,
+      activePeriod,
+      grades: grades.data ?? [],
+    };
+  }, [subjects.data, subjects.isPending, periods.data, periods.isPending, grades.data, grades.isPending]);
+}
+
+/** Charge toutes les notes d'un élève (historique, toutes périodes confondues). */
+export function useStudentGrades(studentId: string) {
+  const grades = useRows<Grade>("grades", {
+    eq: { student_id: studentId },
+    order: { column: "created_at", ascending: false },
+  });
+  return { grades: grades.data ?? [], loading: grades.isPending };
+}
+
+export type SubjectStat = { subject: ClassSubject; average: number | null; count: number };
+
+/** Moyenne d'un élève sur une période (moyenne des moyennes par matière). */
+export function studentPeriodAverage(grades: Grade[], studentId: string): number | null {
+  return studentAverage(groupGradesBySubject(grades, studentId));
+}
+
+/** Matières où l'élève n'a pas la moyenne sur la période — « matières à travailler ». */
+export function weakSubjectsFor(
+  grades: Grade[],
+  studentId: string,
+  subjects: ClassSubject[],
+): { id: string; name: string; average: number }[] {
+  const bySubject = groupGradesBySubject(grades, studentId);
+  const weak: { id: string; name: string; average: number }[] = [];
+  for (const [subjectId, list] of bySubject) {
+    const avg = subjectAverage(list);
+    if (avg === null || avg >= PASS_THRESHOLD) continue;
+    const subject = subjects.find((s) => s.id === subjectId);
+    weak.push({ id: subjectId, name: subject?.name ?? "Matière", average: avg });
+  }
+  return weak.sort((a, b) => a.average - b.average);
+}
+
+export type ClassStats = {
+  rows: { studentId: string; name: string; average: number | null }[];
+  graded: { studentId: string; name: string; average: number }[];
+  classAverage: number | null;
+  passing: number;
+  failing: number;
+  passRate: number;
+  failRate: number;
+  best: { studentId: string; name: string; average: number } | null;
+  worst: { studentId: string; name: string; average: number } | null;
+  excellent: { studentId: string; name: string; average: number }[];
+  struggling: { studentId: string; name: string; average: number }[];
+  subjectStats: SubjectStat[];
+  bestSubject: SubjectStat | null;
+  worstSubject: SubjectStat | null;
+};
+
+/**
+ * Statistiques d'une classe pour une période donnée. Source unique de vérité
+ * pour la page Résultats, le rapport de classe et les bulletins.
+ */
+export function computeClassStats(
+  students: { id: string; first_name: string; last_name: string }[],
+  periodGrades: Grade[],
+  subjects: ClassSubject[],
+): ClassStats {
+  const rows = students.map((s) => ({
+    studentId: s.id,
+    name: `${s.last_name} ${s.first_name}`,
+    average: studentPeriodAverage(periodGrades, s.id),
+  }));
+  const graded = rows
+    .filter((r): r is { studentId: string; name: string; average: number } => r.average !== null)
+    .sort((a, b) => b.average - a.average);
+
+  const passingList = graded.filter((r) => r.average >= PASS_THRESHOLD);
+  const failingList = graded.filter((r) => r.average < PASS_THRESHOLD);
+
+  const subjectStats: SubjectStat[] = subjects.map((subject) => {
+    const list = periodGrades.filter((g) => g.subject_id === subject.id);
+    // Moyenne de la matière = moyenne des moyennes des élèves dans cette matière.
+    const perStudent = [...new Set(list.map((g) => g.student_id))]
+      .map((sid) => subjectAverage(list.filter((g) => g.student_id === sid)))
+      .filter((a): a is number => a !== null);
+    return {
+      subject,
+      average: perStudent.length ? perStudent.reduce((a, b) => a + b, 0) / perStudent.length : null,
+      count: list.length,
+    };
+  });
+  const ranked = subjectStats.filter((s) => s.average !== null).sort((a, b) => b.average! - a.average!);
+
+  return {
+    rows,
+    graded,
+    classAverage: graded.length ? graded.reduce((acc, r) => acc + r.average, 0) / graded.length : null,
+    passing: passingList.length,
+    failing: failingList.length,
+    passRate: graded.length ? (passingList.length / graded.length) * 100 : 0,
+    failRate: graded.length ? (failingList.length / graded.length) * 100 : 0,
+    best: graded[0] ?? null,
+    worst: graded[graded.length - 1] ?? null,
+    excellent: graded.filter((r) => r.average >= EXCELLENT_THRESHOLD),
+    struggling: failingList,
+    subjectStats,
+    bestSubject: ranked[0] ?? null,
+    worstSubject: ranked[ranked.length - 1] ?? null,
+  };
+}
