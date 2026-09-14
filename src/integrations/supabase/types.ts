@@ -138,6 +138,86 @@ export type Database = {
           },
         ]
       }
+      class_reports: {
+        Row: {
+          class_id: string
+          created_by: string | null
+          establishment_id: string
+          expires_at: string
+          file_path: string
+          generated_at: string
+          id: string
+          period_id: string
+        }
+        Insert: {
+          class_id: string
+          created_by?: string | null
+          establishment_id: string
+          expires_at?: string
+          file_path: string
+          generated_at?: string
+          id?: string
+          period_id: string
+        }
+        Update: {
+          class_id?: string
+          created_by?: string | null
+          establishment_id?: string
+          expires_at?: string
+          file_path?: string
+          generated_at?: string
+          id?: string
+          period_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "class_reports_class_id_fkey"
+            columns: ["class_id"]
+            isOneToOne: false
+            referencedRelation: "classes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "class_reports_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "grade_periods"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      class_subjects: {
+        Row: {
+          class_id: string
+          created_at: string
+          establishment_id: string
+          id: string
+          name: string
+        }
+        Insert: {
+          class_id: string
+          created_at?: string
+          establishment_id: string
+          id?: string
+          name: string
+        }
+        Update: {
+          class_id?: string
+          created_at?: string
+          establishment_id?: string
+          id?: string
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "class_subjects_class_id_fkey"
+            columns: ["class_id"]
+            isOneToOne: false
+            referencedRelation: "classes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       classes: {
         Row: {
           capacity: number
@@ -298,6 +378,111 @@ export type Database = {
           },
         ]
       }
+      grade_periods: {
+        Row: {
+          class_id: string
+          created_at: string
+          ended_at: string | null
+          establishment_id: string
+          id: string
+          period_number: number
+          started_at: string
+        }
+        Insert: {
+          class_id: string
+          created_at?: string
+          ended_at?: string | null
+          establishment_id: string
+          id?: string
+          period_number: number
+          started_at?: string
+        }
+        Update: {
+          class_id?: string
+          created_at?: string
+          ended_at?: string | null
+          establishment_id?: string
+          id?: string
+          period_number?: number
+          started_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "grade_periods_class_id_fkey"
+            columns: ["class_id"]
+            isOneToOne: false
+            referencedRelation: "classes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      grades: {
+        Row: {
+          class_id: string
+          created_at: string
+          created_by: string | null
+          establishment_id: string
+          id: string
+          nature: string
+          period_id: string
+          scale: number
+          sequence_number: number
+          student_id: string
+          subject_id: string
+          value: number
+        }
+        Insert: {
+          class_id: string
+          created_at?: string
+          created_by?: string | null
+          establishment_id: string
+          id?: string
+          nature: string
+          period_id: string
+          scale: number
+          sequence_number?: number
+          student_id: string
+          subject_id: string
+          value: number
+        }
+        Update: {
+          class_id?: string
+          created_at?: string
+          created_by?: string | null
+          establishment_id?: string
+          id?: string
+          nature?: string
+          period_id?: string
+          scale?: number
+          sequence_number?: number
+          student_id?: string
+          subject_id?: string
+          value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "grades_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "grade_periods"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "grades_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "grades_subject_id_fkey"
+            columns: ["subject_id"]
+            isOneToOne: false
+            referencedRelation: "class_subjects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       invitations: {
         Row: {
           accepted_at: string | null
@@ -454,6 +639,67 @@ export type Database = {
           },
         ]
       }
+      student_report_cards: {
+        Row: {
+          class_id: string
+          created_at: string
+          document_id: string | null
+          establishment_id: string
+          id: string
+          period_id: string
+          status: string
+          student_id: string
+          validated_at: string | null
+          weak_subjects: Json
+        }
+        Insert: {
+          class_id: string
+          created_at?: string
+          document_id?: string | null
+          establishment_id: string
+          id?: string
+          period_id: string
+          status?: string
+          student_id: string
+          validated_at?: string | null
+          weak_subjects?: Json
+        }
+        Update: {
+          class_id?: string
+          created_at?: string
+          document_id?: string | null
+          establishment_id?: string
+          id?: string
+          period_id?: string
+          status?: string
+          student_id?: string
+          validated_at?: string | null
+          weak_subjects?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_report_cards_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "student_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_report_cards_period_id_fkey"
+            columns: ["period_id"]
+            isOneToOne: false
+            referencedRelation: "grade_periods"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_report_cards_student_id_fkey"
+            columns: ["student_id"]
+            isOneToOne: false
+            referencedRelation: "students"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       student_transfers: {
         Row: {
           created_at: string
@@ -537,6 +783,7 @@ export type Database = {
           last_name: string
           parent_phone_1: string | null
           parent_phone_2: string | null
+          photo_url: string | null
           term1_average: number | null
           term2_average: number | null
           term3_average: number | null
@@ -555,6 +802,7 @@ export type Database = {
           last_name: string
           parent_phone_1?: string | null
           parent_phone_2?: string | null
+          photo_url?: string | null
           term1_average?: number | null
           term2_average?: number | null
           term3_average?: number | null
@@ -573,6 +821,7 @@ export type Database = {
           last_name?: string
           parent_phone_1?: string | null
           parent_phone_2?: string | null
+          photo_url?: string | null
           term1_average?: number | null
           term2_average?: number | null
           term3_average?: number | null
