@@ -295,6 +295,8 @@ function Page() {
           </CardContent>
         </Card>
 
+        <StudentGradesCard studentId={student.id} classId={student.class_id} />
+
         <StudentDocuments studentId={student.id} establishmentId={student.establishment_id} />
       </div>
 
