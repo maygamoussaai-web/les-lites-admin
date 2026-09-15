@@ -88,13 +88,12 @@ import { StudentsDialog } from "@/components/school/students-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAdminProfile } from "@/hooks/use-auth";
 import { useSchoolData } from "@/lib/school-data";
-import { writeAudit } from "@/lib/data";
+import { writeAudit, useRows } from "@/lib/data";
 import { formatDateTime } from "@/lib/format";
 import { canvasToPdfBlob, downloadBlob } from "@/lib/pdf-export";
 import {
   PASS_THRESHOLD,
   EXCELLENT_THRESHOLD,
-  to20,
   subjectAverage,
   studentAverage,
   groupGradesBySubject,
@@ -113,6 +112,32 @@ export const Route = createFileRoute("/_authenticated/classes/$classId")({
   }),
   component: Page,
 });
+
+type StudentRef = { id: string; first_name: string; last_name: string };
+type AveragedStudent = { student: StudentRef; average: number; weakSubjects: string[] };
+
+/** Statistiques calculées pour une période de classe — partagé entre la page et le rapport PDF. */
+interface ClassStats {
+  withAvg: AveragedStudent[];
+  passing: AveragedStudent[];
+  excellent: AveragedStudent[];
+  struggling: AveragedStudent[];
+  classAverage: number | null;
+  highest: AveragedStudent | null;
+  lowest: AveragedStudent | null;
+  bestSubject: { subject: ClassSubject; avg: number } | null;
+  worstSubject: { subject: ClassSubject; avg: number } | null;
+}
+
+function useSupabaseRows<T extends { id: string }>(
+  table: Parameters<typeof useRows>[0],
+  eq: Record<string, string> | null,
+  orderColumn: string,
+  ascending = true,
+) {
+  const q = useRows<T>(table, { eq: eq ?? undefined, enabled: !!eq, order: { column: orderColumn, ascending } });
+  return { data: q.data ?? [], isLoading: q.isLoading };
+}
 
 function Page() {
   const { classId } = Route.useParams();
@@ -137,11 +162,12 @@ function Page() {
   const subjectsQuery = useSupabaseRows<ClassSubject>("class_subjects", { class_id: classId }, "name");
   const currentPeriod = periodsQuery.data.find((p) => p.ended_at === null) ?? null;
   const latestPeriod = currentPeriod ?? [...periodsQuery.data].sort((a, b) => b.period_number - a.period_number)[0] ?? null;
-  const gradesQuery = useSupabaseRows<Grade>("grades", latestPeriod ? { period_id: latestPeriod.id } : null);
+  const gradesQuery = useSupabaseRows<Grade>("grades", latestPeriod ? { period_id: latestPeriod.id } : null, "created_at");
 
   const [renewOpen, setRenewOpen] = useState(false);
 
   const startNewPeriod = async () => {
+    if (!klass) return;
     try {
       if (currentPeriod) {
         const { error } = await supabase.from("grade_periods").update({ ended_at: new Date().toISOString() }).eq("id", currentPeriod.id);
@@ -150,7 +176,7 @@ function Page() {
       const nextNumber = (periodsQuery.data.reduce((max, p) => Math.max(max, p.period_number), 0) || 0) + 1;
       const { error } = await supabase.from("grade_periods").insert({
         class_id: classId,
-        establishment_id: klass!.establishment_id,
+        establishment_id: klass.establishment_id,
         period_number: nextNumber,
       });
       if (error) throw error;
@@ -165,7 +191,7 @@ function Page() {
   };
 
   // Statistiques de la période affichée (la plus récente, ouverte ou non).
-  const stats = useMemo(() => {
+  const stats: ClassStats | null = useMemo(() => {
     if (!latestPeriod) return null;
     const bySubjectAll = new Map<string, Grade[]>();
     for (const g of gradesQuery.data) {
@@ -174,17 +200,18 @@ function Page() {
       bySubjectAll.set(g.subject_id, list);
     }
 
-    const studentRows = classStudents.map((s) => {
+    const withAvg: AveragedStudent[] = [];
+    for (const s of classStudents) {
       const bySubject = groupGradesBySubject(gradesQuery.data, s.id);
       const avg = studentAverage(bySubject);
+      if (avg === null) continue;
       const weakSubjects = [...bySubject.entries()]
         .map(([subjectId, grades]) => ({ subjectId, avg: subjectAverage(grades) }))
         .filter((x) => x.avg !== null && x.avg < PASS_THRESHOLD)
         .map((x) => subjectsQuery.data.find((sub) => sub.id === x.subjectId)?.name ?? "—");
-      return { student: s, average: avg, weakSubjects };
-    });
+      withAvg.push({ student: s, average: avg, weakSubjects });
+    }
 
-    const withAvg = studentRows.filter((r): r is typeof r & { average: number } => r.average !== null);
     const passing = withAvg.filter((r) => r.average >= PASS_THRESHOLD);
     const excellent = withAvg.filter((r) => r.average >= EXCELLENT_THRESHOLD);
     const struggling = withAvg.filter((r) => r.average < PASS_THRESHOLD);
@@ -198,7 +225,7 @@ function Page() {
     const bestSubject = subjectAverages.length ? subjectAverages.reduce((a, b) => (b.avg > a.avg ? b : a)) : null;
     const worstSubject = subjectAverages.length ? subjectAverages.reduce((a, b) => (b.avg < a.avg ? b : a)) : null;
 
-    return { studentRows, withAvg, passing, excellent, struggling, classAverage, highest, lowest, bestSubject, worstSubject };
+    return { withAvg, passing, excellent, struggling, classAverage, highest, lowest, bestSubject, worstSubject };
   }, [latestPeriod, gradesQuery.data, classStudents, subjectsQuery.data]);
 
   if (!data.loading && !establishmentIdsLoading && (!klass || !allowed)) {
@@ -285,7 +312,7 @@ function Page() {
       )}
 
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" className="press" onClick={() => setRenewOpen(true)} disabled={!currentPeriod && periodsQuery.data.length > 0 && false}>
+        <Button variant="outline" className="press" onClick={() => setRenewOpen(true)}>
           <RotateCcw className="mr-1.5 h-4 w-4" /> Nouvelle période
         </Button>
         <Button variant="outline" className="press" onClick={() => setBulletinsOpen(true)} disabled={!latestPeriod || classStudents.length === 0}>
@@ -293,16 +320,14 @@ function Page() {
         </Button>
       </div>
 
-      {klass && (
-        <ClassReportsSection
-          classId={classId}
-          establishmentId={klass.establishment_id}
-          establishmentName={establishment?.name ?? "—"}
-          className={klass.name}
-          period={latestPeriod}
-          stats={stats}
-        />
-      )}
+      <ClassReportsSection
+        classId={classId}
+        establishmentId={klass.establishment_id}
+        establishmentName={establishment?.name ?? "—"}
+        className={klass.name}
+        period={latestPeriod}
+        stats={stats}
+      />
 
       <StudentsDialog klass={studentsOpen ? klass : null} data={data} onClose={() => setStudentsOpen(false)} />
 
@@ -349,15 +374,7 @@ function Page() {
   );
 }
 
-function StudentGroupCard({
-  title,
-  rows,
-  tone,
-}: {
-  title: string;
-  rows: { student: { id: string; first_name: string; last_name: string }; average: number }[];
-  tone: "destructive" | "success";
-}) {
+function StudentGroupCard({ title, rows, tone }: { title: string; rows: AveragedStudent[]; tone: "destructive" | "success" }) {
   return (
     <Card>
       <CardHeader>
@@ -400,7 +417,7 @@ function NoteEntryDialog({
   onClose: () => void;
   classId: string;
   establishmentId: string;
-  students: { id: string; first_name: string; last_name: string }[];
+  students: StudentRef[];
   subjects: ClassSubject[];
   currentPeriod: GradePeriod | null;
 }) {
@@ -421,7 +438,7 @@ function NoteEntryDialog({
 
   const scaleNum = Number(scale);
   const canSubmit =
-    (subjectId || newSubjectName.trim()) &&
+    !!(subjectId || newSubjectName.trim()) &&
     scaleNum > 0 &&
     Object.values(values).some((v) => v !== "") &&
     !submitting;
@@ -613,7 +630,7 @@ function BulletinWalkthroughDialog({
   onClose: () => void;
   klass: { id: string; name: string; establishment_id: string };
   establishmentName: string;
-  students: { id: string; first_name: string; last_name: string }[];
+  students: StudentRef[];
   subjects: ClassSubject[];
   period: GradePeriod;
   grades: Grade[];
@@ -879,7 +896,7 @@ function ClassReportsSection({
   establishmentName: string;
   className: string;
   period: GradePeriod | null;
-  stats: ReturnType<typeof useClassStatsType> | null;
+  stats: ClassStats | null;
 }) {
   const qc = useQueryClient();
   const reportsQuery = useSupabaseRows<ClassReport>("class_reports", { class_id: classId }, "generated_at", false);
@@ -991,7 +1008,7 @@ function renderClassReportCanvas({
   establishmentName: string;
   className: string;
   period: GradePeriod;
-  stats: NonNullable<ReturnType<typeof useClassStatsType>>;
+  stats: ClassStats;
 }) {
   const canvas = document.createElement("canvas");
   canvas.width = 1240;
@@ -1027,34 +1044,3 @@ function renderClassReportCanvas({
 
   return canvas;
 }
-
-/* ---------------------------------------------------------------------- */
-/* Petit utilitaire local : liste filtrée par eq, sans passer par useSchoolData */
-/* (données propres à cette page, pas partagées ailleurs — inutile de les    */
-/* charger pour tout le monde via useSchoolData, cf. philosophie Ponytail).  */
-/* ---------------------------------------------------------------------- */
-
-import { useRows } from "@/lib/data";
-
-function useSupabaseRows<T extends { id: string }>(
-  table: Parameters<typeof useRows>[0],
-  eq: Record<string, string> | null,
-  orderColumn: string,
-  ascending = true,
-) {
-  const q = useRows<T>(table, { eq: eq ?? undefined, enabled: !!eq, order: { column: orderColumn, ascending } });
-  return { data: q.data ?? [], isLoading: q.isLoading };
-}
-
-type useClassStatsType = () => {
-  studentRows: unknown[];
-  withAvg: { student: { id: string; first_name: string; last_name: string }; average: number }[];
-  passing: { student: { id: string; first_name: string; last_name: string }; average: number }[];
-  excellent: { student: { id: string; first_name: string; last_name: string }; average: number }[];
-  struggling: { student: { id: string; first_name: string; last_name: string }; average: number }[];
-  classAverage: number | null;
-  highest: { student: { id: string; first_name: string; last_name: string }; average: number } | null;
-  lowest: { student: { id: string; first_name: string; last_name: string }; average: number } | null;
-  bestSubject: { subject: ClassSubject; avg: number } | null;
-  worstSubject: { subject: ClassSubject; avg: number } | null;
-} | null;
