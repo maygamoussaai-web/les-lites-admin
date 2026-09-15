@@ -227,6 +227,13 @@ function Page() {
             <CardTitle className="text-base">Identité</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2.5 text-sm">
+            <StudentPhoto
+              studentId={student.id}
+              establishmentId={student.establishment_id}
+              photoUrl={student.photo_url ?? null}
+              firstName={student.first_name}
+              lastName={student.last_name}
+            />
             <Row label="Sexe" value={student.gender === "F" ? "Féminin" : "Masculin"} />
             <Row label="Date de naissance" value={formatDate(student.date_of_birth)} />
             <Row label="Téléphone parent 1" value={student.parent_phone_1 ?? "—"} />
