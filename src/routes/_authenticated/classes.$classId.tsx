@@ -135,7 +135,7 @@ function useSupabaseRows<T extends { id: string }>(
   orderColumn: string,
   ascending = true,
 ) {
-  const q = useRows<T>(table, { eq: eq ?? undefined, enabled: !!eq, order: { column: orderColumn, ascending } });
+  const q = useRows<T>(table, { eq: eq ?? {}, enabled: !!eq, order: { column: orderColumn, ascending } });
   return { data: q.data ?? [], isLoading: q.isLoading };
 }
 
@@ -787,8 +787,8 @@ function BulletinWalkthroughDialog({
 
         <DialogFooter className="flex-wrap gap-2 sm:justify-between">
           <Button variant="outline" asChild>
-            <Link to="/eleves/$studentId" params={{ studentId: student.id }}>
-              Modifier (fiche élève)
+            <Link to="/eleves/$studentId/notes" params={{ studentId: student.id }}>
+              Modifier les notes
             </Link>
           </Button>
           <div className="flex flex-wrap gap-2">

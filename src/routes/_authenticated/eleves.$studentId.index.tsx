@@ -39,6 +39,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StudentDocuments } from "@/components/school/student-documents";
+import { StudentPhoto } from "@/components/school/student-photo";
+import { StudentGradesCard } from "@/components/school/student-grades";
 import { supabase } from "@/integrations/supabase/client";
 import { useAdminProfile } from "@/hooks/use-auth";
 import { useSaveRow, useArchiveRow, writeAudit } from "@/lib/data";
@@ -227,6 +229,13 @@ function Page() {
             <CardTitle className="text-base">Identité</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2.5 text-sm">
+            <StudentPhoto
+              studentId={student.id}
+              establishmentId={student.establishment_id}
+              photoUrl={student.photo_url ?? null}
+              firstName={student.first_name}
+              lastName={student.last_name}
+            />
             <Row label="Sexe" value={student.gender === "F" ? "Féminin" : "Masculin"} />
             <Row label="Date de naissance" value={formatDate(student.date_of_birth)} />
             <Row label="Téléphone parent 1" value={student.parent_phone_1 ?? "—"} />
@@ -285,6 +294,8 @@ function Page() {
             <Metric label="Moyenne annuelle" value={avg} highlight />
           </CardContent>
         </Card>
+
+        <StudentGradesCard studentId={student.id} classId={student.class_id} />
 
         <StudentDocuments studentId={student.id} establishmentId={student.establishment_id} />
       </div>
