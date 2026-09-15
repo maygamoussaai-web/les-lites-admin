@@ -135,7 +135,7 @@ function useSupabaseRows<T extends { id: string }>(
   orderColumn: string,
   ascending = true,
 ) {
-  const q = useRows<T>(table, { eq: eq ?? undefined, enabled: !!eq, order: { column: orderColumn, ascending } });
+  const q = useRows<T>(table, { eq: eq ?? {}, enabled: !!eq, order: { column: orderColumn, ascending } });
   return { data: q.data ?? [], isLoading: q.isLoading };
 }
 
