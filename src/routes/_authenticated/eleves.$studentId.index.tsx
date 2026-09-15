@@ -39,6 +39,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StudentDocuments } from "@/components/school/student-documents";
+import { StudentPhoto } from "@/components/school/student-photo";
+import { StudentGradesCard } from "@/components/school/student-grades";
 import { supabase } from "@/integrations/supabase/client";
 import { useAdminProfile } from "@/hooks/use-auth";
 import { useSaveRow, useArchiveRow, writeAudit } from "@/lib/data";
