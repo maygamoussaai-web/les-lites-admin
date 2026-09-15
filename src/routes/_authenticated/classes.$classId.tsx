@@ -787,8 +787,8 @@ function BulletinWalkthroughDialog({
 
         <DialogFooter className="flex-wrap gap-2 sm:justify-between">
           <Button variant="outline" asChild>
-            <Link to="/eleves/$studentId" params={{ studentId: student.id }}>
-              Modifier (fiche élève)
+            <Link to="/eleves/$studentId/notes" params={{ studentId: student.id }}>
+              Modifier les notes
             </Link>
           </Button>
           <div className="flex flex-wrap gap-2">
