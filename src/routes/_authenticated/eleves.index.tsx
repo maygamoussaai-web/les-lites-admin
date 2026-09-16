@@ -5,6 +5,8 @@ import { PageHeader } from "@/components/app/page-header";
 import { DataTable, type Column } from "@/components/app/data-table";
 import { EmptyState } from "@/components/app/empty-state";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { initials } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -29,9 +31,6 @@ export const Route = createFileRoute("/_authenticated/eleves/")({
   component: Page,
 });
 
-// Nombre de lignes affichées par lot — toutes les données restent chargées et
-// disponibles hors ligne, seul l'AFFICHAGE est limité pour rester fluide même
-// avec plusieurs milliers d'élèves.
 const PAGE_SIZE = 50;
 
 function Page() {
@@ -65,7 +64,6 @@ function Page() {
       .sort((a, b) => `${a.last_name}${a.first_name}`.localeCompare(`${b.last_name}${b.first_name}`));
   }, [data.students, establishmentFilter, classFilter, search]);
 
-  // Revenir au premier lot à chaque changement de filtre ou de recherche.
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
   }, [establishmentFilter, classFilter, search]);
@@ -78,23 +76,29 @@ function Page() {
       key: "name",
       header: "Élève",
       cell: (s) => (
-        <div>
-          <p className="font-medium text-foreground">{s.last_name} {s.first_name}</p>
-          <p className="text-xs text-muted-foreground">{s.gender === "F" ? "Féminin" : "Masculin"}</p>
+        <div className="flex items-center gap-3">
+          <Avatar className="h-9 w-9 border border-border">
+            {s.photo_url ? <AvatarImage src={s.photo_url} alt={`${s.last_name} ${s.first_name}`} /> : null}
+            <AvatarFallback className="bg-primary/10 text-xs font-medium text-primary">
+              {initials(s.first_name, s.last_name)}
+            </AvatarFallback>
+          </Avatar>
+          <p className="font-medium text-foreground">
+            {s.last_name} {s.first_name}
+          </p>
         </div>
       ),
-    },
-    {
-      key: "establishment",
-      header: "Établissement",
-      cell: (s) => data.establishments.find((e) => e.id === s.establishment_id)?.name ?? "—",
     },
     {
       key: "class",
       header: "Classe",
       cell: (s) => {
         const klass = data.classes.find((c) => c.id === s.class_id);
-        return klass ? klass.name : <Badge variant="outline">Non assignée</Badge>;
+        return klass ? (
+          <span className="text-sm text-foreground">{klass.name}</span>
+        ) : (
+          <Badge variant="outline">Non assignée</Badge>
+        );
       },
     },
     {
