@@ -38,8 +38,8 @@ export const COLUMN_ROLE_LABELS: Record<ColumnRole, string> = {
   ignore: "Ne pas remplir",
   subject: "Nom de la matière",
   composition: "Note de composition",
-  evaluation: "Notes d'évaluation",
-  evaluation_average: "Moyenne des évaluations",
+  evaluation: "Notes d'évaluation (note de classe)",
+  evaluation_average: "Moyenne des évaluations (notes de classe)",
   subject_average: "Moyenne de la matière",
   coefficient: "Coefficient",
   subject_rank: "Rang dans la matière",
@@ -148,8 +148,8 @@ export function isSubjectLabel(label: string): boolean {
 const COLUMN_HINTS: [ColumnRole, string[]][] = [
   ["subject", ["matiere", "matieres", "discipline", "disciplines"]],
   ["composition", ["composition", "compo", "devoir compo", "note compo"]],
-  ["evaluation_average", ["moyenne evaluation", "moyenne des evaluations", "moy eval"]],
-  ["evaluation", ["evaluation", "evaluations", "eval", "interro", "devoir", "devoirs"]],
+  ["evaluation_average", ["moyenne evaluation", "moyenne des evaluations", "moy eval", "moyenne de classe", "moyenne classe"]],
+  ["evaluation", ["evaluation", "evaluations", "eval", "note de classe", "notes de classe", "interro", "devoir", "devoirs"]],
   ["subject_average", ["moyenne", "moy", "moyenne matiere"]],
   ["coefficient", ["coef", "coefficient", "coeff"]],
   ["subject_rank", ["rang", "rang matiere", "place"]],
@@ -319,7 +319,25 @@ export type FillData = {
   scale: number;
 };
 
-export type FilledSheet = { sheet: TemplateSheet; values: Record<string, CellValue>; warnings: string[] };
+/**
+ * Valeurs RECALCULÉES PAR LE MODÈLE (formules Excel rejouées), à reverser dans l'app —
+ * source unique pour tout ce qui, ailleurs, affiche « moyenne générale » ou « moyenne de
+ * la matière » (classement de classe, fiche élève, bulletin annuel). Normalisées sur /20
+ * quel que soit le barème du modèle. `subjectAverages` est indexé par le nom de matière
+ * tel que fourni dans `FillData.subjects` (pas le libellé brut du modèle), pour un
+ * rapprochement direct avec les matières de l'app.
+ */
+export type ComputedAverages = {
+  generalAverage: number | null;
+  subjectAverages: Record<string, number | null>;
+};
+
+export type FilledSheet = {
+  sheet: TemplateSheet;
+  values: Record<string, CellValue>;
+  warnings: string[];
+  computed: ComputedAverages;
+};
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
@@ -329,6 +347,8 @@ export function fillTemplate(sheet: TemplateSheet, mapping: TemplateMapping, dat
   for (const [address, cell] of Object.entries(sheet.cells)) values[address] = cell.f ? null : cell.v;
 
   const toScale = (v: number | null) => (v === null ? null : round2((v / 20) * data.scale));
+  const fromScale = (v: CellValue): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? round2((v / data.scale) * 20) : null;
 
   const fieldValue = (role: FieldRole): CellValue => {
     switch (role) {
@@ -393,6 +413,9 @@ export function fillTemplate(sheet: TemplateSheet, mapping: TemplateMapping, dat
   }
 
   const subjectColumn = Object.entries(mapping.columns).find(([, role]) => role === "subject")?.[0];
+  // Ligne -> nom de matière (app) effectivement écrite, pour relier ensuite la moyenne
+  // recalculée par le modèle (colonne "subject_average") à la bonne matière de l'app.
+  const rowSubjectName = new Map<number, string>();
   if (mapping.headerRow > 0 && subjectColumn) {
     const remaining = new Map(data.subjects.map((s) => [normalize(s.name), s]));
     for (let r = mapping.firstSubjectRow; r <= mapping.lastSubjectRow; r++) {
@@ -409,6 +432,7 @@ export function fillTemplate(sheet: TemplateSheet, mapping: TemplateMapping, dat
         continue;
       }
       remaining.delete(normalize(match.name));
+      rowSubjectName.set(r, match.name);
       writeSubjectRow(r, match);
     }
   } else {
@@ -431,13 +455,14 @@ export function fillTemplate(sheet: TemplateSheet, mapping: TemplateMapping, dat
         continue;
       }
       if (role === "evaluation") {
+        // "Note d'évaluation" = "note de classe" : contrôles continus, distincts de la composition.
         const idx = evalLetters.indexOf(letter);
         const raw = idx >= 0 ? subject.evaluations[idx] ?? null : null;
         values[address] = raw === null || raw === undefined ? null : toScale(raw);
       }
     }
     if (subject.evaluations.length === 0 && evalLetters.length > 0)
-      warnings.push(`Pas de note d'évaluation en « ${subject.name} ».`);
+      warnings.push(`Pas de note d'évaluation (note de classe) en « ${subject.name} ».`);
   }
 
   // Rejouer les formules Excel (moyennes, coefs, totaux, SI…) — l'app n'invente rien.
@@ -466,7 +491,32 @@ export function fillTemplate(sheet: TemplateSheet, mapping: TemplateMapping, dat
     values[address] = fieldValue(role);
   }
 
-  return { sheet, values, warnings: [...new Set(warnings)] };
+  // Extraction : moyenne générale + moyenne par matière TELLES QUE CALCULÉES PAR LE MODÈLE
+  // (formules rejouées ci-dessus, ou balise en secours pour la moyenne générale). C'est ce
+  // que le reste de l'app doit utiliser (classement, fiche élève, bulletin annuel) plutôt
+  // que de recalculer une moyenne différente en JS.
+  let generalAverageOut: number | null = null;
+  for (const [address, role] of Object.entries(mapping.fields)) {
+    if (role !== "general_average") continue;
+    generalAverageOut = fromScale(values[address]);
+  }
+
+  const subjectAverageCol = Object.entries(mapping.columns).find(([, role]) => role === "subject_average")?.[0];
+  const subjectAveragesOut: Record<string, number | null> = {};
+  if (subjectAverageCol) {
+    for (const [row, name] of rowSubjectName) {
+      subjectAveragesOut[name] = fromScale(values[`${subjectAverageCol}${row}`]);
+    }
+  } else {
+    warnings.push("Colonne « moyenne de la matière » absente du modèle — moyennes par matière non extraites.");
+  }
+
+  return {
+    sheet,
+    values,
+    warnings: [...new Set(warnings)],
+    computed: { generalAverage: generalAverageOut, subjectAverages: subjectAveragesOut },
+  };
 }
 
 const A4_WIDTH = 1240;
