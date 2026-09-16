@@ -23,12 +23,15 @@ export function StudentPhoto({
   photoUrl,
   firstName,
   lastName,
+  compact = false,
 }: {
   studentId: string;
   establishmentId: string;
   photoUrl: string | null;
   firstName: string;
   lastName: string;
+  /** Affiche uniquement l'avatar (sans boutons) — pour les en-têtes de fiche. */
+  compact?: boolean;
 }) {
   const qc = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -41,7 +44,6 @@ export function StudentPhoto({
     if (!file) return;
     setBusy(true);
     try {
-      // Compression obligatoire avant stockage (600px suffisent pour un portrait).
       const compressed = await compressImage(file, 600, 0.8);
       const path = `${establishmentId}/${studentId}.jpg`;
       const { error } = await supabase.storage
@@ -84,11 +86,12 @@ export function StudentPhoto({
         className="rounded-full outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring"
         aria-label={photoUrl ? "Agrandir la photo" : "Aucune photo"}
       >
-        <Avatar className="h-16 w-16 border border-border">
+        <Avatar className={compact ? "h-14 w-14 border border-border" : "h-16 w-16 border border-border"}>
           {photoUrl ? <AvatarImage src={photoUrl} alt={`${firstName} ${lastName}`} /> : null}
           <AvatarFallback>{initials(firstName, lastName)}</AvatarFallback>
         </Avatar>
       </button>
+      {!compact && (
       <div className="flex flex-col gap-1.5">
         <Button variant="outline" size="sm" className="press" disabled={busy} onClick={() => inputRef.current?.click()}>
           {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Camera className="mr-1.5 h-4 w-4" />}
@@ -100,6 +103,7 @@ export function StudentPhoto({
           </Button>
         ) : null}
       </div>
+      )}
       <input
         ref={inputRef}
         type="file"
