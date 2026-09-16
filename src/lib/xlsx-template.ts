@@ -1,8 +1,23 @@
 /**
  * MODÈLES DE BULLETIN EXCEL — lecture, détection des zones, remplissage.
+ *
+ * NOTE POUR CLAUDE :
+ * - Table `report_templates` : le fichier .xlsx est stocké dans le bucket
+ *   `report-templates` (chemin `${establishment_id}/...`), et la
+ *   correspondance détectée/confirmée est enregistrée dans la colonne
+ *   `mapping` (jsonb) au format `TemplateMapping` ci-dessous (champ `version`
+ *   pour pouvoir évoluer sans casser les modèles déjà enregistrés).
+ * - Aucune règle de calcul n'est inventée ici : les notes et moyennes
+ *   viennent de src/lib/grades.ts, les formules du modèle sont rejouées par
+ *   src/lib/xlsx-formula.ts.
+ * - Politique stricte de remplissage : l'app ne touche qu'aux balises [jeton]
+ *   et aux colonnes de notes/moyennes du tableau des matières. Noms de
+ *   matières, coefficients, titres et mise en page du fichier restent intacts.
+ * - Le rendu PDF passe par canvas puis src/lib/pdf-export.ts:canvasToPdfBlob
+ *   (aucune dépendance PDF supplémentaire).
  */
 import * as XLSX from "xlsx";
-import { evaluateFormula, UnsupportedFormulaError, type CellValue } from "@/lib/xlsx-formula";
+import { evaluateFormula, expandRange, UnsupportedFormulaError, type CellValue } from "@/lib/xlsx-formula";
 
 export type ColumnRole =
   | "ignore"
@@ -19,6 +34,8 @@ export type ColumnRole =
 export type FieldRole =
   | "ignore"
   | "student_name"
+  | "student_first_name"
+  | "student_last_name"
   | "class_name"
   | "establishment_name"
   | "period_label"
@@ -46,7 +63,9 @@ export const COLUMN_ROLE_LABELS: Record<ColumnRole, string> = {
 
 export const FIELD_ROLE_LABELS: Record<FieldRole, string> = {
   ignore: "Ne pas remplir",
-  student_name: "Nom de l'élève",
+  student_name: "Nom complet de l'élève",
+  student_first_name: "Prénom de l'élève",
+  student_last_name: "Nom de famille de l'élève",
   class_name: "Classe",
   establishment_name: "Établissement",
   period_label: "Période",
@@ -117,13 +136,31 @@ export type TemplateMapping = {
 };
 
 const normalize = (value: string) =>
-  value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+const NON_SUBJECT_RE =
+  /^(total|sous total|moyenne|moyenne general|moyenne generale|moyenne annuelle|rang|effectif|date|observation|observations|appreciation|appreciations|commentaire|commentaires|signature|visa|le directeur|le provis|provis|parent|tuteur|fait a|fait le)\b/;
+
+export function isSubjectLabel(label: string): boolean {
+  const t = normalize(label);
+  if (!t || t.length < 2) return false;
+  if (/^\d+([.,]\d+)?$/.test(t)) return false;
+  if (NON_SUBJECT_RE.test(t)) return false;
+  if (/\bobservation/.test(t) && /provis|directeur|proviseur/.test(t)) return false;
+  if (t.startsWith("les observations")) return false;
+  return true;
+}
 
 const COLUMN_HINTS: [ColumnRole, string[]][] = [
   ["subject", ["matiere", "matieres", "discipline", "disciplines"]],
   ["composition", ["composition", "compo", "devoir compo", "note compo"]],
   ["evaluation_average", ["moyenne evaluation", "moyenne des evaluations", "moy eval"]],
-  ["evaluation", ["evaluation", "evaluations", "eval", "interro", "devoir", "devoirs", "classe"]],
+  ["evaluation", ["evaluation", "evaluations", "eval", "interro", "devoir", "devoirs"]],
   ["subject_average", ["moyenne", "moy", "moyenne matiere"]],
   ["coefficient", ["coef", "coefficient", "coeff"]],
   ["subject_rank", ["rang", "rang matiere", "place"]],
@@ -132,18 +169,20 @@ const COLUMN_HINTS: [ColumnRole, string[]][] = [
 ];
 
 const FIELD_HINTS: [FieldRole, string[]][] = [
+  ["student_first_name", ["prenom", "prenom de l eleve", "prenom eleve"]],
+  ["student_last_name", ["nom de famille", "nom famille"]],
   ["student_name", ["nom et prenom", "nom prenom", "nom de l eleve", "eleve", "nom"]],
   ["class_name", ["classe"]],
   ["establishment_name", ["etablissement", "complexe", "ecole"]],
   ["period_label", ["periode", "trimestre", "semestre", "mois"]],
-  ["headcount", ["effectif", "nombre d eleves"]],
+  ["headcount", ["effectif", "nombre d eleves", "effectif de la classe"]],
   ["general_average", ["moyenne generale", "moyenne de l eleve", "moyenne annuelle"]],
   ["first_average", ["moyenne du premier", "premier", "plus forte moyenne", "moyenne la plus forte", "moyenne la plus elevee", "moyenne la plus haute"]],
   ["last_average", ["moyenne du dernier", "dernier", "plus faible moyenne", "moyenne la plus faible", "moyenne la plus basse"]],
   ["class_average_evaluation", ["moyenne de classe", "moyenne classe", "moyenne des evaluations de la classe"]],
   ["class_average_composition", ["moyenne de composition", "moyenne composition", "moyenne des compositions"]],
   ["rank", ["rang", "place", "rang de l eleve"]],
-  ["date", ["date", "fait le", "edite le"]],
+  ["date", ["date", "fait le", "edite le", "date d edition"]],
 ];
 
 const matchHint = <T extends string>(text: string, hints: [T, string[]][]): T | null => {
@@ -183,6 +222,23 @@ export function detectMapping(sheet: TemplateSheet): DetectionResult {
       if (role) columns[colLetter(c)] = role;
     }
     if (subjectCol >= 0) columns[colLetter(subjectCol)] = "subject";
+    const exclusive: ColumnRole[] = [
+      "subject",
+      "composition",
+      "evaluation_average",
+      "subject_average",
+      "coefficient",
+      "subject_rank",
+      "appreciation",
+      "teacher",
+    ];
+    const seen = new Set<ColumnRole>();
+    for (const [letter, role] of Object.entries(columns)) {
+      if (role === "evaluation" || role === "ignore") continue;
+      if (!exclusive.includes(role)) continue;
+      if (seen.has(role)) columns[letter] = "ignore";
+      else seen.add(role);
+    }
   } else {
     warnings.push("Le tableau des matières n'a pas été reconnu : indiquez la ligne d'en-tête et le rôle des colonnes.");
   }
@@ -192,10 +248,18 @@ export function detectMapping(sheet: TemplateSheet): DetectionResult {
   if (headerRow > 0 && subjectCol >= 0) {
     let r = firstSubjectRow;
     let blanks = 0;
+    let foundSubject = false;
     while (r <= sheet.rows && blanks < 2) {
-      if (text(r, subjectCol).trim()) {
-        lastSubjectRow = r;
-        blanks = 0;
+      const label = text(r, subjectCol).trim();
+      if (label) {
+        if (!isSubjectLabel(label)) {
+          if (foundSubject) break;
+          blanks++;
+        } else {
+          lastSubjectRow = r;
+          foundSubject = true;
+          blanks = 0;
+        }
       } else blanks++;
       r++;
     }
@@ -206,24 +270,15 @@ export function detectMapping(sheet: TemplateSheet): DetectionResult {
   const used = new Set<FieldRole>();
   const isToken = (raw: string) => /^\s*[[{].+[\]}]\s*$/.test(raw);
   for (let r = 1; r <= sheet.rows; r++) {
-    if (headerRow > 0 && r >= headerRow && r <= lastSubjectRow) continue;
     for (let c = 0; c < sheet.cols; c++) {
-      const label = text(r, c);
-      if (!label) continue;
-      const role = matchHint(label, FIELD_HINTS);
-      if (!role || used.has(role)) continue;
-      if (isToken(label)) {
-        fields[ref(r, c)] = role;
-        used.add(role);
+      if (headerRow > 0 && subjectCol >= 0 && r >= firstSubjectRow && r <= lastSubjectRow && c === subjectCol) {
         continue;
       }
-      const candidates = [ref(r, c + 1), ref(r, c + 2), ref(r + 1, c)];
-      const target = candidates.find((address) => {
-        const cell = sheet.cells[address];
-        return !cell || cell.v === null || String(cell.v).trim() === "" || String(cell.v).trim() === ":";
-      });
-      if (!target) continue;
-      fields[target] = role;
+      const label = text(r, c);
+      if (!label || !isToken(label)) continue;
+      const role = matchHint(label, FIELD_HINTS);
+      if (!role || used.has(role)) continue;
+      fields[ref(r, c)] = role;
       used.add(role);
     }
   }
@@ -238,7 +293,15 @@ export function detectMapping(sheet: TemplateSheet): DetectionResult {
   }
 
   return {
-    mapping: { version: 1, sheetName: sheet.sheetName, headerRow, firstSubjectRow, lastSubjectRow, columns, fields },
+    mapping: {
+      version: 1,
+      sheetName: sheet.sheetName,
+      headerRow,
+      firstSubjectRow,
+      lastSubjectRow,
+      columns,
+      fields,
+    },
     warnings: [...new Set(warnings)],
   };
 }
@@ -256,6 +319,8 @@ export type FillData = {
   className: string;
   periodLabel: string;
   studentName: string;
+  studentFirstName: string;
+  studentLastName: string;
   subjects: FillSubjectRow[];
   generalAverage: number | null;
   firstAverage: number | null;
@@ -275,12 +340,17 @@ export function fillTemplate(sheet: TemplateSheet, mapping: TemplateMapping, dat
   const warnings: string[] = [];
   const values: Record<string, CellValue> = {};
   for (const [address, cell] of Object.entries(sheet.cells)) values[address] = cell.f ? null : cell.v;
+
   const toScale = (v: number | null) => (v === null ? null : round2((v / 20) * data.scale));
 
   const fieldValue = (role: FieldRole): CellValue => {
     switch (role) {
       case "student_name":
         return data.studentName;
+      case "student_first_name":
+        return data.studentFirstName;
+      case "student_last_name":
+        return data.studentLastName;
       case "class_name":
         return data.className;
       case "establishment_name":
@@ -309,72 +379,67 @@ export function fillTemplate(sheet: TemplateSheet, mapping: TemplateMapping, dat
   };
   for (const [address, role] of Object.entries(mapping.fields)) {
     if (role === "ignore") continue;
+    const original = sheet.cells[address];
+    if (original?.f) continue;
+    const raw = original?.v !== null && original?.v !== undefined ? String(original.v).trim() : "";
+    const isTokenCell = /^\s*[[{].+[\]}]\s*$/.test(raw);
+    if (raw && !isTokenCell) continue;
     values[address] = fieldValue(role);
   }
 
   const subjectColumn = Object.entries(mapping.columns).find(([, role]) => role === "subject")?.[0];
   if (mapping.headerRow > 0 && subjectColumn) {
     const remaining = new Map(data.subjects.map((s) => [normalize(s.name), s]));
-    const templateRows: { row: number; label: string }[] = [];
+
     for (let r = mapping.firstSubjectRow; r <= mapping.lastSubjectRow; r++) {
       const cell = sheet.cells[`${subjectColumn}${r}`];
       const label = cell && cell.v !== null ? String(cell.v).trim() : "";
-      templateRows.push({ row: r, label });
-    }
-    const labelled = templateRows.filter((r) => r.label);
-    const blanks = templateRows.filter((r) => !r.label);
-    const freeSubjects = [...remaining.values()];
+      if (!label || !isSubjectLabel(label)) continue;
 
-    const writeSubjectRow = (row: number, subject: FillSubjectRow) => {
-      for (const [letter, role] of Object.entries(mapping.columns)) {
-        const address = `${letter}${row}`;
-        switch (role) {
-          case "subject":
-            values[address] = subject.name;
-            break;
-          case "composition":
-            values[address] = toScale(subject.composition);
-            break;
-          case "evaluation":
-            values[address] = subject.evaluations.length
-              ? subject.evaluations.map((v) => String(toScale(v))).join(" / ")
-              : null;
-            break;
-          case "evaluation_average":
-            values[address] = toScale(subject.evaluationAverage);
-            break;
-          case "subject_average":
-            values[address] = toScale(subject.average);
-            break;
-          default:
-            break;
-        }
-      }
-    };
-
-    for (const { row, label } of labelled) {
       const key = normalize(label);
       const match =
-        remaining.get(key) ?? [...remaining.entries()].find(([k]) => k.includes(key) || key.includes(k))?.[1] ?? null;
+        remaining.get(key) ??
+        [...remaining.entries()].find(([k]) => k.includes(key) || key.includes(k))?.[1] ??
+        null;
       if (!match) {
         warnings.push(`Aucune note pour la matière « ${label} » du modèle.`);
         continue;
       }
       remaining.delete(normalize(match.name));
-      writeSubjectRow(row, match);
+      writeSubjectRow(r, match);
     }
-    const leftovers = freeSubjects.filter((s) => remaining.has(normalize(s.name)));
-    leftovers.forEach((subject, i) => {
-      const slot = blanks[i];
-      if (!slot) {
-        warnings.push(`La matière « ${subject.name} » n'a pas de ligne disponible dans le modèle.`);
-        return;
-      }
-      values[`${subjectColumn}${slot.row}`] = subject.name;
-      writeSubjectRow(slot.row, subject);
-    });
   } else {
     warnings.push("Le tableau des matières n'est pas défini dans ce modèle.");
+  }
+
+  function writeSubjectRow(row: number, subject: FillSubjectRow) {
+    const evalLetters = Object.entries(mapping.columns)
+      .filter(([, role]) => role === "evaluation")
+      .map(([letter]) => letter)
+      .sort((a, b) => colIndex(a) - colIndex(b));
+
+    for (const [letter, role] of Object.entries(mapping.columns)) {
+      const address = `${letter}${row}`;
+      const original = sheet.cells[address];
+      if (original?.f) continue;
+
+      if (role === "composition") {
+        values[address] = toScale(subject.composition);
+        if (subject.composition === null)
+          warnings.push(`Pas de note de composition en « ${subject.name} ».`);
+        continue;
+      }
+
+      if (role === "evaluation") {
+        const idx = evalLetters.indexOf(letter);
+        const raw = idx >= 0 ? subject.evaluations[idx] ?? null : null;
+        values[address] = raw === null || raw === undefined ? null : toScale(raw);
+        continue;
+      }
+    }
+
+    if (subject.evaluations.length === 0 && evalLetters.length > 0)
+      warnings.push(`Pas de note d'évaluation en « ${subject.name} ».`);
   }
 
   const formulas = Object.entries(sheet.cells).filter(([, cell]) => cell.f);
@@ -388,6 +453,7 @@ export function fillTemplate(sheet: TemplateSheet, mapping: TemplateMapping, dat
       }
     }
   }
+
   return { sheet, values, warnings: [...new Set(warnings)] };
 }
 
@@ -401,16 +467,20 @@ export function drawFilledTemplate(filled: FilledSheet): HTMLCanvasElement {
   const scaled = widths.map((w) => w * factor);
   const rowHeight = Math.max(22, Math.min(34, 26 * factor + 12));
   const height = Math.max(1754, sheet.rows * rowHeight + 80);
+
   const canvas = document.createElement("canvas");
   canvas.width = A4_WIDTH;
   canvas.height = Math.round(height);
   const ctx = canvas.getContext("2d");
   if (!ctx) return canvas;
+
   ctx.fillStyle = "#ffffff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.textBaseline = "middle";
+
   const x = (c: number) => scaled.slice(0, c).reduce((a, b) => a + b, 0);
   const y = (r: number) => 30 + r * rowHeight;
+
   const covered = new Set<string>();
   const mergeOf = new Map<string, { cols: number; rows: number }>();
   for (const m of sheet.merges) {
@@ -418,7 +488,7 @@ export function drawFilledTemplate(filled: FilledSheet): HTMLCanvasElement {
       for (let c = m.s.c; c <= m.e.c; c++) if (r !== m.s.r || c !== m.s.c) covered.add(`${r}:${c}`);
     mergeOf.set(`${m.s.r}:${m.s.c}`, { cols: m.e.c - m.s.c + 1, rows: m.e.r - m.s.r + 1 });
   }
-  const formatNumber = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(2));
+
   for (let r = 0; r < sheet.rows; r++) {
     for (let c = 0; c < sheet.cols; c++) {
       if (covered.has(`${r}:${c}`)) continue;
@@ -429,9 +499,11 @@ export function drawFilledTemplate(filled: FilledSheet): HTMLCanvasElement {
       const raw = values[address];
       const source = sheet.cells[address];
       if (raw === undefined && !source) continue;
+
       ctx.strokeStyle = "#d4d8e0";
       ctx.lineWidth = 1;
       ctx.strokeRect(x(c), y(r), w, h);
+
       const value = raw === null || raw === undefined ? "" : typeof raw === "number" ? formatNumber(raw) : String(raw);
       if (!value) continue;
       const isHeaderish = typeof raw === "string" && !source?.f && value.length > 0 && value === value.toUpperCase();
@@ -446,3 +518,5 @@ export function drawFilledTemplate(filled: FilledSheet): HTMLCanvasElement {
   }
   return canvas;
 }
+
+const formatNumber = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(2));
