@@ -6,6 +6,8 @@ import { Plus, Users, ArrowRight } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { initials } from "@/lib/format";
 import { DataTable, type Column } from "@/components/app/data-table";
 import { RecordDialog, type Field } from "@/components/app/record-dialog";
 import { EmptyState } from "@/components/app/empty-state";
@@ -53,9 +55,6 @@ export function StudentsDialog({
     { name: "parent_phone_2", label: "Téléphone parent 2", placeholder: "+223 ..." },
   ];
 
-  // Création d'un élève + ouverture immédiate de sa première période de
-  // scolarité, avec une "photo" du modèle de scolarité actuel de la classe —
-  // les changements futurs de ce modèle ne le concerneront plus.
   const createStudent = async (values: Record<string, any>) => {
     if (!klass) return;
     setSubmitting(true);
@@ -105,51 +104,30 @@ export function StudentsDialog({
       key: "name",
       header: "Élève",
       cell: (s) => (
-        <div>
+        <div className="flex items-center gap-3">
+          <Avatar className="h-9 w-9 border border-border">
+            {s.photo_url ? <AvatarImage src={s.photo_url} alt={`${s.last_name} ${s.first_name}`} /> : null}
+            <AvatarFallback className="bg-primary/10 text-xs font-medium text-primary">
+              {initials(s.first_name, s.last_name)}
+            </AvatarFallback>
+          </Avatar>
           <p className="font-medium text-foreground">
             {s.last_name} {s.first_name}
           </p>
-          <p className="text-xs text-muted-foreground">
-            {s.gender === "F" ? "Féminin" : "Masculin"} · {formatDate(s.date_of_birth)}
-          </p>
         </div>
       ),
-    },
-    {
-      key: "contact",
-      header: "Parents",
-      cell: (s) => (
-        <div className="text-sm">
-          <p>{s.parent_phone_1 ?? "—"}</p>
-          {s.parent_phone_2 ? <p className="text-xs text-muted-foreground">{s.parent_phone_2}</p> : null}
-        </div>
-      ),
-    },
-    {
-      key: "annual",
-      header: "Moyenne annuelle",
-      cell: (s) => {
-        const avg = annualAverage(s);
-        return avg === null ? (
-          <span className="text-sm text-muted-foreground">Incomplète</span>
-        ) : (
-          <Badge variant={avg >= 10 ? "default" : "destructive"} className="tabular-nums">
-            {formatNumber(avg, 2)}
-          </Badge>
-        );
-      },
     },
     {
       key: "tuition",
-      header: "Scolarité (période en cours)",
+      header: "Scolarité",
       cell: (s) => {
         const enrollment = data.activeEnrollmentByStudent.get(s.id);
-        if (!enrollment) return <span className="text-sm text-muted-foreground">Aucune période</span>;
+        if (!enrollment) return <span className="text-sm text-muted-foreground">—</span>;
         const paid = sum(
           data.tuitionPayments.filter((p) => p.enrollment_id === enrollment.id).map((p) => Number(p.amount)),
         );
         const installments = (enrollment.installments_snapshot as unknown as Installment[]) ?? [];
-        if (!installments.length) return <span className="text-sm text-muted-foreground">Aucun modèle</span>;
+        if (!installments.length) return <span className="text-sm text-muted-foreground">—</span>;
         const late = lateStatus(paid, installments);
         return late.isLate ? (
           <Badge variant="destructive">Retard {formatFCFA(late.overdueAmount)}</Badge>
