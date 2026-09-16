@@ -258,7 +258,6 @@ export function evaluateFormula(formula: string, get: CellGetter): CellValue {
       case "MOYENNE":
         return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
       case "MIN":
-philosophie:
         return nums.length ? Math.min(...nums) : null;
       case "MAX":
         return nums.length ? Math.max(...nums) : null;
@@ -281,6 +280,7 @@ philosophie:
         return Math.abs(num(first));
       case "IF":
       case "SI": {
+        const cond = num(first) !== 0;
         const cond = num(first) !== 0 || first === true;
         const branch = cond ? args[1] : args[2];
         return branch?.[0] ?? (cond ? 1 : 0);
