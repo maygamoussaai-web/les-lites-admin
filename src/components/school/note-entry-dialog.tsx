@@ -27,11 +27,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { writeAudit } from "@/lib/data";
 import { describeError } from "@/lib/errors";
 import type { ClassSubject, GradePeriod } from "@/lib/grades";
+import { isSubjectLabel } from "@/lib/xlsx-template";
 
 type StudentRef = { id: string; first_name: string; last_name: string };
-
-/* Saisie de note — mode B : une matière/nature à la fois, toute la classe   */
-/* ---------------------------------------------------------------------- */
 
 export function NoteEntryDialog({
   open,
@@ -51,6 +49,8 @@ export function NoteEntryDialog({
   currentPeriod: GradePeriod | null;
 }) {
   const qc = useQueryClient();
+  // Exclure les faux libellés éventuellement déjà en base (Total, Observations…).
+  const realSubjects = subjects.filter((s) => isSubjectLabel(s.name));
   const [nature, setNature] = useState<"composition" | "evaluation">("evaluation");
   const [subjectId, setSubjectId] = useState("");
   const [scale, setScale] = useState("20");
@@ -188,7 +188,9 @@ export function NoteEntryDialog({
               </SelectContent>
             </Select>
             {nature === "composition" && (
-              <p className="mt-1 text-xs text-muted-foreground">Une seule composition par matière et par période — une nouvelle saisie remplace la précédente.</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Une seule composition par matière et par période — une nouvelle saisie remplace la précédente.
+              </p>
             )}
           </div>
           <div>
@@ -201,9 +203,9 @@ export function NoteEntryDialog({
             <Label className="mb-1.5 block text-sm">
               Matière<span className="ml-0.5 text-destructive">*</span>
             </Label>
-            {subjects.length === 0 ? (
+            {realSubjects.length === 0 ? (
               <p className="rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                Aucune matière. Importez d&apos;abord un modèle de bulletin Excel pour cette classe — les matières sont
+                Aucune matière. Importez d'abord un modèle de bulletin Excel pour cette classe — les matières sont
                 extraites automatiquement du modèle.
               </p>
             ) : (
@@ -212,7 +214,7 @@ export function NoteEntryDialog({
                   <SelectValue placeholder="Sélectionner une matière" />
                 </SelectTrigger>
                 <SelectContent>
-                  {subjects.map((s) => (
+                  {realSubjects.map((s) => (
                     <SelectItem key={s.id} value={s.id}>
                       {s.name}
                     </SelectItem>
@@ -231,7 +233,9 @@ export function NoteEntryDialog({
             <div className="max-h-72 space-y-1.5 overflow-y-auto">
               {students.map((s) => (
                 <div key={s.id} className="flex items-center gap-2">
-                  <span className="flex-1 truncate text-sm">{s.last_name} {s.first_name}</span>
+                  <span className="flex-1 truncate text-sm">
+                    {s.last_name} {s.first_name}
+                  </span>
                   <Input
                     type="number"
                     step="any"
