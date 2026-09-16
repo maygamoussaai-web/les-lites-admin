@@ -1,10 +1,5 @@
 /**
  * Import + vérification d'un modèle de bulletin Excel pour une classe.
- * - Upload .xlsx → storage bucket report-templates
- * - Détection automatique des zones (xlsx-template.detectMapping)
- * - Écran de confirmation des colonnes / champs
- * - À la validation : enregistrement report_templates + synchronisation class_subjects
- *   à partir des matières du modèle (plus de création libre de matières).
  */
 import { useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -37,7 +32,6 @@ import {
   detectMapping,
   COLUMN_ROLE_LABELS,
   FIELD_ROLE_LABELS,
-  colLetter,
   isSubjectLabel,
   type TemplateSheet,
   type TemplateMapping,
@@ -167,10 +161,18 @@ export function ReportTemplateManager({
         .single();
       if (error) throw error;
 
+      // Uniquement les vraies matières ; purge des faux libellés déjà en base.
       const existing = await supabase.from("class_subjects").select("id, name").eq("class_id", classId);
       if (existing.error) throw existing.error;
+      const junkIds = (existing.data ?? []).filter((s) => !isSubjectLabel(s.name)).map((s) => s.id);
+      if (junkIds.length) {
+        const { error: delErr } = await supabase.from("class_subjects").delete().in("id", junkIds);
+        if (delErr) throw delErr;
+      }
       const byNorm = new Map(
-        (existing.data ?? []).map((s) => [s.name.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim(), s]),
+        (existing.data ?? [])
+          .filter((s) => isSubjectLabel(s.name))
+          .map((s) => [s.name.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim(), s]),
       );
       for (const label of subjectLabels) {
         const key = label.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
@@ -238,9 +240,7 @@ export function ReportTemplateManager({
           <DialogHeader>
             <DialogTitle>Modèle de bulletin Excel</DialogTitle>
             <DialogDescription>
-              Importez le fichier .xlsx de la classe. L'app repère le tableau des matières et les balises […].
-              Vous confirmez, puis seules les notes et les balises seront remplies — la mise en page Excel reste
-              intacte. Les matières du modèle deviennent les seules matières de la classe.
+              Importez le fichier .xlsx. L'app ne garde que les vraies matières (pas Total, Observations…).
             </DialogDescription>
           </DialogHeader>
 
@@ -258,7 +258,6 @@ export function ReportTemplateManager({
                   <Upload className="h-8 w-8 text-primary" />
                 )}
                 <span className="text-sm font-medium">Choisir un fichier .xlsx</span>
-                <span className="text-xs text-muted-foreground">Une seule feuille analysée (la première utile)</span>
               </button>
               <input
                 ref={fileRef}
@@ -290,7 +289,7 @@ export function ReportTemplateManager({
                 <p className="mb-2 text-sm font-medium">Colonnes du tableau des matières</p>
                 <div className="space-y-1.5">
                   {Object.keys(mapping.columns).length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Aucune colonne détectée — vérifiez le fichier.</p>
+                    <p className="text-sm text-muted-foreground">Aucune colonne détectée.</p>
                   ) : (
                     Object.entries(mapping.columns).map(([letter, role]) => (
                       <div key={letter} className="flex items-center gap-2">
@@ -321,23 +320,10 @@ export function ReportTemplateManager({
               </div>
 
               <div>
-                <p className="mb-2 text-sm font-medium">Cases isolées (en-tête / pied)</p>
-                <p className="mb-2 text-xs text-muted-foreground">
-                  L'app ne remplit que les <strong>balises</strong> que vous placez dans Excel (rien d'autre hors
-                  tableau des notes). Écrivez le jeton <em>dans la case à remplir</em>, par exemple{" "}
-                  <code className="rounded bg-muted px-1">[prenom]</code>,{" "}
-                  <code className="rounded bg-muted px-1">[nom de famille]</code>,{" "}
-                  <code className="rounded bg-muted px-1">[nom]</code>,{" "}
-                  <code className="rounded bg-muted px-1">[classe]</code>,{" "}
-                  <code className="rounded bg-muted px-1">[date]</code>,{" "}
-                  <code className="rounded bg-muted px-1">[effectif]</code>,{" "}
-                  <code className="rounded bg-muted px-1">[rang]</code>,{" "}
-                  <code className="rounded bg-muted px-1">[moyenne du premier]</code>. Les formules Excel
-                  (moyennes, appréciations SI…) sont rejouées ; la mise en page du fichier reste intacte.
-                </p>
+                <p className="mb-2 text-sm font-medium">Cases isolées (balises)</p>
                 <div className="space-y-1.5">
                   {Object.keys(mapping.fields).length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Aucune case isolée détectée.</p>
+                    <p className="text-sm text-muted-foreground">Aucune balise détectée.</p>
                   ) : (
                     Object.entries(mapping.fields).map(([address, role]) => (
                       <div key={address} className="flex items-center gap-2">
@@ -382,10 +368,10 @@ export function ReportTemplateManager({
 
               {warnings.length > 0 && (
                 <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
-                  <p className="mb-1 flex items-center gap-1.5 font-medium text-warning-foreground">
+                  <p className="mb-1 flex items-center gap-1.5 font-medium">
                     <AlertTriangle className="h-4 w-4" /> Avertissements
                   </p>
-                  <ul className="list-inside list-disc space-y-0.5 text-xs text-muted-foreground">
+                  <ul className="list-inside list-disc text-xs text-muted-foreground">
                     {warnings.map((w) => (
                       <li key={w}>{w}</li>
                     ))}
