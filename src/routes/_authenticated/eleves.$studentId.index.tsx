@@ -52,7 +52,7 @@ export const Route = createFileRoute("/_authenticated/eleves/$studentId/")({
   head: () => ({
     meta: [
       { title: "Fiche élève – Les Élites de Gao" },
-      { name: "description", content: "Profil complet d'un élève : scolarité, résultats et documents." },
+      { name: "description", content: "Profil complet d'un élève : identité, scolarité et résultats." },
     ],
   }),
   component: Page,
@@ -217,24 +217,31 @@ function Page() {
         eyebrow={klass?.name ?? "Élève"}
         title={`${student.last_name} ${student.first_name}`}
         description={`${establishment?.name ?? "—"} · Inscrit le ${formatDate(student.enrolled_at)}`}
-        actions={
-          <div className="flex items-center gap-3">
-            <StudentPhoto
-              studentId={student.id}
-              establishmentId={student.establishment_id}
-              photoUrl={student.photo_url ?? null}
-              firstName={student.first_name}
-              lastName={student.last_name}
-              compact
-            />
-            <Button variant="outline" className="press" asChild>
-              <Link to="/eleves/$studentId/identite" params={{ studentId: student.id }}>
-                <IdCard className="mr-1.5 h-4 w-4" /> Identité et informations
-              </Link>
-            </Button>
-          </div>
-        }
       />
+
+      <div className="flex flex-wrap items-center gap-4 rounded-xl border border-border/70 bg-card p-4">
+        <StudentPhoto
+          studentId={student.id}
+          establishmentId={student.establishment_id}
+          photoUrl={student.photo_url ?? null}
+          firstName={student.first_name}
+          lastName={student.last_name}
+          compact
+        />
+        <div className="min-w-0 flex-1">
+          <p className="font-display text-lg font-semibold text-foreground">
+            {student.last_name} {student.first_name}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {klass?.name ?? "Classe non assignée"} · {establishment?.name ?? "—"}
+          </p>
+        </div>
+        <Button variant="outline" size="sm" className="press" asChild>
+          <Link to="/eleves/$studentId/identite" params={{ studentId: student.id }}>
+            <IdCard className="mr-1.5 h-4 w-4" /> Identité et informations
+          </Link>
+        </Button>
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
@@ -275,7 +282,7 @@ function Page() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="text-base">Résultats</CardTitle>
           </CardHeader>
@@ -458,22 +465,21 @@ function PayDialog({
               <SelectContent>
                 <SelectItem value="cash">Espèces</SelectItem>
                 <SelectItem value="mobile_money">Mobile money</SelectItem>
-                <SelectItem value="transfer">Virement</SelectItem>
-                <SelectItem value="other">Autre</SelectItem>
+                <SelectItem value="bank">Banque</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div className="sm:col-span-2">
             <Label className="mb-1.5 block text-sm">Note</Label>
-            <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
+            <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Annuler
           </Button>
-          <Button onClick={submit} disabled={!canSubmit}>
-            {submitting ? "Enregistrement…" : "Enregistrer"}
+          <Button disabled={!canSubmit} onClick={submit}>
+            Enregistrer
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -483,26 +489,18 @@ function PayDialog({
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-border/50 py-1.5 last:border-0">
+    <div className="flex items-center justify-between border-b border-border/60 pb-2">
       <span className="text-muted-foreground">{label}</span>
-      <span className="text-right font-medium text-foreground">{value}</span>
+      <span className="font-medium text-foreground">{value}</span>
     </div>
   );
 }
 
-function Metric({
-  label,
-  value,
-  highlight,
-}: {
-  label: string;
-  value: number | null | undefined;
-  highlight?: boolean;
-}) {
+function Metric({ label, value, highlight }: { label: string; value: number | null; highlight?: boolean }) {
   return (
-    <div className={`rounded-lg border border-border/70 p-3 ${highlight ? "bg-primary/5" : "bg-muted/30"}`}>
+    <div className="rounded-lg border border-border/70 bg-muted/30 p-3 text-center">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={`mt-1 text-lg font-semibold tabular-nums ${highlight ? "text-primary" : "text-foreground"}`}>
+      <p className={highlight ? "mt-1 font-display text-xl font-semibold text-primary" : "mt-1 text-lg font-semibold"}>
         {value === null || value === undefined ? "—" : formatNumber(value, 2)}
       </p>
     </div>
