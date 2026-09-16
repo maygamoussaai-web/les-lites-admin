@@ -1,35 +1,4 @@
-/**
- * FICHE CLASSE — système de gestion des notes et bulletins.
- *
- * NOTE POUR COLLABORATION (Claude + Lovable travaillent en parallèle sur
- * cette fonctionnalité) :
- * - Tables utilisées : class_subjects, grade_periods, grades,
- *   student_report_cards, class_reports (voir src/lib/grades.ts pour les
- *   types et les fonctions de calcul).
- * - Une "période" (grade_periods) est ouverte automatiquement à la première
- *   note enregistrée pour une classe, et fermée via le bouton "Nouvelle
- *   période" (ended_at renseigné). Une seule période ouverte par classe à la
- *   fois (contrainte unique en base : idx_grade_periods_one_open).
- * - Pas de coefficient par matière pour l'instant (simplification
- *   volontaire, voir Phase 3 pour les modèles Excel à venir) : la moyenne
- *   générale d'un élève = moyenne simple des moyennes de chaque matière,
- *   chaque note étant normalisée sur 20 individuellement (voir
- *   src/lib/grades.ts : to20, subjectAverage, studentAverage).
- * - Seuils utilisés : 10/20 = "a eu la moyenne", 15/20 = "excellent" (75% du
- *   barème) — constantes PASS_THRESHOLD / EXCELLENT_THRESHOLD dans
- *   src/lib/grades.ts, à ne pas dupliquer ailleurs.
- * - Le rendu des bulletins/rapports PDF ci-dessous est un rendu GENÉRIQUE
- *   (tableau simple dessiné sur canvas, puis converti en PDF via
- *   src/lib/pdf-export.ts:canvasToPdfBlob). Il sera remplacé par les vrais
- *   modèles par classe dès réception des fichiers Excel fournis par
- *   l'utilisateur (Phase 3). Merci de ne pas dupliquer un second système de
- *   génération PDF — tout doit passer par pdf-export.ts.
- * - Reste à faire (Phase 2, pas encore construit ici) : photo de profil
- *   élève, liste "matières à travailler" sur la fiche élève, page dédiée
- *   "Historique des notes" par élève (le bouton "Modifier" du parcours de
- *   validation des bulletins pointe vers cette page à venir).
- */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -48,6 +17,7 @@ import {
   Trash2,
   Eye,
   Clock,
+  CalendarRange,
 } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
@@ -82,9 +52,10 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { StudentsDialog } from "@/components/school/students-dialog";
+import { ReportTemplateManager } from "@/components/school/report-template-manager";
+import { BulletinWalkthroughDialog, AnnualBulletinDialog } from "@/components/school/bulletin-helpers";
 import { supabase } from "@/integrations/supabase/client";
 import { useAdminProfile } from "@/hooks/use-auth";
 import { useSchoolData } from "@/lib/school-data";
@@ -116,7 +87,6 @@ export const Route = createFileRoute("/_authenticated/classes/$classId")({
 type StudentRef = { id: string; first_name: string; last_name: string };
 type AveragedStudent = { student: StudentRef; average: number; weakSubjects: string[] };
 
-/** Statistiques calculées pour une période de classe — partagé entre la page et le rapport PDF. */
 interface ClassStats {
   withAvg: AveragedStudent[];
   passing: AveragedStudent[];
@@ -149,19 +119,25 @@ function Page() {
   const allowed = klass && (isDG || establishmentIds.includes(klass.establishment_id));
   const establishment = klass ? data.establishments.find((e) => e.id === klass.establishment_id) : null;
   const classStudents = useMemo(
-    () => data.students.filter((s) => s.class_id === classId).sort((a, b) => `${a.last_name}${a.first_name}`.localeCompare(`${b.last_name}${b.first_name}`)),
+    () =>
+      data.students
+        .filter((s) => s.class_id === classId)
+        .sort((a, b) => `${a.last_name}${a.first_name}`.localeCompare(`${b.last_name}${b.first_name}`)),
     [data.students, classId],
   );
 
   const [studentsOpen, setStudentsOpen] = useState(false);
   const [noteEntryOpen, setNoteEntryOpen] = useState(false);
   const [bulletinsOpen, setBulletinsOpen] = useState(false);
+  const [annualOpen, setAnnualOpen] = useState(false);
 
-  // Périodes et matières de la classe (RLS filtre déjà par établissement).
   const periodsQuery = useSupabaseRows<GradePeriod>("grade_periods", { class_id: classId }, "period_number");
   const subjectsQuery = useSupabaseRows<ClassSubject>("class_subjects", { class_id: classId }, "name");
   const currentPeriod = periodsQuery.data.find((p) => p.ended_at === null) ?? null;
-  const latestPeriod = currentPeriod ?? [...periodsQuery.data].sort((a, b) => b.period_number - a.period_number)[0] ?? null;
+  const latestPeriod =
+    currentPeriod ??
+    [...periodsQuery.data].sort((a, b) => b.period_number - a.period_number)[0] ??
+    null;
   const gradesQuery = useSupabaseRows<Grade>("grades", latestPeriod ? { period_id: latestPeriod.id } : null, "created_at");
 
   const [renewOpen, setRenewOpen] = useState(false);
@@ -170,7 +146,10 @@ function Page() {
     if (!klass) return;
     try {
       if (currentPeriod) {
-        const { error } = await supabase.from("grade_periods").update({ ended_at: new Date().toISOString() }).eq("id", currentPeriod.id);
+        const { error } = await supabase
+          .from("grade_periods")
+          .update({ ended_at: new Date().toISOString() })
+          .eq("id", currentPeriod.id);
         if (error) throw error;
       }
       const nextNumber = (periodsQuery.data.reduce((max, p) => Math.max(max, p.period_number), 0) || 0) + 1;
@@ -190,7 +169,6 @@ function Page() {
     }
   };
 
-  // Statistiques de la période affichée (la plus récente, ouverte ou non).
   const stats: ClassStats | null = useMemo(() => {
     if (!latestPeriod) return null;
     const bySubjectAll = new Map<string, Grade[]>();
@@ -229,7 +207,9 @@ function Page() {
   }, [latestPeriod, gradesQuery.data, classStudents, subjectsQuery.data]);
 
   if (!data.loading && !establishmentIdsLoading && (!klass || !allowed)) {
-    return <EmptyState icon={AlertTriangle} title="Accès refusé" description="Cette classe n'existe pas ou vous n'y avez pas accès." />;
+    return (
+      <EmptyState icon={AlertTriangle} title="Accès refusé" description="Cette classe n'existe pas ou vous n'y avez pas accès." />
+    );
   }
   if (!klass) return null;
 
@@ -263,7 +243,13 @@ function Page() {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Moyenne de la classe" value={stats?.classAverage != null ? stats.classAverage.toFixed(2) : "—"} icon={Users} />
-        <StatCard label="Ont la moyenne" value={stats ? `${stats.passing.length} / ${stats.withAvg.length}` : "—"} icon={GraduationCap} tone="accent" delay={60} />
+        <StatCard
+          label="Ont la moyenne"
+          value={stats ? `${stats.passing.length} / ${stats.withAvg.length}` : "—"}
+          icon={GraduationCap}
+          tone="accent"
+          delay={60}
+        />
         <StatCard label="Plus haute moyenne" value={stats?.highest ? stats.highest.average.toFixed(2) : "—"} icon={Trophy} tone="success" delay={120} />
         <StatCard label="Plus basse moyenne" value={stats?.lowest ? stats.lowest.average.toFixed(2) : "—"} icon={TrendingDown} tone="destructive" delay={180} />
       </div>
@@ -278,7 +264,9 @@ function Page() {
               <span className="text-muted-foreground">
                 {stats.passing.length} sur {stats.withAvg.length} ont la moyenne
               </span>
-              <span className="font-semibold text-foreground">{Math.round((stats.passing.length / stats.withAvg.length) * 100)}%</span>
+              <span className="font-semibold text-foreground">
+                {Math.round((stats.passing.length / stats.withAvg.length) * 100)}%
+              </span>
             </div>
             <Progress value={(stats.passing.length / stats.withAvg.length) * 100} className="h-2.5" />
           </CardContent>
@@ -311,12 +299,31 @@ function Page() {
         </div>
       )}
 
+      <ReportTemplateManager
+        classId={classId}
+        establishmentId={klass.establishment_id}
+        className={klass.name}
+      />
+
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" className="press" onClick={() => setRenewOpen(true)}>
           <RotateCcw className="mr-1.5 h-4 w-4" /> Nouvelle période
         </Button>
-        <Button variant="outline" className="press" onClick={() => setBulletinsOpen(true)} disabled={!latestPeriod || classStudents.length === 0}>
+        <Button
+          variant="outline"
+          className="press"
+          onClick={() => setBulletinsOpen(true)}
+          disabled={!latestPeriod || classStudents.length === 0}
+        >
           <FileText className="mr-1.5 h-4 w-4" /> Créer les bulletins
+        </Button>
+        <Button
+          variant="outline"
+          className="press"
+          onClick={() => setAnnualOpen(true)}
+          disabled={periodsQuery.data.length === 0 || classStudents.length === 0}
+        >
+          <CalendarRange className="mr-1.5 h-4 w-4" /> Bulletin annuel
         </Button>
       </div>
 
@@ -354,6 +361,18 @@ function Page() {
         />
       )}
 
+      {annualOpen && (
+        <AnnualBulletinDialog
+          open={annualOpen}
+          onClose={() => setAnnualOpen(false)}
+          klass={klass}
+          establishmentName={establishment?.name ?? "—"}
+          students={classStudents}
+          subjects={subjectsQuery.data}
+          periods={periodsQuery.data}
+        />
+      )}
+
       <AlertDialog open={renewOpen} onOpenChange={setRenewOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -374,11 +393,21 @@ function Page() {
   );
 }
 
-function StudentGroupCard({ title, rows, tone }: { title: string; rows: AveragedStudent[]; tone: "destructive" | "success" }) {
+function StudentGroupCard({
+  title,
+  rows,
+  tone,
+}: {
+  title: string;
+  rows: AveragedStudent[];
+  tone: "destructive" | "success";
+}) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">{title} ({rows.length})</CardTitle>
+        <CardTitle className="text-base">
+          {title} ({rows.length})
+        </CardTitle>
       </CardHeader>
       <CardContent>
         {rows.length === 0 ? (
@@ -387,8 +416,13 @@ function StudentGroupCard({ title, rows, tone }: { title: string; rows: Averaged
           <ul className="space-y-1.5">
             {rows.map((r) => (
               <li key={r.student.id} className="flex items-center justify-between text-sm">
-                <span>{r.student.last_name} {r.student.first_name}</span>
-                <Badge variant={tone === "destructive" ? "destructive" : "default"} className={tone === "success" ? "bg-success text-success-foreground" : ""}>
+                <span>
+                  {r.student.last_name} {r.student.first_name}
+                </span>
+                <Badge
+                  variant={tone === "destructive" ? "destructive" : "default"}
+                  className={tone === "success" ? "bg-success text-success-foreground" : ""}
+                >
                   {r.average.toFixed(2)}
                 </Badge>
               </li>
@@ -399,10 +433,6 @@ function StudentGroupCard({ title, rows, tone }: { title: string; rows: Averaged
     </Card>
   );
 }
-
-/* ---------------------------------------------------------------------- */
-/* Saisie de note — mode B : une matière/nature à la fois, toute la classe   */
-/* ---------------------------------------------------------------------- */
 
 function NoteEntryDialog({
   open,
@@ -422,24 +452,27 @@ function NoteEntryDialog({
   currentPeriod: GradePeriod | null;
 }) {
   const qc = useQueryClient();
-  const [nature, setNature] = useState<"composition" | "evaluation">("evaluation");
   const [subjectId, setSubjectId] = useState("");
-  const [newSubjectName, setNewSubjectName] = useState("");
+  const [nature, setNature] = useState<"evaluation" | "composition">("evaluation");
+  const [label, setLabel] = useState("");
   const [scale, setScale] = useState("20");
   const [values, setValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
-  const reset = () => {
-    setSubjectId("");
-    setNewSubjectName("");
+  useEffect(() => {
+    if (!open) return;
+    setSubjectId(subjects[0]?.id ?? "");
+    setNature("evaluation");
+    setLabel("");
     setScale("20");
     setValues({});
-  };
+    setSubmitting(false);
+  }, [open, subjects]);
 
-  const scaleNum = Number(scale);
   const canSubmit =
-    !!(subjectId || newSubjectName.trim()) &&
-    scaleNum > 0 &&
+    !!subjectId &&
+    subjects.some((s) => s.id === subjectId) &&
+    Number(scale) > 0 &&
     Object.values(values).some((v) => v !== "") &&
     !submitting;
 
@@ -447,67 +480,46 @@ function NoteEntryDialog({
     if (!canSubmit) return;
     setSubmitting(true);
     try {
-      let finalSubjectId = subjectId;
-      if (!finalSubjectId && newSubjectName.trim()) {
-        const { data: created, error } = await supabase
-          .from("class_subjects")
-          .insert({ class_id: classId, establishment_id: establishmentId, name: newSubjectName.trim() })
-          .select()
-          .single();
-        if (error) throw error;
-        finalSubjectId = created.id;
-      }
-
-      let period = currentPeriod;
-      if (!period) {
+      let periodId = currentPeriod?.id;
+      if (!periodId) {
         const { data: created, error } = await supabase
           .from("grade_periods")
           .insert({ class_id: classId, establishment_id: establishmentId, period_number: 1 })
           .select()
           .single();
         if (error) throw error;
-        period = created;
+        periodId = created.id;
+        qc.invalidateQueries({ queryKey: ["grade_periods"] });
       }
 
-      const entries = Object.entries(values).filter(([, v]) => v !== "" && !Number.isNaN(Number(v)));
-      for (const [studentId, value] of entries) {
-        if (nature === "composition") {
-          const { error } = await supabase.from("grades").upsert(
-            {
-              period_id: period.id,
-              class_id: classId,
-              establishment_id: establishmentId,
-              subject_id: finalSubjectId,
-              student_id: studentId,
-              nature: "composition",
-              sequence_number: 1,
-              value: Number(value),
-              scale: scaleNum,
-            },
-            { onConflict: "period_id,subject_id,student_id", ignoreDuplicates: false },
-          );
-          if (error) throw error;
-        } else {
-          const { error } = await supabase.from("grades").insert({
-            period_id: period.id,
-            class_id: classId,
+      const scaleNum = Number(scale);
+      const rows = students
+        .map((s) => {
+          const raw = values[s.id];
+          if (raw === undefined || raw === "") return null;
+          return {
+            student_id: s.id,
+            subject_id: subjectId,
+            period_id: periodId!,
             establishment_id: establishmentId,
-            subject_id: finalSubjectId,
-            student_id: studentId,
-            nature: "evaluation",
-            value: Number(value),
+            nature,
+            label: label || null,
+            value: Number(raw),
             scale: scaleNum,
-          });
-          if (error) throw error;
-        }
+          };
+        })
+        .filter(Boolean);
+
+      if (!rows.length) {
+        toast.error("Saisissez au moins une note");
+        return;
       }
 
-      await writeAudit("create", "grades" as never, null, { class_id: classId, subject_id: finalSubjectId, nature, count: entries.length });
+      const { error } = await supabase.from("grades").insert(rows as never);
+      if (error) throw error;
+      await writeAudit("create", "grades" as never, null, { class_id: classId, count: rows.length });
       qc.invalidateQueries({ queryKey: ["grades"] });
-      qc.invalidateQueries({ queryKey: ["class_subjects"] });
-      qc.invalidateQueries({ queryKey: ["grade_periods"] });
-      toast.success(`${entries.length} note(s) enregistrée(s)`);
-      reset();
+      toast.success(`${rows.length} note(s) enregistrée(s)`);
       onClose();
     } catch (e) {
       toast.error((e as Error).message || "Enregistrement impossible");
@@ -518,370 +530,92 @@ function NoteEntryDialog({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Enregistrer une note</DialogTitle>
           <DialogDescription>
-            Choisissez la nature, la matière et le barème, puis remplissez la note de chaque élève concerné (les
-            champs laissés vides sont ignorés).
+            Les matières proviennent du modèle de bulletin. Importez un modèle Excel si la liste est vide.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <Label className="mb-1.5 block text-sm">Nature</Label>
-            <Select value={nature} onValueChange={(v) => setNature(v as "composition" | "evaluation")}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="evaluation">Note d'évaluation</SelectItem>
-                <SelectItem value="composition">Note de composition</SelectItem>
-              </SelectContent>
-            </Select>
-            {nature === "composition" && (
-              <p className="mt-1 text-xs text-muted-foreground">Une seule composition par matière et par période — une nouvelle saisie remplace la précédente.</p>
-            )}
-          </div>
-          <div>
-            <Label className="mb-1.5 block text-sm">
-              Barème<span className="ml-0.5 text-destructive">*</span>
-            </Label>
-            <Input type="number" step="any" value={scale} onChange={(e) => setScale(e.target.value)} />
-          </div>
-          <div className="sm:col-span-2">
-            <Label className="mb-1.5 block text-sm">
-              Matière<span className="ml-0.5 text-destructive">*</span>
-            </Label>
-            <Select value={subjectId || "__new"} onValueChange={(v) => setSubjectId(v === "__new" ? "" : v)}>
-              <SelectTrigger>
-                <SelectValue placeholder="Sélectionner" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__new">+ Nouvelle matière</SelectItem>
-                {subjects.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {!subjectId && (
-              <Input
-                className="mt-2"
-                placeholder="Nom de la matière"
-                value={newSubjectName}
-                onChange={(e) => setNewSubjectName(e.target.value)}
-              />
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
-          <p className="text-sm font-medium">Élèves ({students.length})</p>
-          {students.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Aucun élève dans cette classe.</p>
-          ) : (
-            <div className="max-h-72 space-y-1.5 overflow-y-auto">
-              {students.map((s) => (
-                <div key={s.id} className="flex items-center gap-2">
-                  <span className="flex-1 truncate text-sm">{s.last_name} {s.first_name}</span>
-                  <Input
-                    type="number"
-                    step="any"
-                    className="w-24"
-                    value={values[s.id] ?? ""}
-                    onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))}
-                  />
-                </div>
-              ))}
+        {subjects.length === 0 ? (
+          <p className="rounded-md border border-dashed border-border bg-muted/40 px-3 py-4 text-sm text-muted-foreground">
+            Aucune matière. Importez d&apos;abord un modèle de bulletin Excel pour cette classe.
+          </p>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <Label className="mb-1.5 block text-sm">
+                Matière<span className="ml-0.5 text-destructive">*</span>
+              </Label>
+              <Select value={subjectId || undefined} onValueChange={setSubjectId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choisir" />
+                </SelectTrigger>
+                <SelectContent>
+                  {subjects.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>
+                      {s.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-          )}
-        </div>
+            <div>
+              <Label className="mb-1.5 block text-sm">Nature</Label>
+              <Select value={nature} onValueChange={(v) => setNature(v as "evaluation" | "composition")}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="evaluation">Évaluation</SelectItem>
+                  <SelectItem value="composition">Composition</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="mb-1.5 block text-sm">Libellé (optionnel)</Label>
+              <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Devoir 1" />
+            </div>
+            <div>
+              <Label className="mb-1.5 block text-sm">Barème</Label>
+              <Input type="number" step="any" value={scale} onChange={(e) => setScale(e.target.value)} />
+            </div>
+          </div>
+        )}
+
+        {subjects.length > 0 && (
+          <div className="max-h-64 space-y-2 overflow-y-auto rounded-md border border-border p-2">
+            {students.map((s) => (
+              <div key={s.id} className="flex items-center gap-2">
+                <span className="min-w-0 flex-1 truncate text-sm">
+                  {s.last_name} {s.first_name}
+                </span>
+                <Input
+                  type="number"
+                  step="any"
+                  className="w-24"
+                  value={values[s.id] ?? ""}
+                  onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))}
+                  placeholder="Note"
+                />
+              </div>
+            ))}
+          </div>
+        )}
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Annuler
           </Button>
-          <Button onClick={submit} disabled={!canSubmit}>
-            {submitting ? "Enregistrement..." : "Enregistrer"}
+          <Button onClick={submit} disabled={!canSubmit || subjects.length === 0}>
+            {submitting ? "Enregistrement…" : "Enregistrer"}
           </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
-
-/* ---------------------------------------------------------------------- */
-/* Création des bulletins — parcours élève par élève, ordre alphabétique     */
-/* ---------------------------------------------------------------------- */
-
-function BulletinWalkthroughDialog({
-  open,
-  onClose,
-  klass,
-  establishmentName,
-  students,
-  subjects,
-  period,
-  grades,
-}: {
-  open: boolean;
-  onClose: () => void;
-  klass: { id: string; name: string; establishment_id: string };
-  establishmentName: string;
-  students: StudentRef[];
-  subjects: ClassSubject[];
-  period: GradePeriod;
-  grades: Grade[];
-}) {
-  const qc = useQueryClient();
-  const [index, setIndex] = useState(0);
-  const [validated, setValidated] = useState<Record<string, string>>({}); // studentId -> document_id
-  const [busy, setBusy] = useState(false);
-
-  const student = students[index] ?? null;
-  const bySubject = student ? groupGradesBySubject(grades, student.id) : new Map<string, Grade[]>();
-  const missingEvaluation = subjects.filter((s) => !(bySubject.get(s.id) ?? []).some((g) => g.nature === "evaluation"));
-  const average = studentAverage(bySubject);
-
-  const validate = async () => {
-    if (!student) return;
-    setBusy(true);
-    try {
-      const weakSubjects = subjects
-        .map((s) => ({ name: s.name, avg: subjectAverage(bySubject.get(s.id) ?? []) }))
-        .filter((x) => x.avg !== null && x.avg < PASS_THRESHOLD)
-        .map((x) => x.name);
-
-      const canvas = renderBulletinCanvas({
-        establishmentName,
-        className: klass.name,
-        studentName: `${student.last_name} ${student.first_name}`,
-        periodNumber: period.period_number,
-        subjects,
-        bySubject,
-        average,
-      });
-      const blob = await canvasToPdfBlob(canvas);
-      const path = `${klass.establishment_id}/${student.id}/bulletin-p${period.period_number}-${Date.now()}.pdf`;
-      const { error: uploadError } = await supabase.storage.from("student-documents").upload(path, blob, { contentType: "application/pdf" });
-      if (uploadError) throw uploadError;
-
-      const { data: doc, error: docError } = await supabase
-        .from("student_documents")
-        .insert({
-          student_id: student.id,
-          establishment_id: klass.establishment_id,
-          name: `Bulletin — Période ${period.period_number}`,
-          file_path: path,
-          file_type: "application/pdf",
-          file_size: blob.size,
-        })
-        .select()
-        .single();
-      if (docError) throw docError;
-
-      const { error: cardError } = await supabase.from("student_report_cards").upsert(
-        {
-          student_id: student.id,
-          class_id: klass.id,
-          establishment_id: klass.establishment_id,
-          period_id: period.id,
-          status: "validated",
-          weak_subjects: weakSubjects as never,
-          document_id: doc.id,
-          validated_at: new Date().toISOString(),
-        },
-        { onConflict: "student_id,period_id" },
-      );
-      if (cardError) throw cardError;
-
-      await writeAudit("create", "student_report_cards" as never, student.id, { period_id: period.id });
-      qc.invalidateQueries({ queryKey: ["student_documents"] });
-      setValidated((v) => ({ ...v, [student.id]: doc.id }));
-      toast.success("Bulletin validé");
-    } catch (e) {
-      toast.error((e as Error).message || "Validation impossible");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const download = async () => {
-    if (!student) return;
-    const documentId = validated[student.id];
-    if (!documentId) return;
-    const { data: doc } = await supabase.from("student_documents").select("file_path,name").eq("id", documentId).single();
-    if (!doc) return;
-    const { data: signed, error } = await supabase.storage.from("student-documents").createSignedUrl(doc.file_path, 300);
-    if (error || !signed) {
-      toast.error("Lien indisponible");
-      return;
-    }
-    const res = await fetch(signed.signedUrl);
-    downloadBlob(await res.blob(), `${doc.name}.pdf`);
-  };
-
-  if (!student) {
-    return (
-      <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Bulletins terminés</DialogTitle>
-            <DialogDescription>Tous les élèves de la classe ont été parcourus.</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button onClick={onClose}>Fermer</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    );
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>
-            Bulletin {index + 1} / {students.length} — {student.last_name} {student.first_name}
-          </DialogTitle>
-          <DialogDescription>Période {period.period_number} · {klass.name}</DialogDescription>
-        </DialogHeader>
-
-        {missingEvaluation.length > 0 && (
-          <div className="rounded-md border border-[oklch(0.75_0.15_80)]/40 bg-[oklch(0.75_0.15_80)]/10 px-3 py-2 text-xs font-medium text-[oklch(0.5_0.13_70)]">
-            ⚠ Aucune note d'évaluation pour : {missingEvaluation.map((s) => s.name).join(", ")}
-          </div>
-        )}
-
-        <div className="overflow-hidden rounded-lg border border-border">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
-              <tr>
-                <th className="p-2">Matière</th>
-                <th className="p-2">Évaluation(s)</th>
-                <th className="p-2">Composition</th>
-                <th className="p-2">Moyenne /20</th>
-              </tr>
-            </thead>
-            <tbody>
-              {subjects.map((s) => {
-                const subjectGrades = bySubject.get(s.id) ?? [];
-                const evals = subjectGrades.filter((g) => g.nature === "evaluation");
-                const comp = subjectGrades.find((g) => g.nature === "composition");
-                const avg = subjectAverage(subjectGrades);
-                return (
-                  <tr key={s.id} className="border-t border-border">
-                    <td className="p-2 font-medium">{s.name}</td>
-                    <td className="p-2">{evals.length ? evals.map((g) => `${g.value}/${g.scale}`).join(", ") : "—"}</td>
-                    <td className="p-2">{comp ? `${comp.value}/${comp.scale}` : "—"}</td>
-                    <td className="p-2 font-medium">{avg !== null ? avg.toFixed(2) : "—"}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-        <p className="text-right text-sm font-semibold">Moyenne générale : {average !== null ? average.toFixed(2) : "—"} / 20</p>
-
-        <DialogFooter className="flex-wrap gap-2 sm:justify-between">
-          <Button variant="outline" asChild>
-            <Link to="/eleves/$studentId/notes" params={{ studentId: student.id }}>
-              Modifier les notes
-            </Link>
-          </Button>
-          <div className="flex flex-wrap gap-2">
-            {validated[student.id] ? (
-              <Button variant="outline" onClick={download}>
-                <Download className="mr-1.5 h-4 w-4" /> Télécharger
-              </Button>
-            ) : (
-              <Button onClick={validate} disabled={busy}>
-                {busy ? "Validation..." : "Valider"}
-              </Button>
-            )}
-            <Button variant="secondary" onClick={() => setIndex((i) => i + 1)}>
-              {index + 1 < students.length ? "Élève suivant" : "Terminer"}
-            </Button>
-          </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function renderBulletinCanvas({
-  establishmentName,
-  className,
-  studentName,
-  periodNumber,
-  subjects,
-  bySubject,
-  average,
-}: {
-  establishmentName: string;
-  className: string;
-  studentName: string;
-  periodNumber: number;
-  subjects: ClassSubject[];
-  bySubject: Map<string, Grade[]>;
-  average: number | null;
-}) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 1240;
-  canvas.height = 1754;
-  const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#12266B";
-  ctx.font = "bold 34px sans-serif";
-  ctx.fillText(establishmentName, 60, 80);
-  ctx.font = "bold 44px sans-serif";
-  ctx.fillText("BULLETIN", 60, 140);
-  ctx.font = "22px sans-serif";
-  ctx.fillStyle = "#333333";
-  ctx.fillText(`Classe : ${className}`, 60, 190);
-  ctx.fillText(`Élève : ${studentName}`, 60, 220);
-  ctx.fillText(`Période : ${periodNumber}`, 60, 250);
-
-  let y = 310;
-  ctx.font = "bold 20px sans-serif";
-  ctx.fillText("Matière", 60, y);
-  ctx.fillText("Évaluation(s)", 400, y);
-  ctx.fillText("Composition", 720, y);
-  ctx.fillText("Moyenne /20", 980, y);
-  y += 20;
-  ctx.strokeStyle = "#C99A3A";
-  ctx.beginPath();
-  ctx.moveTo(60, y);
-  ctx.lineTo(1180, y);
-  ctx.stroke();
-  y += 40;
-  ctx.font = "18px sans-serif";
-  for (const s of subjects) {
-    const gs = bySubject.get(s.id) ?? [];
-    const evals = gs.filter((g) => g.nature === "evaluation");
-    const comp = gs.find((g) => g.nature === "composition");
-    const avg = subjectAverage(gs);
-    ctx.fillText(s.name, 60, y);
-    ctx.fillText(evals.length ? evals.map((g) => `${g.value}/${g.scale}`).join(", ") : "—", 400, y);
-    ctx.fillText(comp ? `${comp.value}/${comp.scale}` : "—", 720, y);
-    ctx.fillText(avg !== null ? avg.toFixed(2) : "—", 980, y);
-    y += 36;
-  }
-
-  y += 30;
-  ctx.font = "bold 26px sans-serif";
-  ctx.fillStyle = "#12266B";
-  ctx.fillText(`Moyenne générale : ${average !== null ? average.toFixed(2) : "—"} / 20`, 60, y);
-
-  return canvas;
-}
-
-/* ---------------------------------------------------------------------- */
-/* Rapport de classe — généré, téléchargeable, expire après 48h            */
-/* ---------------------------------------------------------------------- */
 
 function ClassReportsSection({
   classId,
@@ -899,29 +633,42 @@ function ClassReportsSection({
   stats: ClassStats | null;
 }) {
   const qc = useQueryClient();
-  const reportsQuery = useSupabaseRows<ClassReport>("class_reports", { class_id: classId }, "generated_at", false);
+  const reportsQ = useRows<ClassReport>("class_reports", {
+    eq: { class_id: classId },
+    order: { column: "generated_at", ascending: false },
+  });
   const [generating, setGenerating] = useState(false);
 
-  const activeReports = reportsQuery.data.filter((r) => new Date(r.expires_at) > new Date());
+  const activeReports = (reportsQ.data ?? []).filter((r) => new Date(r.expires_at).getTime() > Date.now());
 
   const generate = async () => {
     if (!period || !stats) return;
     setGenerating(true);
     try {
-      const canvas = renderClassReportCanvas({ establishmentName, className, period, stats });
+      const canvas = renderClassReportCanvas({
+        establishmentName,
+        className,
+        period,
+        stats,
+      });
       const blob = await canvasToPdfBlob(canvas);
-      const path = `${establishmentId}/${classId}/rapport-p${period.period_number}-${Date.now()}.pdf`;
-      const { error: uploadError } = await supabase.storage.from("class-reports").upload(path, blob, { contentType: "application/pdf" });
-      if (uploadError) throw uploadError;
+      const path = `${establishmentId}/${classId}/rapport-${Date.now()}.pdf`;
+      const { error: upErr } = await supabase.storage.from("class-reports").upload(path, blob, {
+        contentType: "application/pdf",
+      });
+      if (upErr) throw upErr;
+      const expires = new Date(Date.now() + 48 * 3600_000).toISOString();
       const { error } = await supabase.from("class_reports").insert({
         class_id: classId,
         establishment_id: establishmentId,
         period_id: period.id,
         file_path: path,
+        generated_at: new Date().toISOString(),
+        expires_at: expires,
       });
       if (error) throw error;
       qc.invalidateQueries({ queryKey: ["class_reports"] });
-      toast.success("Rapport généré — disponible 48h");
+      toast.success("Rapport généré");
     } catch (e) {
       toast.error((e as Error).message || "Génération impossible");
     } finally {
@@ -935,7 +682,7 @@ function ClassReportsSection({
       toast.error("Lien indisponible");
       return;
     }
-    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+    window.open(data.signedUrl, "_blank");
   };
 
   const download = async (report: ClassReport) => {
@@ -969,7 +716,10 @@ function ClassReportsSection({
           {activeReports.map((r) => {
             const hoursLeft = Math.max(0, Math.round((new Date(r.expires_at).getTime() - Date.now()) / 3_600_000));
             return (
-              <div key={r.id} className="flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-card px-3 py-2.5 text-sm">
+              <div
+                key={r.id}
+                className="flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-card px-3 py-2.5 text-sm"
+              >
                 <div className="flex items-center gap-2">
                   <FileBarChart className="h-4 w-4 text-muted-foreground" />
                   <div>
@@ -986,7 +736,13 @@ function ClassReportsSection({
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => download(r)} aria-label="Télécharger">
                     <Download className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => remove(r)} aria-label="Supprimer">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-destructive"
+                    onClick={() => remove(r)}
+                    aria-label="Supprimer"
+                  >
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
