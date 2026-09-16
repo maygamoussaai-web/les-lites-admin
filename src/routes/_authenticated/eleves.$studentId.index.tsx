@@ -2,7 +2,7 @@ import { useState } from "react";
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, Pencil, ArrowRightLeft, Trash2, ShieldAlert, Receipt, Wallet } from "lucide-react";
+import { ArrowLeft, Pencil, ArrowRightLeft, Trash2, ShieldAlert, Receipt, Wallet, IdCard } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { EmptyState } from "@/components/app/empty-state";
 import { RecordDialog, type Field } from "@/components/app/record-dialog";
@@ -52,7 +52,7 @@ export const Route = createFileRoute("/_authenticated/eleves/$studentId/")({
   head: () => ({
     meta: [
       { title: "Fiche élève – Les Élites de Gao" },
-      { name: "description", content: "Profil complet d'un élève : identité, scolarité et résultats." },
+      { name: "description", content: "Profil complet d'un élève : scolarité, résultats et documents." },
     ],
   }),
   component: Page,
@@ -124,10 +124,6 @@ function Page() {
       label: `${data.establishments.find((e) => e.id === c.establishment_id)?.name ?? ""} — ${c.name}`,
     }));
 
-  // Transfert (ou première affectation si l'élève n'a pas de classe) : si la
-  // période active n'a AUCUN paiement, elle est redirigée vers la nouvelle
-  // classe (pas de trace fantôme) — sinon elle est close et une nouvelle
-  // période démarre.
   const transferStudent = async (values: Record<string, any>) => {
     const target = data.classes.find((c) => c.id === values["class_id"]);
     if (!target) return;
@@ -221,30 +217,26 @@ function Page() {
         eyebrow={klass?.name ?? "Élève"}
         title={`${student.last_name} ${student.first_name}`}
         description={`${establishment?.name ?? "—"} · Inscrit le ${formatDate(student.enrolled_at)}`}
-      />
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Identité</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2.5 text-sm">
+        actions={
+          <div className="flex items-center gap-3">
             <StudentPhoto
               studentId={student.id}
               establishmentId={student.establishment_id}
               photoUrl={student.photo_url ?? null}
               firstName={student.first_name}
               lastName={student.last_name}
+              compact
             />
-            <Row label="Sexe" value={student.gender === "F" ? "Féminin" : "Masculin"} />
-            <Row label="Date de naissance" value={formatDate(student.date_of_birth)} />
-            <Row label="Téléphone parent 1" value={student.parent_phone_1 ?? "—"} />
-            <Row label="Téléphone parent 2" value={student.parent_phone_2 ?? "—"} />
-            <Row label="Date d'inscription" value={formatDate(student.enrolled_at)} />
-            <Row label="Classe actuelle" value={klass ? klass.name : <Badge variant="outline">Non assignée</Badge>} />
-          </CardContent>
-        </Card>
+            <Button variant="outline" className="press" asChild>
+              <Link to="/eleves/$studentId/identite" params={{ studentId: student.id }}>
+                <IdCard className="mr-1.5 h-4 w-4" /> Identité et informations
+              </Link>
+            </Button>
+          </div>
+        }
+      />
 
+      <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2">
             <CardTitle className="text-base">Scolarité (période en cours)</CardTitle>
@@ -283,7 +275,7 @@ function Page() {
           </CardContent>
         </Card>
 
-       <Card className="lg:col-span-2">
+        <Card>
           <CardHeader>
             <CardTitle className="text-base">Résultats</CardTitle>
           </CardHeader>
@@ -436,7 +428,9 @@ function PayDialog({
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Paiement de scolarité — {student.last_name} {student.first_name}</DialogTitle>
+          <DialogTitle>
+            Paiement de scolarité — {student.last_name} {student.first_name}
+          </DialogTitle>
           <DialogDescription>Reste dû : {formatFCFA(remaining)}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -464,21 +458,22 @@ function PayDialog({
               <SelectContent>
                 <SelectItem value="cash">Espèces</SelectItem>
                 <SelectItem value="mobile_money">Mobile money</SelectItem>
-                <SelectItem value="bank">Banque</SelectItem>
+                <SelectItem value="transfer">Virement</SelectItem>
+                <SelectItem value="other">Autre</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div className="sm:col-span-2">
             <Label className="mb-1.5 block text-sm">Note</Label>
-            <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
+            <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Annuler
           </Button>
-          <Button disabled={!canSubmit} onClick={submit}>
-            Enregistrer
+          <Button onClick={submit} disabled={!canSubmit}>
+            {submitting ? "Enregistrement…" : "Enregistrer"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -488,18 +483,26 @@ function PayDialog({
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between border-b border-border/60 pb-2">
+    <div className="flex items-start justify-between gap-4 border-b border-border/50 py-1.5 last:border-0">
       <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium text-foreground">{value}</span>
+      <span className="text-right font-medium text-foreground">{value}</span>
     </div>
   );
 }
 
-function Metric({ label, value, highlight }: { label: string; value: number | null; highlight?: boolean }) {
+function Metric({
+  label,
+  value,
+  highlight,
+}: {
+  label: string;
+  value: number | null | undefined;
+  highlight?: boolean;
+}) {
   return (
-    <div className="rounded-lg border border-border/70 bg-muted/30 p-3 text-center">
+    <div className={`rounded-lg border border-border/70 p-3 ${highlight ? "bg-primary/5" : "bg-muted/30"}`}>
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={highlight ? "mt-1 font-display text-xl font-semibold text-primary" : "mt-1 text-lg font-semibold"}>
+      <p className={`mt-1 text-lg font-semibold tabular-nums ${highlight ? "text-primary" : "text-foreground"}`}>
         {value === null || value === undefined ? "—" : formatNumber(value, 2)}
       </p>
     </div>
