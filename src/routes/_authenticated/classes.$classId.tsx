@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -17,7 +17,6 @@ import {
   Trash2,
   Eye,
   Clock,
-  CalendarRange,
 } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
@@ -26,23 +25,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,6 +37,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { StudentsDialog } from "@/components/school/students-dialog";
 import { ReportTemplateManager } from "@/components/school/report-template-manager";
+import { NoteEntryDialog } from "@/components/school/note-entry-dialog";
 import { BulletinWalkthroughDialog, AnnualBulletinDialog } from "@/components/school/bulletin-helpers";
 import { supabase } from "@/integrations/supabase/client";
 import { useAdminProfile } from "@/hooks/use-auth";
@@ -130,17 +113,14 @@ function Page() {
   const [noteEntryOpen, setNoteEntryOpen] = useState(false);
   const [bulletinsOpen, setBulletinsOpen] = useState(false);
   const [annualOpen, setAnnualOpen] = useState(false);
+  const [renewOpen, setRenewOpen] = useState(false);
 
   const periodsQuery = useSupabaseRows<GradePeriod>("grade_periods", { class_id: classId }, "period_number");
   const subjectsQuery = useSupabaseRows<ClassSubject>("class_subjects", { class_id: classId }, "name");
   const currentPeriod = periodsQuery.data.find((p) => p.ended_at === null) ?? null;
   const latestPeriod =
-    currentPeriod ??
-    [...periodsQuery.data].sort((a, b) => b.period_number - a.period_number)[0] ??
-    null;
+    currentPeriod ?? [...periodsQuery.data].sort((a, b) => b.period_number - a.period_number)[0] ?? null;
   const gradesQuery = useSupabaseRows<Grade>("grades", latestPeriod ? { period_id: latestPeriod.id } : null, "created_at");
-
-  const [renewOpen, setRenewOpen] = useState(false);
 
   const startNewPeriod = async () => {
     if (!klass) return;
@@ -241,6 +221,8 @@ function Page() {
         }
       />
 
+      <ReportTemplateManager classId={classId} establishmentId={klass.establishment_id} className={klass.name} />
+
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Moyenne de la classe" value={stats?.classAverage != null ? stats.classAverage.toFixed(2) : "—"} icon={Users} />
         <StatCard
@@ -299,12 +281,6 @@ function Page() {
         </div>
       )}
 
-      <ReportTemplateManager
-        classId={classId}
-        establishmentId={klass.establishment_id}
-        className={klass.name}
-      />
-
       <div className="flex flex-wrap gap-2">
         <Button variant="outline" className="press" onClick={() => setRenewOpen(true)}>
           <RotateCcw className="mr-1.5 h-4 w-4" /> Nouvelle période
@@ -323,7 +299,7 @@ function Page() {
           onClick={() => setAnnualOpen(true)}
           disabled={periodsQuery.data.length === 0 || classStudents.length === 0}
         >
-          <CalendarRange className="mr-1.5 h-4 w-4" /> Bulletin annuel
+          <FileBarChart className="mr-1.5 h-4 w-4" /> Bulletin annuel
         </Button>
       </div>
 
@@ -434,189 +410,6 @@ function StudentGroupCard({
   );
 }
 
-function NoteEntryDialog({
-  open,
-  onClose,
-  classId,
-  establishmentId,
-  students,
-  subjects,
-  currentPeriod,
-}: {
-  open: boolean;
-  onClose: () => void;
-  classId: string;
-  establishmentId: string;
-  students: StudentRef[];
-  subjects: ClassSubject[];
-  currentPeriod: GradePeriod | null;
-}) {
-  const qc = useQueryClient();
-  const [subjectId, setSubjectId] = useState("");
-  const [nature, setNature] = useState<"evaluation" | "composition">("evaluation");
-  const [label, setLabel] = useState("");
-  const [scale, setScale] = useState("20");
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (!open) return;
-    setSubjectId(subjects[0]?.id ?? "");
-    setNature("evaluation");
-    setLabel("");
-    setScale("20");
-    setValues({});
-    setSubmitting(false);
-  }, [open, subjects]);
-
-  const canSubmit =
-    !!subjectId &&
-    subjects.some((s) => s.id === subjectId) &&
-    Number(scale) > 0 &&
-    Object.values(values).some((v) => v !== "") &&
-    !submitting;
-
-  const submit = async () => {
-    if (!canSubmit) return;
-    setSubmitting(true);
-    try {
-      let periodId = currentPeriod?.id;
-      if (!periodId) {
-        const { data: created, error } = await supabase
-          .from("grade_periods")
-          .insert({ class_id: classId, establishment_id: establishmentId, period_number: 1 })
-          .select()
-          .single();
-        if (error) throw error;
-        periodId = created.id;
-        qc.invalidateQueries({ queryKey: ["grade_periods"] });
-      }
-
-      const scaleNum = Number(scale);
-      const rows = students
-        .map((s) => {
-          const raw = values[s.id];
-          if (raw === undefined || raw === "") return null;
-          return {
-            student_id: s.id,
-            subject_id: subjectId,
-            period_id: periodId!,
-            establishment_id: establishmentId,
-            nature,
-            label: label || null,
-            value: Number(raw),
-            scale: scaleNum,
-          };
-        })
-        .filter(Boolean);
-
-      if (!rows.length) {
-        toast.error("Saisissez au moins une note");
-        return;
-      }
-
-      const { error } = await supabase.from("grades").insert(rows as never);
-      if (error) throw error;
-      await writeAudit("create", "grades" as never, null, { class_id: classId, count: rows.length });
-      qc.invalidateQueries({ queryKey: ["grades"] });
-      toast.success(`${rows.length} note(s) enregistrée(s)`);
-      onClose();
-    } catch (e) {
-      toast.error((e as Error).message || "Enregistrement impossible");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Enregistrer une note</DialogTitle>
-          <DialogDescription>
-            Les matières proviennent du modèle de bulletin. Importez un modèle Excel si la liste est vide.
-          </DialogDescription>
-        </DialogHeader>
-
-        {subjects.length === 0 ? (
-          <p className="rounded-md border border-dashed border-border bg-muted/40 px-3 py-4 text-sm text-muted-foreground">
-            Aucune matière. Importez d&apos;abord un modèle de bulletin Excel pour cette classe.
-          </p>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <Label className="mb-1.5 block text-sm">
-                Matière<span className="ml-0.5 text-destructive">*</span>
-              </Label>
-              <Select value={subjectId || undefined} onValueChange={setSubjectId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Choisir" />
-                </SelectTrigger>
-                <SelectContent>
-                  {subjects.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="mb-1.5 block text-sm">Nature</Label>
-              <Select value={nature} onValueChange={(v) => setNature(v as "evaluation" | "composition")}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="evaluation">Évaluation</SelectItem>
-                  <SelectItem value="composition">Composition</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label className="mb-1.5 block text-sm">Libellé (optionnel)</Label>
-              <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Devoir 1" />
-            </div>
-            <div>
-              <Label className="mb-1.5 block text-sm">Barème</Label>
-              <Input type="number" step="any" value={scale} onChange={(e) => setScale(e.target.value)} />
-            </div>
-          </div>
-        )}
-
-        {subjects.length > 0 && (
-          <div className="max-h-64 space-y-2 overflow-y-auto rounded-md border border-border p-2">
-            {students.map((s) => (
-              <div key={s.id} className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-sm">
-                  {s.last_name} {s.first_name}
-                </span>
-                <Input
-                  type="number"
-                  step="any"
-                  className="w-24"
-                  value={values[s.id] ?? ""}
-                  onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))}
-                  placeholder="Note"
-                />
-              </div>
-            ))}
-          </div>
-        )}
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Annuler
-          </Button>
-          <Button onClick={submit} disabled={!canSubmit || subjects.length === 0}>
-            {submitting ? "Enregistrement…" : "Enregistrer"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 function ClassReportsSection({
   classId,
   establishmentId,
@@ -633,42 +426,30 @@ function ClassReportsSection({
   stats: ClassStats | null;
 }) {
   const qc = useQueryClient();
-  const reportsQ = useRows<ClassReport>("class_reports", {
-    eq: { class_id: classId },
-    order: { column: "generated_at", ascending: false },
-  });
+  const reportsQuery = useSupabaseRows<ClassReport>("class_reports", { class_id: classId }, "generated_at", false);
   const [generating, setGenerating] = useState(false);
-
-  const activeReports = (reportsQ.data ?? []).filter((r) => new Date(r.expires_at).getTime() > Date.now());
+  const activeReports = reportsQuery.data.filter((r) => new Date(r.expires_at) > new Date());
 
   const generate = async () => {
     if (!period || !stats) return;
     setGenerating(true);
     try {
-      const canvas = renderClassReportCanvas({
-        establishmentName,
-        className,
-        period,
-        stats,
-      });
+      const canvas = renderClassReportCanvas({ establishmentName, className, period, stats });
       const blob = await canvasToPdfBlob(canvas);
-      const path = `${establishmentId}/${classId}/rapport-${Date.now()}.pdf`;
-      const { error: upErr } = await supabase.storage.from("class-reports").upload(path, blob, {
-        contentType: "application/pdf",
-      });
-      if (upErr) throw upErr;
-      const expires = new Date(Date.now() + 48 * 3600_000).toISOString();
+      const path = `${establishmentId}/${classId}/rapport-p${period.period_number}-${Date.now()}.pdf`;
+      const { error: uploadError } = await supabase.storage
+        .from("class-reports")
+        .upload(path, blob, { contentType: "application/pdf" });
+      if (uploadError) throw uploadError;
       const { error } = await supabase.from("class_reports").insert({
         class_id: classId,
         establishment_id: establishmentId,
         period_id: period.id,
         file_path: path,
-        generated_at: new Date().toISOString(),
-        expires_at: expires,
       });
       if (error) throw error;
       qc.invalidateQueries({ queryKey: ["class_reports"] });
-      toast.success("Rapport généré");
+      toast.success("Rapport généré — disponible 48h");
     } catch (e) {
       toast.error((e as Error).message || "Génération impossible");
     } finally {
@@ -682,7 +463,7 @@ function ClassReportsSection({
       toast.error("Lien indisponible");
       return;
     }
-    window.open(data.signedUrl, "_blank");
+    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
   };
 
   const download = async (report: ClassReport) => {
@@ -706,7 +487,7 @@ function ClassReportsSection({
       <div className="flex items-center justify-between">
         <h3 className="font-display text-lg font-semibold">Rapports de classe</h3>
         <Button variant="outline" size="sm" className="press" onClick={generate} disabled={!period || !stats || generating}>
-          <FileBarChart className="mr-1.5 h-4 w-4" /> {generating ? "Génération..." : "Générer un rapport"}
+          <FileBarChart className="mr-1.5 h-4 w-4" /> {generating ? "Génération…" : "Générer un rapport"}
         </Button>
       </div>
       {activeReports.length === 0 ? (
@@ -797,6 +578,5 @@ function renderClassReportCanvas({
     ctx.fillText(line, 60, y);
     y += 44;
   }
-
   return canvas;
 }
