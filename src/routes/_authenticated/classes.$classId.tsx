@@ -38,6 +38,7 @@ import {
 import { StudentsDialog } from "@/components/school/students-dialog";
 import { ReportTemplateManager } from "@/components/school/report-template-manager";
 import { NoteEntryDialog } from "@/components/school/note-entry-dialog";
+import { ClassActionsMenu } from "@/components/school/class-actions-menu";
 import { BulletinWalkthroughDialog, AnnualBulletinDialog } from "@/components/school/bulletin-helpers";
 import { supabase } from "@/integrations/supabase/client";
 import { useAdminProfile } from "@/hooks/use-auth";
@@ -210,13 +211,14 @@ function Page() {
             : "Aucune période en cours — elle démarrera automatiquement à la première note enregistrée."
         }
         actions={
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" size="sm" className="press" onClick={() => setStudentsOpen(true)}>
               <Users className="mr-1.5 h-4 w-4" /> Voir les élèves
             </Button>
             <Button size="sm" className="press" onClick={() => setNoteEntryOpen(true)}>
               <Plus className="mr-1.5 h-4 w-4" /> Enregistrer une note
             </Button>
+            <ClassActionsMenu klass={klass} data={data} />
           </div>
         }
       />
@@ -487,7 +489,7 @@ function ClassReportsSection({
       <div className="flex items-center justify-between">
         <h3 className="font-display text-lg font-semibold">Rapports de classe</h3>
         <Button variant="outline" size="sm" className="press" onClick={generate} disabled={!period || !stats || generating}>
-          <FileBarChart className="mr-1.5 h-4 w-4" /> {generating ? "Génération…" : "Générer un rapport"}
+          <FileBarChart className="mr-1.5 h-4 w-4" /> {generating ? "Génération..." : "Générer un rapport"}
         </Button>
       </div>
       {activeReports.length === 0 ? (
@@ -497,10 +499,7 @@ function ClassReportsSection({
           {activeReports.map((r) => {
             const hoursLeft = Math.max(0, Math.round((new Date(r.expires_at).getTime() - Date.now()) / 3_600_000));
             return (
-              <div
-                key={r.id}
-                className="flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-card px-3 py-2.5 text-sm"
-              >
+              <div key={r.id} className="flex items-center justify-between gap-2 rounded-lg border border-border/70 bg-card px-3 py-2.5 text-sm">
                 <div className="flex items-center gap-2">
                   <FileBarChart className="h-4 w-4 text-muted-foreground" />
                   <div>
@@ -517,13 +516,7 @@ function ClassReportsSection({
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => download(r)} aria-label="Télécharger">
                     <Download className="h-4 w-4" />
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-destructive"
-                    onClick={() => remove(r)}
-                    aria-label="Supprimer"
-                  >
+                  <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => remove(r)} aria-label="Supprimer">
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
