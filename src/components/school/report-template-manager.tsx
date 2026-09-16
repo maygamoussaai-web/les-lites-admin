@@ -31,11 +31,14 @@ import {
 } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { writeAudit, useRows } from "@/lib/data";
+import { describeError } from "@/lib/errors";
 import {
   readTemplate,
   detectMapping,
   COLUMN_ROLE_LABELS,
   FIELD_ROLE_LABELS,
+  colLetter,
+  isSubjectLabel,
   type TemplateSheet,
   type TemplateMapping,
   type ColumnRole,
@@ -128,7 +131,7 @@ export function ReportTemplateManager({
     for (let r = mapping.firstSubjectRow; r <= mapping.lastSubjectRow; r++) {
       const cell = sheet.cells[`${subjectCol}${r}`];
       const label = cell && cell.v !== null ? String(cell.v).trim() : "";
-      if (label) labels.push(label);
+      if (label && isSubjectLabel(label)) labels.push(label);
     }
     return labels;
   }, [sheet, mapping]);
@@ -167,10 +170,7 @@ export function ReportTemplateManager({
       const existing = await supabase.from("class_subjects").select("id, name").eq("class_id", classId);
       if (existing.error) throw existing.error;
       const byNorm = new Map(
-        (existing.data ?? []).map((s) => [
-          s.name.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim(),
-          s,
-        ]),
+        (existing.data ?? []).map((s) => [s.name.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim(), s]),
       );
       for (const label of subjectLabels) {
         const key = label.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
@@ -194,7 +194,7 @@ export function ReportTemplateManager({
       setOpen(false);
       reset();
     } catch (e) {
-      toast.error((e as Error).message || "Enregistrement impossible");
+      toast.error(describeError(e, "Enregistrement du modèle impossible", "report_templates"));
     } finally {
       setBusy(false);
     }
@@ -238,8 +238,9 @@ export function ReportTemplateManager({
           <DialogHeader>
             <DialogTitle>Modèle de bulletin Excel</DialogTitle>
             <DialogDescription>
-              Importez le fichier .xlsx de la classe. L'application détecte les zones ; vous confirmez avant
-              enregistrement. Les matières du modèle deviennent les seules matières de la classe.
+              Importez le fichier .xlsx de la classe. L'app repère le tableau des matières et les balises […].
+              Vous confirmez, puis seules les notes et les balises seront remplies — la mise en page Excel reste
+              intacte. Les matières du modèle deviennent les seules matières de la classe.
             </DialogDescription>
           </DialogHeader>
 
@@ -299,9 +300,7 @@ export function ReportTemplateManager({
                         <Select
                           value={role}
                           onValueChange={(v) =>
-                            setMapping((m) =>
-                              m ? { ...m, columns: { ...m.columns, [letter]: v as ColumnRole } } : m,
-                            )
+                            setMapping((m) => (m ? { ...m, columns: { ...m.columns, [letter]: v as ColumnRole } } : m))
                           }
                         >
                           <SelectTrigger className="flex-1">
@@ -323,6 +322,19 @@ export function ReportTemplateManager({
 
               <div>
                 <p className="mb-2 text-sm font-medium">Cases isolées (en-tête / pied)</p>
+                <p className="mb-2 text-xs text-muted-foreground">
+                  L'app ne remplit que les <strong>balises</strong> que vous placez dans Excel (rien d'autre hors
+                  tableau des notes). Écrivez le jeton <em>dans la case à remplir</em>, par exemple{" "}
+                  <code className="rounded bg-muted px-1">[prenom]</code>,{" "}
+                  <code className="rounded bg-muted px-1">[nom de famille]</code>,{" "}
+                  <code className="rounded bg-muted px-1">[nom]</code>,{" "}
+                  <code className="rounded bg-muted px-1">[classe]</code>,{" "}
+                  <code className="rounded bg-muted px-1">[date]</code>,{" "}
+                  <code className="rounded bg-muted px-1">[effectif]</code>,{" "}
+                  <code className="rounded bg-muted px-1">[rang]</code>,{" "}
+                  <code className="rounded bg-muted px-1">[moyenne du premier]</code>. Les formules Excel
+                  (moyennes, appréciations SI…) sont rejouées ; la mise en page du fichier reste intacte.
+                </p>
                 <div className="space-y-1.5">
                   {Object.keys(mapping.fields).length === 0 ? (
                     <p className="text-sm text-muted-foreground">Aucune case isolée détectée.</p>
@@ -335,9 +347,7 @@ export function ReportTemplateManager({
                         <Select
                           value={role}
                           onValueChange={(v) =>
-                            setMapping((m) =>
-                              m ? { ...m, fields: { ...m.fields, [address]: v as FieldRole } } : m,
-                            )
+                            setMapping((m) => (m ? { ...m, fields: { ...m.fields, [address]: v as FieldRole } } : m))
                           }
                         >
                           <SelectTrigger className="flex-1">
