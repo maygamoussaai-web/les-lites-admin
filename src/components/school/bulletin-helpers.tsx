@@ -2,8 +2,10 @@
  * Helpers bulletins : remplissage Excel, canvas de secours, bulletin annuel.
  */
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -36,11 +38,12 @@ import {
 
 type StudentRef = { id: string; first_name: string; last_name: string };
 
-/** Construit les données de remplissage d'un bulletin à partir des notes de la période. */
 export function buildFillData(opts: {
   establishmentName: string;
   className: string;
   studentName: string;
+  studentFirstName: string;
+  studentLastName: string;
   periodNumber: number;
   subjects: ClassSubject[];
   bySubject: Map<string, Grade[]>;
@@ -49,7 +52,7 @@ export function buildFillData(opts: {
   scale: number;
   rank: number | null;
 }): FillData {
-  const { establishmentName, className, studentName, periodNumber, subjects, bySubject, allStudentsAverages, headcount, scale, rank } = opts;
+  const { establishmentName, className, studentName, studentFirstName, studentLastName, periodNumber, subjects, bySubject, allStudentsAverages, headcount, scale, rank } = opts;
   const subjectRows = subjects.map((s) => {
     const gs = bySubject.get(s.id) ?? [];
     const evals = gs.filter((g) => g.nature === "evaluation");
@@ -77,6 +80,8 @@ export function buildFillData(opts: {
     className,
     periodLabel: `Période ${periodNumber}`,
     studentName,
+    studentFirstName,
+    studentLastName,
     subjects: subjectRows,
     generalAverage,
     firstAverage: sorted[0] ?? null,
@@ -134,7 +139,7 @@ export function BulletinWalkthroughDialog({
           .maybeSingle();
         if (cancelled) return;
         if (!tpl?.file_path) {
-          setTemplateWarning("Aucun modèle Excel actif — rendu provisoire utilisé.");
+          setTemplateWarning("Aucun modèle Excel actif — rendu provisoire texte.");
           setTemplateSheet(null);
           setTemplateMapping(null);
           return;
@@ -193,6 +198,8 @@ export function BulletinWalkthroughDialog({
           establishmentName,
           className: klass.name,
           studentName: `${student.last_name} ${student.first_name}`,
+          studentFirstName: student.first_name,
+          studentLastName: student.last_name,
           periodNumber: period.period_number,
           subjects,
           bySubject,
@@ -326,50 +333,49 @@ export function BulletinWalkthroughDialog({
                 <th className="p-2">Matière</th>
                 <th className="p-2">Évaluation(s)</th>
                 <th className="p-2">Composition</th>
-                <th className="p-2">Moyenne</th>
+                <th className="p-2">Moyenne /20</th>
               </tr>
             </thead>
             <tbody>
               {subjects.map((s) => {
-                const gs = bySubject.get(s.id) ?? [];
-                const evals = gs.filter((g) => g.nature === "evaluation");
-                const comp = gs.find((g) => g.nature === "composition");
-                const avg = subjectAverage(gs);
+                const subjectGrades = bySubject.get(s.id) ?? [];
+                const evals = subjectGrades.filter((g) => g.nature === "evaluation");
+                const comp = subjectGrades.find((g) => g.nature === "composition");
+                const avg = subjectAverage(subjectGrades);
                 return (
-                  <tr key={s.id} className="border-t border-border/60">
+                  <tr key={s.id} className="border-t border-border">
                     <td className="p-2 font-medium">{s.name}</td>
                     <td className="p-2">{evals.length ? evals.map((g) => `${g.value}/${g.scale}`).join(", ") : "—"}</td>
                     <td className="p-2">{comp ? `${comp.value}/${comp.scale}` : "—"}</td>
-                    <td className="p-2 tabular-nums">{avg !== null ? avg.toFixed(2) : "—"}</td>
+                    <td className="p-2 font-medium">{avg !== null ? avg.toFixed(2) : "—"}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
+        <p className="text-right text-sm font-semibold">Moyenne générale : {average !== null ? average.toFixed(2) : "—"} / 20</p>
 
-        <p className="text-sm font-semibold">
-          Moyenne générale : {average !== null ? average.toFixed(2) : "—"} / 20
-        </p>
-
-        <DialogFooter className="flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setIndex((i) => Math.max(0, i - 1))} disabled={index === 0 || busy}>
-            Précédent
+        <DialogFooter className="flex-wrap gap-2 sm:justify-between">
+          <Button variant="outline" asChild>
+            <Link to="/eleves/$studentId/notes" params={{ studentId: student.id }}>
+              Modifier les notes
+            </Link>
           </Button>
-          {!validated[student.id] ? (
-            <Button onClick={validate} disabled={busy}>
-              {busy ? "Validation…" : "Valider le bulletin"}
-            </Button>
-          ) : (
-            <>
+          <div className="flex flex-wrap gap-2">
+            {validated[student.id] ? (
               <Button variant="outline" onClick={download}>
-                Télécharger PDF
+                <Download className="mr-1.5 h-4 w-4" /> Télécharger
               </Button>
-              <Button onClick={() => setIndex((i) => i + 1)} disabled={busy}>
-                Élève suivant
+            ) : (
+              <Button onClick={validate} disabled={busy}>
+                {busy ? "Validation..." : "Valider"}
               </Button>
-            </>
-          )}
+            )}
+            <Button variant="secondary" onClick={() => setIndex((i) => i + 1)}>
+              {index + 1 < students.length ? "Élève suivant" : "Terminer"}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -392,7 +398,7 @@ export function renderBulletinCanvas({
   subjects: ClassSubject[];
   bySubject: Map<string, Grade[]>;
   average: number | null;
-}): HTMLCanvasElement {
+}) {
   const canvas = document.createElement("canvas");
   canvas.width = 1240;
   canvas.height = 1754;
@@ -512,6 +518,8 @@ export function AnnualBulletinDialog({
             establishmentName,
             className: klass.name,
             studentName: `${student.last_name} ${student.first_name}`,
+            studentFirstName: student.first_name,
+            studentLastName: student.last_name,
             periodNumber: 0,
             subjects,
             bySubject,
@@ -575,7 +583,7 @@ export function AnnualBulletinDialog({
           <DialogTitle>Bulletin annuel</DialogTitle>
           <DialogDescription>
             Synthèse de toutes les périodes ({periods.length}) pour les {students.length} élèves. Utilise le modèle Excel
-            de la classe s&apos;il est disponible.
+            de la classe s'il est disponible.
           </DialogDescription>
         </DialogHeader>
         {busy && (
