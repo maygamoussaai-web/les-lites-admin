@@ -281,7 +281,7 @@ export function evaluateFormula(formula: string, get: CellGetter): CellValue {
       case "IF":
       case "SI": {
         const cond = num(first) !== 0;
-        const cond = num(first) !== 0 || first === true;
+        
         const branch = cond ? args[1] : args[2];
         return branch?.[0] ?? (cond ? 1 : 0);
       }
