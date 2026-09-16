@@ -1,38 +1,15 @@
 /**
- * Onglet Classes d'un établissement — cartes compactes (nom + effectif).
+ * Onglet Classes — cartes compactes (nom + effectif) + renouveler.
  */
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import {
-  Plus,
-  Users,
-  Pencil,
-  BarChart3,
-  RotateCcw,
-} from "lucide-react";
+import { Plus, Pencil, BarChart3, RotateCcw, Trash2, GraduationCap } from "lucide-react";
 import { EmptyState } from "@/components/app/empty-state";
 import { RecordDialog, type Field } from "@/components/app/record-dialog";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
-import { supabase } from "@/integrations/supabase/client";
-import { useSaveRow, useDeleteRow, writeAudit } from "@/lib/data";
-import type { SchoolData } from "@/lib/school-data";
-import type { ClassRow } from "@/lib/school";
-import { formatFCFA } from "@/lib/format";
-import { StudentsDialog } from "@/components/school/students-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -44,7 +21,12 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Trash2 } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useSaveRow, useDeleteRow, writeAudit } from "@/lib/data";
+import type { SchoolData } from "@/lib/school-data";
+import type { ClassRow } from "@/lib/school";
+import { formatFCFA } from "@/lib/format";
+import { StudentsDialog } from "@/components/school/students-dialog";
 
 type Data = SchoolData;
 
@@ -58,47 +40,50 @@ export function ClassesTab({ establishmentId, data }: { establishmentId: string;
   const [renewing, setRenewing] = useState<ClassRow | null>(null);
   const [renewBusy, setRenewBusy] = useState(false);
 
-  const rows = useMemo(
-    () => data.classes.filter((c) => c.establishment_id === establishmentId),
-    [data.classes, establishmentId],
-  );
+  const rows = data.classes.filter((c) => c.establishment_id === establishmentId);
+  const plans = data.feePlans.filter((p) => p.establishment_id === establishmentId);
 
   const fields: Field[] = [
-    { name: "name", label: "Nom de la classe", required: true },
-    { name: "capacity", label: "Capacité", type: "number", required: true, defaultValue: "40" },
+    { name: "name", label: "Nom de la classe", required: true, colSpan: 2, placeholder: "6ème A" },
+    { name: "capacity", label: "Capacité", type: "number", defaultValue: 40 },
     {
       name: "fee_plan_id",
       label: "Modèle de scolarité",
       type: "select",
-      options: data.feePlans
-        .filter((p) => p.establishment_id === establishmentId)
-        .map((p) => ({ value: p.id, label: `${p.name} (${formatFCFA(Number(p.total_amount))})` })),
+      options: plans.map((p) => ({ value: p.id, label: `${p.name} — ${formatFCFA(p.total_amount)}` })),
     },
   ];
 
-  const renewingStudentIds = useMemo(
-    () => (renewing ? data.students.filter((s) => s.class_id === renewing.id).map((s) => s.id) : []),
-    [data.students, renewing],
-  );
+  const renewingStudentIds = renewing
+    ? data.students.filter((s) => s.class_id === renewing.id).map((s) => s.id)
+    : [];
 
   const renewClass = async () => {
     if (!renewing) return;
     setRenewBusy(true);
     try {
       if (renewingStudentIds.length) {
-        const { error } = await supabase
+        const { error: closeError } = await supabase
+          .from("student_enrollments")
+          .update({ ended_at: new Date().toISOString() })
+          .in("student_id", renewingStudentIds)
+          .is("ended_at", null);
+        if (closeError) throw closeError;
+
+        const { error: studError } = await supabase
           .from("students")
           .update({ class_id: null })
           .in("id", renewingStudentIds);
-        if (error) throw error;
+        if (studError) throw studError;
       }
-      await writeAudit("update", "classes", renewing.id, { renewed: true, students_cleared: renewingStudentIds.length });
+
+      await writeAudit("update", "classes", renewing.id, {
+        renewed: true,
+        students_removed: renewingStudentIds.length,
+      });
       qc.invalidateQueries({ queryKey: ["students"] });
-      toast.success(
-        renewingStudentIds.length
-          ? `Classe renouvelée — ${renewingStudentIds.length} élève(s) retirés`
-          : "Classe renouvelée",
-      );
+      qc.invalidateQueries({ queryKey: ["student_enrollments"] });
+      toast.success(`Classe "${renewing.name}" renouvelée`);
       setRenewing(null);
     } catch (e) {
       toast.error((e as Error).message || "Renouvellement impossible");
@@ -122,7 +107,11 @@ export function ClassesTab({ establishmentId, data }: { establishmentId: string;
       </div>
 
       {rows.length === 0 && !data.loading ? (
-        <EmptyState icon={Users} title="Aucune classe" description="Créez la première classe de cet établissement." />
+        <EmptyState
+          icon={GraduationCap}
+          title="Aucune classe"
+          description="Créez la première classe de cet établissement."
+        />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {rows.map((c, index) => {
@@ -130,14 +119,14 @@ export function ClassesTab({ establishmentId, data }: { establishmentId: string;
             return (
               <Card
                 key={c.id}
-                className="card-lift animate-rise cursor-pointer panel-gradient"
+                className="card-lift animate-rise group cursor-pointer border-border/70 transition-colors hover:border-primary/40"
                 style={{ animationDelay: `${index * 40}ms` }}
                 onClick={() => setViewing(c)}
               >
-                <CardContent className="flex items-center justify-between gap-2 p-3">
+                <CardContent className="flex items-center justify-between gap-3 p-4">
                   <div className="min-w-0">
                     <p className="truncate font-display text-sm font-semibold text-foreground">{c.name}</p>
-                    <p className="text-xs text-muted-foreground">
+                    <p className="mt-0.5 text-xs text-muted-foreground">
                       {effectif} élève{effectif > 1 ? "s" : ""}
                     </p>
                   </div>
@@ -170,13 +159,18 @@ export function ClassesTab({ establishmentId, data }: { establishmentId: string;
                     </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                        <Button size="icon" variant="ghost" className="h-8 w-8 press text-destructive" title="Supprimer">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-8 w-8 press text-destructive hover:text-destructive"
+                          title="Supprimer"
+                        >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent>
                         <AlertDialogHeader>
-                          <AlertDialogTitle>Supprimer {c.name} ?</AlertDialogTitle>
+                          <AlertDialogTitle>Supprimer la classe {c.name} ?</AlertDialogTitle>
                           <AlertDialogDescription>
                             Cette action est définitive. Assurez-vous qu&apos;aucun élève actif n&apos;y est rattaché.
                           </AlertDialogDescription>
@@ -200,28 +194,31 @@ export function ClassesTab({ establishmentId, data }: { establishmentId: string;
         onOpenChange={setOpen}
         title={editing ? "Modifier la classe" : "Nouvelle classe"}
         fields={fields}
-        initial={editing ?? undefined}
+        initial={editing}
         submitting={save.isPending}
         onSubmit={(values) =>
           save.mutate(
-            {
-              id: editing?.id,
-              values: { ...values, establishment_id: establishmentId },
-            },
+            { id: editing?.id ?? null, values: { ...values, establishment_id: establishmentId } },
             { onSuccess: () => setOpen(false) },
           )
         }
       />
-
       <StudentsDialog klass={viewing} data={data} onClose={() => setViewing(null)} />
 
       <AlertDialog open={!!renewing} onOpenChange={(v) => !v && setRenewing(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Renouveler la classe « {renewing?.name} » ?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Les {renewingStudentIds.length} élève(s) de cette classe en seront retirés — vous les retrouverez
-              dans la liste des élèves non assignés. Les historiques (notes, scolarité) restent conservés.
+            <AlertDialogTitle>Renouveler la classe &quot;{renewing?.name}&quot; ?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">
+                Les {renewingStudentIds.length} élève(s) de cette classe en seront retirés — vous les retrouverez
+                dans l&apos;onglet « Élèves » (filtre Classe : Non assignée) pour les réaffecter. Leur scolarité de
+                cette année sera close et conservée dans leur fiche de scolarité. Le nom de la classe et son modèle
+                de scolarité sont conservés.
+              </span>
+              <span className="block rounded-md border border-[oklch(0.75_0.15_80)]/40 bg-[oklch(0.75_0.15_80)]/10 px-3 py-2 text-xs font-medium text-[oklch(0.5_0.13_70)]">
+                ⚠️ Pensez à vérifier/mettre à jour les échéances du modèle de scolarité avant de continuer.
+              </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
