@@ -10,13 +10,6 @@ import { compressImage } from "@/lib/image";
 import { describeError } from "@/lib/errors";
 import { initials } from "@/lib/format";
 
-/**
- * NOTE POUR CLAUDE :
- * Photo de profil d'un élève. Réutilise le bucket "student-photos" (public,
- * chemin `${establishment_id}/...` imposé par la policy storage existante),
- * la compression déjà présente (src/lib/image.ts) et la colonne
- * students.photo_url. Ne pas introduire d'autre système d'upload.
- */
 export function StudentPhoto({
   studentId,
   establishmentId,
@@ -30,7 +23,6 @@ export function StudentPhoto({
   photoUrl: string | null;
   firstName: string;
   lastName: string;
-  /** Affiche uniquement l'avatar (sans boutons) — pour les en-têtes de fiche. */
   compact?: boolean;
 }) {
   const qc = useQueryClient();
