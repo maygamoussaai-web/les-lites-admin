@@ -1,8 +1,7 @@
 /**
- * Dialogue de saisie de notes (matière/nature, toute la classe).
- * Les matières viennent du plan bulletin (class_subjects) — pas de création libre.
+ * Dialogue de saisie de notes — matières du plan bulletin, hors ligne OK.
  */
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -23,13 +22,31 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { supabase } from "@/integrations/supabase/client";
 import { writeAudit } from "@/lib/data";
 import { describeError } from "@/lib/errors";
-import type { ClassSubject, GradePeriod } from "@/lib/grades";
+import { enqueue } from "@/lib/offline-queue";
+import { flushQueue } from "@/lib/offline-sync";
 import { isSubjectLabel } from "@/lib/xlsx-template";
+import type { ClassSubject, GradePeriod } from "@/lib/grades";
 
 type StudentRef = { id: string; first_name: string; last_name: string };
+
+const isOnline = () => typeof navigator === "undefined" || navigator.onLine;
+
+function applyOptimisticGrades(
+  qc: ReturnType<typeof useQueryClient>,
+  rows: Record<string, unknown>[],
+) {
+  qc.setQueriesData({ queryKey: ["grades"] }, (old: unknown) => {
+    if (!Array.isArray(old)) return old;
+    const byId = new Map((old as { id: string }[]).map((r) => [r.id, r]));
+    for (const row of rows) {
+      const id = String(row.id);
+      byId.set(id, { ...(byId.get(id) ?? {}), ...row } as { id: string });
+    }
+    return [...byId.values()];
+  });
+}
 
 export function NoteEntryDialog({
   open,
@@ -49,7 +66,6 @@ export function NoteEntryDialog({
   currentPeriod: GradePeriod | null;
 }) {
   const qc = useQueryClient();
-  // Exclure les faux libellés éventuellement déjà en base (Total, Observations…).
   const realSubjects = subjects.filter((s) => isSubjectLabel(s.name));
   const [nature, setNature] = useState<"composition" | "evaluation">("evaluation");
   const [subjectId, setSubjectId] = useState("");
@@ -65,96 +81,131 @@ export function NoteEntryDialog({
 
   const scaleNum = Number(scale);
   const canSubmit =
-    !!subjectId &&
-    scaleNum > 0 &&
-    Object.values(values).some((v) => v !== "") &&
-    !submitting;
+    !!subjectId && scaleNum > 0 && Object.values(values).some((v) => v !== "") && !submitting;
 
   const submit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
     try {
-      const finalSubjectId = subjectId;
-
-      let period = currentPeriod;
-      if (!period) {
-        const { data: created, error } = await supabase
-          .from("grade_periods")
-          .insert({ class_id: classId, establishment_id: establishmentId, period_number: 1 })
-          .select()
-          .single();
-        if (error) throw error;
-        period = created;
-      }
-
       const entries = Object.entries(values).filter(([, v]) => v !== "" && !Number.isNaN(Number(v)));
       if (entries.length === 0) {
         toast.error("Saisissez au moins une note.");
         return;
       }
 
+      let periodId = currentPeriod?.id ?? null;
+      if (!periodId) {
+        periodId = crypto.randomUUID();
+        const periodRow = {
+          id: periodId,
+          class_id: classId,
+          establishment_id: establishmentId,
+          period_number: 1,
+          started_at: new Date().toISOString(),
+          ended_at: null,
+        };
+        enqueue({
+          id: crypto.randomUUID(),
+          table: "grade_periods",
+          op: "insert",
+          rowId: periodId,
+          values: periodRow,
+          createdAt: Date.now(),
+          label: "Période",
+        });
+        qc.setQueriesData({ queryKey: ["grade_periods"] }, (old: unknown) => {
+          if (!Array.isArray(old)) return [periodRow];
+          return [...old, periodRow];
+        });
+      }
+
+      const optimistic: Record<string, unknown>[] = [];
+
       if (nature === "composition") {
         for (const [studentId, value] of entries) {
+          const cached = (qc.getQueriesData({ queryKey: ["grades"] }) as [unknown, unknown][])
+            .flatMap(([, data]) => (Array.isArray(data) ? data : []))
+            .find(
+              (g: any) =>
+                g &&
+                g.period_id === periodId &&
+                g.subject_id === subjectId &&
+                g.student_id === studentId &&
+                g.nature === "composition",
+            ) as { id?: string } | undefined;
+
+          const rowId = cached?.id ?? crypto.randomUUID();
           const payload = {
-            period_id: period.id,
+            id: rowId,
+            period_id: periodId,
             class_id: classId,
             establishment_id: establishmentId,
-            subject_id: finalSubjectId,
+            subject_id: subjectId,
             student_id: studentId,
             nature: "composition" as const,
             sequence_number: 1,
             value: Number(value),
             scale: scaleNum,
           };
-          const { data: existing, error: selErr } = await supabase
-            .from("grades")
-            .select("id")
-            .eq("period_id", period.id)
-            .eq("subject_id", finalSubjectId)
-            .eq("student_id", studentId)
-            .eq("nature", "composition")
-            .maybeSingle();
-          if (selErr) throw selErr;
-          if (existing?.id) {
-            const { error } = await supabase
-              .from("grades")
-              .update({ value: payload.value, scale: payload.scale })
-              .eq("id", existing.id);
-            if (error) throw error;
-          } else {
-            const { error } = await supabase.from("grades").insert(payload);
-            if (error) throw error;
-          }
+          enqueue({
+            id: crypto.randomUUID(),
+            table: "grades",
+            op: cached?.id ? "update" : "insert",
+            rowId,
+            values: cached?.id ? { value: payload.value, scale: payload.scale } : payload,
+            createdAt: Date.now(),
+            label: "Note",
+          });
+          optimistic.push(payload);
         }
       } else {
-        const rows = entries.map(([studentId, value]) => ({
-          period_id: period.id,
-          class_id: classId,
-          establishment_id: establishmentId,
-          subject_id: finalSubjectId,
-          student_id: studentId,
-          nature: "evaluation" as const,
-          value: Number(value),
-          scale: scaleNum,
-        }));
-        const { error } = await supabase.from("grades").insert(rows);
-        if (error) throw error;
+        for (const [studentId, value] of entries) {
+          const rowId = crypto.randomUUID();
+          const payload = {
+            id: rowId,
+            period_id: periodId,
+            class_id: classId,
+            establishment_id: establishmentId,
+            subject_id: subjectId,
+            student_id: studentId,
+            nature: "evaluation" as const,
+            value: Number(value),
+            scale: scaleNum,
+          };
+          enqueue({
+            id: crypto.randomUUID(),
+            table: "grades",
+            op: "insert",
+            rowId,
+            values: payload,
+            createdAt: Date.now(),
+            label: "Note",
+          });
+          optimistic.push(payload);
+        }
       }
+
+      applyOptimisticGrades(qc, optimistic);
 
       try {
         await writeAudit("create", "grades" as never, null, {
           class_id: classId,
-          subject_id: finalSubjectId,
+          subject_id: subjectId,
           nature,
           count: entries.length,
+          offline: !isOnline(),
         });
       } catch {
-        // L'audit ne doit jamais bloquer l'enregistrement des notes.
+        /* audit non bloquant */
       }
-      qc.invalidateQueries({ queryKey: ["grades"] });
-      qc.invalidateQueries({ queryKey: ["class_subjects"] });
-      qc.invalidateQueries({ queryKey: ["grade_periods"] });
-      toast.success(`${entries.length} note(s) enregistrée(s)`);
+
+      if (isOnline()) {
+        await flushQueue(qc);
+        toast.success(`${entries.length} note(s) enregistrée(s)`);
+      } else {
+        toast.success(`${entries.length} note(s) enregistrée(s) — en attente de connexion`);
+      }
+
       reset();
       onClose();
     } catch (e) {
@@ -170,8 +221,7 @@ export function NoteEntryDialog({
         <DialogHeader>
           <DialogTitle>Enregistrer une note</DialogTitle>
           <DialogDescription>
-            Choisissez la nature, la matière et le barème, puis remplissez la note de chaque élève concerné (les
-            champs laissés vides sont ignorés).
+            Nature, matière et barème, puis notes par élève. Fonctionne aussi hors ligne.
           </DialogDescription>
         </DialogHeader>
 
@@ -187,11 +237,6 @@ export function NoteEntryDialog({
                 <SelectItem value="composition">Note de composition</SelectItem>
               </SelectContent>
             </Select>
-            {nature === "composition" && (
-              <p className="mt-1 text-xs text-muted-foreground">
-                Une seule composition par matière et par période — une nouvelle saisie remplace la précédente.
-              </p>
-            )}
           </div>
           <div>
             <Label className="mb-1.5 block text-sm">
@@ -205,8 +250,7 @@ export function NoteEntryDialog({
             </Label>
             {realSubjects.length === 0 ? (
               <p className="rounded-md border border-dashed border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                Aucune matière. Importez d'abord un modèle de bulletin Excel pour cette classe — les matières sont
-                extraites automatiquement du modèle.
+                Aucune matière. Importez d'abord un modèle de bulletin Excel.
               </p>
             ) : (
               <Select value={subjectId || undefined} onValueChange={setSubjectId}>
