@@ -29,6 +29,10 @@ const TABLE_LABELS: Record<string, string> = {
   admin_profiles: "compte personnel",
   admin_invitations: "invitation",
   audit_logs: "journal",
+  grades: "note",
+  grade_periods: "période",
+  class_subjects: "matière",
+  report_templates: "modèle de bulletin",
 };
 
 export function isOffline() {
