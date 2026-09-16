@@ -1,12 +1,5 @@
 /**
- * Évaluateur de formules Excel — minimal mais suffisant pour les bulletins.
- *
- * NOTE POUR CLAUDE :
- * - Utilisé uniquement pour REJOUER les formules déjà écrites dans le modèle
- *   Excel importé par l'utilisateur (src/lib/xlsx-template.ts). Aucune règle
- *   de calcul n'est inventée ici : la source des notes reste src/lib/grades.ts.
- * - Toute fonction non gérée lève `UnsupportedFormulaError` : l'import le
- *   signale à l'utilisateur au lieu d'ignorer la formule en silence.
+ * Évaluateur de formules Excel — rejoue les formules du modèle, n'invente aucun calcul.
  */
 
 export class UnsupportedFormulaError extends Error {
@@ -32,7 +25,6 @@ const indexToCol = (index: number) => {
   return out;
 };
 
-/** Développe "A1:C3" en liste de références. */
 export function expandRange(range: string): string[] {
   const [start, end] = range.split(":");
   if (!start || !end) return [range];
@@ -110,7 +102,6 @@ function tokenize(input: string): Token[] {
         i += nameMatch[0].length;
         continue;
       }
-      // Nom défini / texte non géré
       throw new UnsupportedFormulaError(nameMatch[0]);
     }
     if (ch === "(" || ch === ")") {
@@ -139,14 +130,12 @@ function tokenize(input: string): Token[] {
   return tokens;
 }
 
-/** Évalue une formule Excel simple contre une grille de cellules. */
 export function evaluateFormula(formula: string, get: CellGetter): CellValue {
   const tokens = tokenize(formula);
   let pos = 0;
   const peek = () => tokens[pos];
   const eat = () => tokens[pos++];
 
-  // Renvoie une liste de valeurs (pour les plages passées aux fonctions).
   const parseArg = (): CellValue[] => {
     const token = peek();
     if (token?.type === "range" && tokens[pos + 1] && ["sep", "paren"].includes(tokens[pos + 1]!.type)) {
@@ -254,6 +243,9 @@ export function evaluateFormula(formula: string, get: CellGetter): CellValue {
       case "SUM":
       case "SOMME":
         return nums.reduce((a, b) => a + b, 0);
+      case "PRODUCT":
+      case "PRODUIT":
+        return nums.length ? nums.reduce((a, b) => a * b, 1) : null;
       case "AVERAGE":
       case "MOYENNE":
         return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
@@ -273,6 +265,20 @@ export function evaluateFormula(formula: string, get: CellGetter): CellValue {
         const factor = Math.pow(10, digits);
         return Math.round(num(first) * factor) / factor;
       }
+      case "ROUNDUP":
+      case "ARRONDI.SUP": {
+        const digits = args[1]?.[0] !== undefined ? num(args[1]![0]!) : 0;
+        const factor = Math.pow(10, digits);
+        const v = num(first) * factor;
+        return (v >= 0 ? Math.ceil(v) : Math.floor(v)) / factor;
+      }
+      case "ROUNDDOWN":
+      case "ARRONDI.INF": {
+        const digits = args[1]?.[0] !== undefined ? num(args[1]![0]!) : 0;
+        const factor = Math.pow(10, digits);
+        const v = num(first) * factor;
+        return (v >= 0 ? Math.floor(v) : Math.ceil(v)) / factor;
+      }
       case "INT":
       case "ENT":
         return Math.floor(num(first));
@@ -280,8 +286,13 @@ export function evaluateFormula(formula: string, get: CellGetter): CellValue {
         return Math.abs(num(first));
       case "IF":
       case "SI": {
-        const cond = num(first) !== 0;
-        
+        const condVal = first;
+        let cond = false;
+        if (typeof condVal === "number") cond = condVal !== 0;
+        else if (typeof condVal === "string") {
+          const s = condVal.trim().toUpperCase();
+          cond = s !== "" && s !== "0" && s !== "FALSE" && s !== "FAUX";
+        } else if (condVal !== null && condVal !== undefined) cond = true;
         const branch = cond ? args[1] : args[2];
         return branch?.[0] ?? (cond ? 1 : 0);
       }
@@ -312,6 +323,5 @@ export function evaluateFormula(formula: string, get: CellGetter): CellValue {
     }
   }
 
-  const result = parseComparison();
-  return result;
+  return parseComparison();
 }
