@@ -285,8 +285,31 @@ export function ReportTemplateManager({
               </div>
 
               <div className="rounded-lg border border-success/30 bg-success/10 p-3 space-y-2">
-                <p className="text-sm font-medium text-success">Detection automatique</p>
-                <div className="flex flex-wrap gap-1.5">
+                <p className="text-sm font-medium text-success">Verification du modele</p>
+                <ul className="space-y-1 text-xs text-muted-foreground">
+                  <li>
+                    {Object.values(mapping.columns).includes("subject") ? "✓" : "✗"} Colonne matieres
+                  </li>
+                  <li>
+                    {Object.values(mapping.columns).some((r) => r === "evaluation" || r === "composition")
+                      ? "✓"
+                      : "✗"}{" "}
+                    Colonnes notes (evaluation / composition)
+                  </li>
+                  <li>
+                    {Object.values(mapping.columns).includes("subject_average") ? "✓" : "✗"} Colonne
+                    moyenne matiere (formules du modele)
+                  </li>
+                  <li>
+                    {Object.values(mapping.fields).includes("general_average") ? "✓" : "✗"} Moyenne
+                    generale (formule ou balise)
+                  </li>
+                  <li>
+                    {Object.keys(mapping.fields).length > 0 ? "✓" : "✗"} Balises identite ([prenom],
+                    [classe]…)
+                  </li>
+                </ul>
+                <div className="flex flex-wrap gap-1.5 pt-1">
                   {Object.entries(mapping.columns)
                     .filter(([, r]) => r !== "ignore")
                     .map(([letter, role]) => (
