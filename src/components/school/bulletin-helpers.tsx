@@ -185,12 +185,8 @@ export function BulletinWalkthroughDialog({
     if (!student) return;
     setBusy(true);
     try {
-      const weakSubjects = subjects
-        .map((s) => ({ name: s.name, avg: subjectAverage(bySubject.get(s.id) ?? []) }))
-        .filter((x) => x.avg !== null && x.avg < PASS_THRESHOLD)
-        .map((x) => x.name);
-
       let canvas: HTMLCanvasElement;
+      let filled: ReturnType<typeof fillTemplate> | null = null;
       if (templateSheet && templateMapping) {
         const sorted = [...allStudentsAverages].sort((a, b) => b - a);
         const rank = average !== null && sorted.length ? sorted.indexOf(average) + 1 : null;
@@ -208,7 +204,7 @@ export function BulletinWalkthroughDialog({
           scale: templateScale,
           rank,
         });
-        const filled = fillTemplate(templateSheet, templateMapping, fillData);
+        filled = fillTemplate(templateSheet, templateMapping, fillData);
         if (filled.warnings.length) console.warn("Bulletin warnings", filled.warnings);
         canvas = drawFilledTemplate(filled);
       } else {
@@ -222,6 +218,23 @@ export function BulletinWalkthroughDialog({
           average,
         });
       }
+
+      // Moyennes AUTORITAIRES pour ce bulletin : celles recalculées par les
+      // formules du modèle Excel quand un modèle est utilisé (filled.computed —
+      // voir src/lib/xlsx-template.ts), sinon repli sur le calcul JS habituel
+      // (src/lib/grades.ts). C'est ce qui doit ensuite s'afficher partout
+      // ailleurs dans l'app pour cet élève et cette période.
+      const subjectAverages: Record<string, number | null> = {};
+      for (const s of subjects) {
+        const fromTemplate = filled?.computed.subjectAverages[s.name];
+        subjectAverages[s.name] =
+          fromTemplate !== undefined && fromTemplate !== null ? fromTemplate : subjectAverage(bySubject.get(s.id) ?? []);
+      }
+      const generalAverage = filled?.computed.generalAverage ?? average;
+      const weakSubjects = Object.entries(subjectAverages)
+        .filter(([, avg]) => avg !== null && avg < PASS_THRESHOLD)
+        .map(([name]) => name);
+
       const blob = await canvasToPdfBlob(canvas);
       const path = `${klass.establishment_id}/${student.id}/bulletin-p${period.period_number}-${Date.now()}.pdf`;
       const { error: uploadError } = await supabase.storage.from("student-documents").upload(path, blob, { contentType: "application/pdf" });
@@ -249,12 +262,28 @@ export function BulletinWalkthroughDialog({
           period_id: period.id,
           status: "validated",
           weak_subjects: weakSubjects as never,
+          general_average: generalAverage,
+          subject_averages: subjectAverages as never,
           document_id: doc.id,
           validated_at: new Date().toISOString(),
         },
         { onConflict: "student_id,period_id" },
       );
       if (cardError) throw cardError;
+
+      // Reverse la moyenne retenue pour ce bulletin (issue du modèle Excel
+      // s'il y en a un) dans la fiche élève : c'est elle qui doit s'afficher
+      // partout ailleurs dans l'app (fiche élève, moyenne annuelle), pas un
+      // recalcul JS distinct de ce qui est réellement imprimé.
+      if (generalAverage !== null && period.period_number >= 1 && period.period_number <= 3) {
+        const termColumn = `term${period.period_number}_average` as "term1_average" | "term2_average" | "term3_average";
+        const { error: termError } = await supabase
+          .from("students")
+          .update({ [termColumn]: generalAverage })
+          .eq("id", student.id);
+        if (termError) throw termError;
+        qc.invalidateQueries({ queryKey: ["students"] });
+      }
 
       await writeAudit("create", "student_report_cards" as never, student.id, { period_id: period.id });
       qc.invalidateQueries({ queryKey: ["student_documents"] });
