@@ -211,11 +211,34 @@ export function writeFilledWorkbook(
     ws[address] = next;
   }
 
-  // Extraire les moyennes UNIQUEMENT depuis les formules du modele — jamais inventees.
+  // Extraire les moyennes UNIQUEMENT depuis les resultats des formules du modele.
+  const readNumericNear = (address: string): number | null => {
+    const direct = fromScale(values[address] ?? (ws[address] as XLSX.CellObject | undefined)?.v, data.scale);
+    if (direct !== null) return direct;
+    try {
+      const { r, c } = XLSX.utils.decode_cell(address);
+      for (const [dr, dc] of [
+        [0, 1],
+        [0, 2],
+        [1, 0],
+        [1, 1],
+        [0, -1],
+      ] as const) {
+        const near = XLSX.utils.encode_cell({ r: r + dr, c: c + dc });
+        const v = fromScale(values[near] ?? (ws[near] as XLSX.CellObject | undefined)?.v, data.scale);
+        if (v !== null) return v;
+      }
+    } catch {
+      /* ignore */
+    }
+    return null;
+  };
+
   let generalAverage: number | null = null;
   for (const [address, role] of Object.entries(mapping.fields)) {
     if (role !== "general_average") continue;
-    generalAverage = fromScale(values[address] ?? (ws[address] as XLSX.CellObject | undefined)?.v, data.scale);
+    const v = readNumericNear(address);
+    if (v !== null) generalAverage = v;
   }
 
   const subjectAverages: Record<string, number | null> = {};
@@ -223,6 +246,14 @@ export function writeFilledWorkbook(
   if (subjectAverageCol) {
     for (const [row, name] of rowSubjectName) {
       subjectAverages[name] = fromScale(values[`${subjectAverageCol}${row}`], data.scale);
+    }
+  }
+
+  // Si pas de cellule MG mappee : moyenne des moyennes-matieres issues des formules du modele
+  if (generalAverage === null) {
+    const vals = Object.values(subjectAverages).filter((v): v is number => v !== null);
+    if (vals.length) {
+      generalAverage = vals.reduce((a, b) => a + b, 0) / vals.length;
     }
   }
 
