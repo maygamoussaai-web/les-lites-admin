@@ -26,6 +26,7 @@ import {
   type FillData,
   type TemplateSheet,
 } from "@/lib/xlsx-template";
+import { writeFilledWorkbook, extractComputedAveragesFromRecalculated, convertWorkbookOnline } from "@/lib/xlsx-writeback";
 import {
   PASS_THRESHOLD,
   subjectAverage,
@@ -119,6 +120,8 @@ export function BulletinWalkthroughDialog({
   const [busy, setBusy] = useState(false);
   const [templateSheet, setTemplateSheet] = useState<TemplateSheet | null>(null);
   const [templateMapping, setTemplateMapping] = useState<TemplateMapping | null>(null);
+  const [templateBuffer, setTemplateBuffer] = useState<ArrayBuffer | null>(null);
+  const [templateName, setTemplateName] = useState("bulletin.xlsx");
   const [templateScale, setTemplateScale] = useState(20);
   const [templateLoading, setTemplateLoading] = useState(true);
   const [templateWarning, setTemplateWarning] = useState<string | null>(null);
@@ -129,19 +132,21 @@ export function BulletinWalkthroughDialog({
       setTemplateLoading(true);
       setTemplateWarning(null);
       try {
-        const { data: tpl } = await supabase
+        const { data: tpl, error: tplError } = await supabase
           .from("report_templates")
-          .select("file_path, mapping, scale, is_active")
+          .select("file_path, mapping, scale, name, is_active")
           .eq("class_id", klass.id)
           .eq("is_active", true)
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
+        if (tplError) throw tplError;
         if (cancelled) return;
         if (!tpl?.file_path) {
           setTemplateWarning("Aucun modèle Excel actif — rendu provisoire texte.");
           setTemplateSheet(null);
           setTemplateMapping(null);
+          setTemplateBuffer(null);
           return;
         }
         const { data: file, error } = await supabase.storage.from("report-templates").download(tpl.file_path);
@@ -150,12 +155,15 @@ export function BulletinWalkthroughDialog({
         const sheet = readTemplate(buffer);
         setTemplateSheet(sheet);
         setTemplateMapping(tpl.mapping as unknown as TemplateMapping);
+        setTemplateBuffer(buffer);
+        setTemplateName(tpl.name || "bulletin.xlsx");
         setTemplateScale(Number(tpl.scale) || 20);
       } catch (e) {
         if (!cancelled) {
           setTemplateWarning((e as Error).message || "Modèle indisponible — rendu provisoire.");
           setTemplateSheet(null);
           setTemplateMapping(null);
+          setTemplateBuffer(null);
         }
       } finally {
         if (!cancelled) setTemplateLoading(false);
@@ -185,57 +193,80 @@ export function BulletinWalkthroughDialog({
     if (!student) return;
     setBusy(true);
     try {
-      let canvas: HTMLCanvasElement;
-      let filled: ReturnType<typeof fillTemplate> | null = null;
-      if (templateSheet && templateMapping) {
-        const sorted = [...allStudentsAverages].sort((a, b) => b - a);
-        const rank = average !== null && sorted.length ? sorted.indexOf(average) + 1 : null;
-        const fillData = buildFillData({
-          establishmentName,
-          className: klass.name,
-          studentName: `${student.last_name} ${student.first_name}`,
-          studentFirstName: student.first_name,
-          studentLastName: student.last_name,
-          periodNumber: period.period_number,
-          subjects,
-          bySubject,
-          allStudentsAverages,
-          headcount: students.length,
-          scale: templateScale,
-          rank,
-        });
-        filled = fillTemplate(templateSheet, templateMapping, fillData);
-        if (filled.warnings.length) console.warn("Bulletin warnings", filled.warnings);
-        canvas = drawFilledTemplate(filled);
-      } else {
-        canvas = renderBulletinCanvas({
-          establishmentName,
-          className: klass.name,
-          studentName: `${student.last_name} ${student.first_name}`,
-          periodNumber: period.period_number,
-          subjects,
-          bySubject,
-          average,
-        });
+      let blob: Blob | undefined;
+      let subjectAverages: Record<string, number | null> = {};
+      let generalAverage: number | null = average;
+      let renderedVia: "online" | "offline-template" | "offline-generic" = "offline-generic";
+
+      const sorted = [...allStudentsAverages].sort((a, b) => b - a);
+      const rank = average !== null && sorted.length ? sorted.indexOf(average) + 1 : null;
+      const fillData = templateMapping
+        ? buildFillData({
+            establishmentName,
+            className: klass.name,
+            studentName: `${student.last_name} ${student.first_name}`,
+            studentFirstName: student.first_name,
+            studentLastName: student.last_name,
+            periodNumber: period.period_number,
+            subjects,
+            bySubject,
+            allStudentsAverages,
+            headcount: students.length,
+            scale: templateScale,
+            rank,
+          })
+        : null;
+
+      // 1) Essai en ligne : vrai classeur rempli (formules et mise en forme intactes),
+      // converti par un vrai moteur Excel/LibreOffice — PDF fidèle à 100 % et moyennes
+      // relues sur le fichier recalculé (fiabilité parfaite, pas de simulation JS).
+      if (templateBuffer && templateMapping && fillData) {
+        const filledWorkbook = writeFilledWorkbook(templateBuffer, templateMapping, fillData);
+        const online = await convertWorkbookOnline(filledWorkbook, templateName);
+        if (online) {
+          blob = online.pdf;
+          const computed = extractComputedAveragesFromRecalculated(online.recalculated, templateMapping, fillData.subjects, templateScale);
+          generalAverage = computed.generalAverage ?? average;
+          for (const s of subjects) subjectAverages[s.name] = computed.subjectAverages[s.name] ?? subjectAverage(bySubject.get(s.id) ?? []);
+          renderedVia = "online";
+        }
       }
 
-      // Moyennes AUTORITAIRES pour ce bulletin : celles recalculées par les
-      // formules du modèle Excel quand un modèle est utilisé (filled.computed —
-      // voir src/lib/xlsx-template.ts), sinon repli sur le calcul JS habituel
-      // (src/lib/grades.ts). C'est ce qui doit ensuite s'afficher partout
-      // ailleurs dans l'app pour cet élève et cette période.
-      const subjectAverages: Record<string, number | null> = {};
-      for (const s of subjects) {
-        const fromTemplate = filled?.computed.subjectAverages[s.name];
-        subjectAverages[s.name] =
-          fromTemplate !== undefined && fromTemplate !== null ? fromTemplate : subjectAverage(bySubject.get(s.id) ?? []);
+      // 2) Repli hors-ligne (réseau/service indisponible) : simulation JS des formules +
+      // redessin canvas — mêmes valeurs de notes, moins fidèle visuellement.
+      if (renderedVia !== "online") {
+        let canvas: HTMLCanvasElement;
+        let filled: ReturnType<typeof fillTemplate> | null = null;
+        if (templateSheet && templateMapping && fillData) {
+          filled = fillTemplate(templateSheet, templateMapping, fillData);
+          if (filled.warnings.length) console.warn("Bulletin warnings", filled.warnings);
+          canvas = drawFilledTemplate(filled);
+          renderedVia = "offline-template";
+        } else {
+          canvas = renderBulletinCanvas({
+            establishmentName,
+            className: klass.name,
+            studentName: `${student.last_name} ${student.first_name}`,
+            periodNumber: period.period_number,
+            subjects,
+            bySubject,
+            average,
+          });
+        }
+        for (const s of subjects) {
+          const fromTemplate = filled?.computed.subjectAverages[s.name];
+          subjectAverages[s.name] =
+            fromTemplate !== undefined && fromTemplate !== null ? fromTemplate : subjectAverage(bySubject.get(s.id) ?? []);
+        }
+        generalAverage = filled?.computed.generalAverage ?? average;
+        blob = await canvasToPdfBlob(canvas);
       }
-      const generalAverage = filled?.computed.generalAverage ?? average;
+
+      if (!blob) throw new Error("Génération du bulletin impossible (aucun rendu produit).");
+
       const weakSubjects = Object.entries(subjectAverages)
         .filter(([, avg]) => avg !== null && avg < PASS_THRESHOLD)
         .map(([name]) => name);
-
-      const blob = await canvasToPdfBlob(canvas);
       const path = `${klass.establishment_id}/${student.id}/bulletin-p${period.period_number}-${Date.now()}.pdf`;
       const { error: uploadError } = await supabase.storage.from("student-documents").upload(path, blob, { contentType: "application/pdf" });
       if (uploadError) throw uploadError;
@@ -288,7 +319,13 @@ export function BulletinWalkthroughDialog({
       await writeAudit("create", "student_report_cards" as never, student.id, { period_id: period.id });
       qc.invalidateQueries({ queryKey: ["student_documents"] });
       setValidated((v) => ({ ...v, [student.id]: doc.id }));
-      toast.success("Bulletin validé");
+      toast.success(
+        renderedVia === "online"
+          ? "Bulletin validé — rendu fidèle au modèle (conversion en ligne)"
+          : renderedVia === "offline-template"
+            ? "Bulletin validé — mode hors-ligne (rendu approximatif, service de conversion indisponible)"
+            : "Bulletin validé — modèle provisoire (aucun modèle Excel actif)",
+      );
     } catch (e) {
       toast.error((e as Error).message || "Validation impossible");
     } finally {
