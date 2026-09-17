@@ -1,5 +1,7 @@
 /**
- * Helpers bulletins : remplissage Excel, canvas de secours, bulletin annuel.
+ * Helpers bulletins : remplissage Excel, bulletin annuel.
+ * Avec modele actif : livrable = .xlsx original rempli (notes + formules du modele).
+ * Sans modele : PDF provisoire canvas.
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
@@ -20,8 +22,6 @@ import { writeAudit } from "@/lib/data";
 import { canvasToPdfBlob, downloadBlob } from "@/lib/pdf-export";
 import {
   readTemplate,
-  fillTemplate,
-  drawFilledTemplate,
   type TemplateMapping,
   type FillData,
   type TemplateSheet,
@@ -65,26 +65,25 @@ export function buildFillData(opts: {
         : Number(comp.value)
       : null;
     const evaluationAverage = evalValues.length ? evalValues.reduce((a, b) => a + b, 0) / evalValues.length : null;
-    const average = subjectAverage(gs);
     return {
       name: s.name,
       composition,
       evaluations: evalValues,
       evaluationAverage,
-      average,
+      average: null as number | null,
     };
   });
-  const generalAverage = studentAverage(bySubject);
   const sorted = [...allStudentsAverages].sort((a, b) => b - a);
   return {
     establishmentName,
     className,
-    periodLabel: `Période ${periodNumber}`,
+    periodLabel: `Periode ${periodNumber}`,
     studentName,
     studentFirstName,
     studentLastName,
     subjects: subjectRows,
-    generalAverage,
+    // generalAverage laisse a null : c'est la formule du modele qui decide
+    generalAverage: null,
     firstAverage: sorted[0] ?? null,
     lastAverage: sorted.length ? sorted[sorted.length - 1]! : null,
     classAverageEvaluation: null,
@@ -143,14 +142,14 @@ export function BulletinWalkthroughDialog({
         if (tplError) throw tplError;
         if (cancelled) return;
         if (!tpl?.file_path) {
-          setTemplateWarning("Aucun modèle Excel actif — rendu provisoire texte.");
+          setTemplateWarning("Aucun modele Excel actif — livrable PDF provisoire uniquement.");
           setTemplateSheet(null);
           setTemplateMapping(null);
           setTemplateBuffer(null);
           return;
         }
         const { data: file, error } = await supabase.storage.from("report-templates").download(tpl.file_path);
-        if (error || !file) throw error ?? new Error("Téléchargement du modèle impossible");
+        if (error || !file) throw error ?? new Error("Telechargement du modele impossible");
         const buffer = await file.arrayBuffer();
         const sheet = readTemplate(buffer);
         setTemplateSheet(sheet);
@@ -160,7 +159,7 @@ export function BulletinWalkthroughDialog({
         setTemplateScale(Number(tpl.scale) || 20);
       } catch (e) {
         if (!cancelled) {
-          setTemplateWarning((e as Error).message || "Modèle indisponible — rendu provisoire.");
+          setTemplateWarning((e as Error).message || "Modele indisponible — PDF provisoire.");
           setTemplateSheet(null);
           setTemplateMapping(null);
           setTemplateBuffer(null);
@@ -195,7 +194,7 @@ export function BulletinWalkthroughDialog({
     try {
       let blob: Blob | undefined;
       let subjectAverages: Record<string, number | null> = {};
-      let generalAverage: number | null = average;
+      let generalAverage: number | null = null;
       let renderedVia: "offline-template" | "offline-generic" = "offline-generic";
 
       const sorted = [...allStudentsAverages].sort((a, b) => b - a);
@@ -217,40 +216,26 @@ export function BulletinWalkthroughDialog({
           })
         : null;
 
-      // Option 2 : modele Excel original + formules du modele calculees dans l'app.
-      let filled: ReturnType<typeof fillTemplate> | null = null;
+      let fileExt = "xlsx";
+      let fileMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      const downloadName = `Bulletin — Periode ${period.period_number}`;
+
       if (templateBuffer && templateMapping && fillData) {
+        // Modele actif : .xlsx original + formules du modele uniquement
         const written = writeFilledWorkbook(templateBuffer, templateMapping, fillData);
         if (written.warnings.length) console.warn("Bulletin formules", written.warnings);
-        generalAverage = written.computed.generalAverage ?? average;
+        generalAverage = written.computed.generalAverage;
         for (const s of subjects) {
-          subjectAverages[s.name] =
-            written.computed.subjectAverages[s.name] ?? subjectAverage(bySubject.get(s.id) ?? []);
+          subjectAverages[s.name] = written.computed.subjectAverages[s.name] ?? null;
         }
-        renderedVia = "offline-template";
-      }
-
-      if (templateSheet && templateMapping && fillData) {
-        filled = fillTemplate(templateSheet, templateMapping, fillData);
-        if (filled.warnings.length) console.warn("Bulletin warnings", filled.warnings);
-        if (generalAverage === null || generalAverage === average) {
-          generalAverage = filled.computed.generalAverage ?? average;
-        }
-        for (const s of subjects) {
-          if (subjectAverages[s.name] === undefined || subjectAverages[s.name] === null) {
-            subjectAverages[s.name] =
-              filled.computed.subjectAverages[s.name] ?? subjectAverage(bySubject.get(s.id) ?? []);
-          }
-        }
-        const canvas = drawFilledTemplate(filled);
-        blob = await canvasToPdfBlob(canvas);
+        blob = new Blob([written.buffer], { type: fileMime });
         renderedVia = "offline-template";
       } else {
+        // Pas de modele : PDF provisoire (formules app, faute de modele)
         for (const s of subjects) {
-          if (subjectAverages[s.name] === undefined) {
-            subjectAverages[s.name] = subjectAverage(bySubject.get(s.id) ?? []);
-          }
+          subjectAverages[s.name] = subjectAverage(bySubject.get(s.id) ?? []);
         }
+        generalAverage = average;
         const canvas = renderBulletinCanvas({
           establishmentName,
           className: klass.name,
@@ -261,16 +246,18 @@ export function BulletinWalkthroughDialog({
           average,
         });
         blob = await canvasToPdfBlob(canvas);
+        fileExt = "pdf";
+        fileMime = "application/pdf";
         renderedVia = "offline-generic";
       }
 
-      if (!blob) throw new Error("Génération du bulletin impossible (aucun rendu produit).");
+      if (!blob) throw new Error("Generation du bulletin impossible (aucun rendu produit).");
 
       const weakSubjects = Object.entries(subjectAverages)
         .filter(([, avg]) => avg !== null && avg < PASS_THRESHOLD)
         .map(([name]) => name);
-      const path = `${klass.establishment_id}/${student.id}/bulletin-p${period.period_number}-${Date.now()}.pdf`;
-      const { error: uploadError } = await supabase.storage.from("student-documents").upload(path, blob, { contentType: "application/pdf" });
+      const path = `${klass.establishment_id}/${student.id}/bulletin-p${period.period_number}-${Date.now()}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage.from("student-documents").upload(path, blob, { contentType: fileMime });
       if (uploadError) throw uploadError;
 
       const { data: doc, error: docError } = await supabase
@@ -278,9 +265,9 @@ export function BulletinWalkthroughDialog({
         .insert({
           student_id: student.id,
           establishment_id: klass.establishment_id,
-          name: `Bulletin — Période ${period.period_number}`,
+          name: downloadName,
           file_path: path,
-          file_type: "application/pdf",
+          file_type: fileMime,
           file_size: blob.size,
         })
         .select()
@@ -319,8 +306,8 @@ export function BulletinWalkthroughDialog({
       setValidated((v) => ({ ...v, [student.id]: doc.id }));
       toast.success(
         renderedVia === "offline-template"
-          ? "Bulletin validé — formules du modèle Excel calculées dans l'app"
-          : "Bulletin validé — modèle provisoire (aucun modèle Excel actif)",
+          ? "Bulletin valide — fichier .xlsx du modele (formules du modele)"
+          : "Bulletin valide — PDF provisoire (aucun modele Excel actif)",
       );
     } catch (e) {
       toast.error((e as Error).message || "Validation impossible");
@@ -333,7 +320,7 @@ export function BulletinWalkthroughDialog({
     if (!student) return;
     const documentId = validated[student.id];
     if (!documentId) return;
-    const { data: doc } = await supabase.from("student_documents").select("file_path,name").eq("id", documentId).single();
+    const { data: doc } = await supabase.from("student_documents").select("file_path,name,file_type").eq("id", documentId).single();
     if (!doc) return;
     const { data: signed, error } = await supabase.storage.from("student-documents").createSignedUrl(doc.file_path, 300);
     if (error || !signed) {
@@ -341,7 +328,8 @@ export function BulletinWalkthroughDialog({
       return;
     }
     const res = await fetch(signed.signedUrl);
-    downloadBlob(await res.blob(), `${doc.name}.pdf`);
+    const ext = doc.file_path?.includes(".xlsx") ? "xlsx" : doc.file_path?.includes(".pdf") ? "pdf" : "xlsx";
+    downloadBlob(await res.blob(), `${doc.name}.${ext}`);
   };
 
   if (!student) {
@@ -349,8 +337,8 @@ export function BulletinWalkthroughDialog({
       <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Bulletins terminés</DialogTitle>
-            <DialogDescription>Tous les élèves de la classe ont été parcourus.</DialogDescription>
+            <DialogTitle>Bulletins termines</DialogTitle>
+            <DialogDescription>Tous les eleves de la classe ont ete parcourus.</DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button onClick={onClose}>Fermer</Button>
@@ -368,23 +356,23 @@ export function BulletinWalkthroughDialog({
             Bulletin {index + 1} / {students.length} — {student.last_name} {student.first_name}
           </DialogTitle>
           <DialogDescription>
-            Période {period.period_number} · {klass.name}
+            Periode {period.period_number} · {klass.name}
           </DialogDescription>
         </DialogHeader>
 
-        {templateLoading && <p className="text-xs text-muted-foreground">Chargement du modèle de bulletin…</p>}
+        {templateLoading && <p className="text-xs text-muted-foreground">Chargement du modele de bulletin…</p>}
         {templateWarning && (
           <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">{templateWarning}</div>
         )}
         {templateSheet && templateMapping && !templateLoading && (
           <div className="rounded-md border border-success/30 bg-success/10 px-3 py-2 text-xs text-success">
-            Rendu selon le modèle Excel de la classe — formules calculées dans l'app.
+            Livrable : fichier .xlsx du modele (notes + formules du modele, pas les formules de l'app).
           </div>
         )}
 
         {missingEvaluation.length > 0 && (
           <div className="rounded-md border border-[oklch(0.75_0.15_80)]/40 bg-[oklch(0.75_0.15_80)]/10 px-3 py-2 text-xs font-medium text-[oklch(0.5_0.13_70)]">
-            ⚠ Aucune note d'évaluation pour : {missingEvaluation.map((s) => s.name).join(", ")}
+            Aucune note d'evaluation pour : {missingEvaluation.map((s) => s.name).join(", ")}
           </div>
         )}
 
@@ -392,10 +380,10 @@ export function BulletinWalkthroughDialog({
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
               <tr>
-                <th className="p-2">Matière</th>
-                <th className="p-2">Évaluation(s)</th>
+                <th className="p-2">Matiere</th>
+                <th className="p-2">Evaluation(s)</th>
                 <th className="p-2">Composition</th>
-                <th className="p-2">Moyenne /20</th>
+                <th className="p-2">Notes saisies</th>
               </tr>
             </thead>
             <tbody>
@@ -403,20 +391,21 @@ export function BulletinWalkthroughDialog({
                 const subjectGrades = bySubject.get(s.id) ?? [];
                 const evals = subjectGrades.filter((g) => g.nature === "evaluation");
                 const comp = subjectGrades.find((g) => g.nature === "composition");
-                const avg = subjectAverage(subjectGrades);
                 return (
                   <tr key={s.id} className="border-t border-border">
                     <td className="p-2 font-medium">{s.name}</td>
                     <td className="p-2">{evals.length ? evals.map((g) => `${g.value}/${g.scale}`).join(", ") : "—"}</td>
                     <td className="p-2">{comp ? `${comp.value}/${comp.scale}` : "—"}</td>
-                    <td className="p-2 font-medium">{avg !== null ? avg.toFixed(2) : "—"}</td>
+                    <td className="p-2 text-muted-foreground text-xs">moyenne = formule du modele</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
-        <p className="text-right text-sm font-semibold">Moyenne générale : {average !== null ? average.toFixed(2) : "—"} / 20</p>
+        <p className="text-right text-xs text-muted-foreground">
+          Apercu notes saisies uniquement — la moyenne generale sera celle calculee par les formules du fichier Excel.
+        </p>
 
         <DialogFooter className="flex-wrap gap-2 sm:justify-between">
           <Button variant="outline" asChild>
@@ -427,15 +416,15 @@ export function BulletinWalkthroughDialog({
           <div className="flex flex-wrap gap-2">
             {validated[student.id] ? (
               <Button variant="outline" onClick={download}>
-                <Download className="mr-1.5 h-4 w-4" /> Télécharger
+                <Download className="mr-1.5 h-4 w-4" /> Telecharger .xlsx
               </Button>
             ) : (
               <Button onClick={validate} disabled={busy}>
-                {busy ? "Validation..." : "Valider"}
+                {busy ? "Validation..." : "Valider (.xlsx)"}
               </Button>
             )}
             <Button variant="secondary" onClick={() => setIndex((i) => i + 1)}>
-              {index + 1 < students.length ? "Élève suivant" : "Terminer"}
+              {index + 1 < students.length ? "Eleve suivant" : "Terminer"}
             </Button>
           </div>
         </DialogFooter>
@@ -471,14 +460,14 @@ export function renderBulletinCanvas({
   ctx.font = "bold 34px sans-serif";
   ctx.fillText(establishmentName, 60, 80);
   ctx.font = "bold 44px sans-serif";
-  ctx.fillText(periodNumber === 0 ? "BULLETIN ANNUEL" : `BULLETIN — Période ${periodNumber}`, 60, 140);
+  ctx.fillText(periodNumber === 0 ? "BULLETIN ANNUEL" : `BULLETIN — Periode ${periodNumber}`, 60, 140);
   ctx.fillStyle = "#374151";
   ctx.font = "24px sans-serif";
   ctx.fillText(`Classe : ${className}`, 60, 190);
-  ctx.fillText(`Élève : ${studentName}`, 60, 230);
+  ctx.fillText(`Eleve : ${studentName}`, 60, 230);
   let y = 300;
   ctx.font = "bold 20px sans-serif";
-  ctx.fillText("Matière", 60, y);
+  ctx.fillText("Matiere", 60, y);
   ctx.fillText("Moyenne", 900, y);
   y += 40;
   ctx.font = "20px sans-serif";
@@ -490,7 +479,7 @@ export function renderBulletinCanvas({
   }
   y += 20;
   ctx.font = "bold 24px sans-serif";
-  ctx.fillText(`Moyenne générale : ${average !== null ? average.toFixed(2) : "—"} / 20`, 60, y);
+  ctx.fillText(`Moyenne generale : ${average !== null ? average.toFixed(2) : "—"} / 20`, 60, y);
   return canvas;
 }
 
@@ -550,10 +539,10 @@ export function AnnualBulletinDialog({
         setDone((d) => d + 1);
       }
       qc.invalidateQueries({ queryKey: ["student_documents"] });
-      toast.success("Bulletins annuels générés");
+      toast.success("Bulletins annuels generes (PDF provisoire)");
       onClose();
     } catch (e) {
-      toast.error((e as Error).message || "Génération impossible");
+      toast.error((e as Error).message || "Generation impossible");
     } finally {
       setBusy(false);
     }
@@ -565,13 +554,12 @@ export function AnnualBulletinDialog({
         <DialogHeader>
           <DialogTitle>Bulletin annuel</DialogTitle>
           <DialogDescription>
-            Synthèse de toutes les périodes ({periods.length}) pour les {students.length} élèves. Utilise le modèle Excel
-            de la classe s'il est disponible.
+            Synthese de toutes les periodes ({periods.length}) pour les {students.length} eleves.
           </DialogDescription>
         </DialogHeader>
         {busy && (
           <p className="text-sm text-muted-foreground">
-            Génération… {done} / {students.length}
+            Generation… {done} / {students.length}
           </p>
         )}
         <DialogFooter>
@@ -579,7 +567,7 @@ export function AnnualBulletinDialog({
             Annuler
           </Button>
           <Button onClick={generateAll} disabled={busy}>
-            {busy ? "Génération…" : "Générer tous les bulletins annuels"}
+            {busy ? "Generation…" : "Generer tous les bulletins annuels"}
           </Button>
         </DialogFooter>
       </DialogContent>
