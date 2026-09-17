@@ -2,13 +2,10 @@
  * REMPLISSAGE DU CLASSEUR EXCEL ORIGINAL — Option 2.
  *
  * 1. Part du fichier .xlsx d'origine (mise en page, styles, fusions intacts).
- * 2. Écrit uniquement notes + balises dans les cellules de saisie.
- * 3. Pour chaque cellule qui a une formule : lit LA formule du modèle,
- *    la calcule dans l'app (moteur JS), écrit le résultat numérique figé.
- * 4. Le PDF / l'aperçu utilisent ces valeurs — pas de recalcul inventé côté app.
- *
- * Adapté aux formules typiques du fondamental et du lycée
- * (MOYENNE, SOMME, SI, ARRONDI, coefs, (classe+2×compo)/3, etc.).
+ * 2. Ecrit uniquement notes + balises dans les cellules de saisie.
+ * 3. Pour chaque cellule qui a une formule : lit LA formule du modele,
+ *    la calcule dans l'app (moteur JS), ecrit le resultat numerique fige.
+ * 4. Les moyennes affichees / livrees viennent UNIQUEMENT de ces formules.
  */
 import * as XLSX from "xlsx";
 import { evaluateFormula, UnsupportedFormulaError, type CellValue } from "@/lib/xlsx-formula";
@@ -27,7 +24,6 @@ const toScale = (v: number | null, scale: number) =>
 const fromScale = (v: unknown, scale: number): number | null =>
   typeof v === "number" && Number.isFinite(v) ? Math.round(((v / scale) * 20) * 100) / 100 : null;
 
-/** Rôles d'identité / stats à écrire avant les formules (pas les moyennes calculées). */
 const PRE_FORMULA_FIELDS = new Set<FieldRole>([
   "student_name",
   "student_first_name",
@@ -61,7 +57,7 @@ function fieldValue(role: FieldRole, data: FillData): number | string | null {
     case "headcount":
       return data.headcount;
     case "general_average":
-      return toScale(data.generalAverage, data.scale);
+      return null;
     case "first_average":
       return toScale(data.firstAverage, data.scale);
     case "last_average":
@@ -79,11 +75,6 @@ function fieldValue(role: FieldRole, data: FillData): number | string | null {
   }
 }
 
-/**
- * Remplit le classeur d'origine : notes + balises, puis évalue chaque formule du modèle
- * et écrit le résultat figé (option 2 — adapté au PDF).
- * Retourne le buffer .xlsx + les moyennes extraites des cellules recalculées.
- */
 export function writeFilledWorkbook(
   originalBuffer: ArrayBuffer,
   mapping: TemplateMapping,
@@ -91,11 +82,10 @@ export function writeFilledWorkbook(
 ): { buffer: ArrayBuffer; computed: ComputedAverages; warnings: string[] } {
   const wb = XLSX.read(originalBuffer, { type: "array", cellFormula: true, cellStyles: true });
   const ws = wb.Sheets[mapping.sheetName] ?? wb.Sheets[wb.SheetNames[0]!];
-  if (!ws) throw new Error("Feuille du modèle introuvable dans le fichier.");
+  if (!ws) throw new Error("Feuille du modele introuvable dans le fichier.");
 
   const warnings: string[] = [];
 
-  /** Écrit une valeur de saisie — n'écrase PAS une formule (elles seront évaluées ensuite). */
   const setInputCell = (address: string, value: number | string | null) => {
     const cell = ws[address] as XLSX.CellObject | undefined;
     if (cell?.f) return;
@@ -113,7 +103,6 @@ export function writeFilledWorkbook(
     } as XLSX.CellObject;
   };
 
-  // ── 1. Balises (identité / stats) — pas la moyenne générale si formule présente ──
   for (const [address, role] of Object.entries(mapping.fields)) {
     if (role === "ignore" || role === "general_average") continue;
     if (!PRE_FORMULA_FIELDS.has(role)) continue;
@@ -125,7 +114,6 @@ export function writeFilledWorkbook(
     setInputCell(address, fieldValue(role, data));
   }
 
-  // ── 2. Notes du tableau matières uniquement ──
   const subjectColumn = Object.entries(mapping.columns).find(([, role]) => role === "subject")?.[0];
   const rowSubjectName = new Map<number, string>();
   if (subjectColumn) {
@@ -157,12 +145,10 @@ export function writeFilledWorkbook(
           const raw = idx >= 0 ? (match.evaluations[idx] ?? null) : null;
           setInputCell(address, toScale(raw, data.scale));
         }
-        // subject_average, coefficient, appreciation… : formules du modèle → étape 3
       }
     }
   }
 
-  // ── 3. Collecter toutes les formules du modèle ──
   const formulas: { address: string; formula: string }[] = [];
   const range = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
   for (let r = range.s.r; r <= range.e.r; r++) {
@@ -173,7 +159,6 @@ export function writeFilledWorkbook(
     }
   }
 
-  // Snapshot des valeurs actuelles (notes + balises déjà écrites)
   const values: Record<string, CellValue> = {};
   for (let r = range.s.r; r <= range.e.r; r++) {
     for (let c = range.s.c; c <= range.e.c; c++) {
@@ -190,7 +175,6 @@ export function writeFilledWorkbook(
     }
   }
 
-  // ── 4. Rejouer chaque formule du modèle (plusieurs passes pour les dépendances) ──
   const maxPasses = Math.max(8, formulas.length + 2);
   for (let pass = 0; pass < maxPasses; pass++) {
     for (const { address, formula } of formulas) {
@@ -198,13 +182,12 @@ export function writeFilledWorkbook(
         values[address] = evaluateFormula(formula, (ref) => values[ref] ?? null);
       } catch (e) {
         if (pass === maxPasses - 1 && e instanceof UnsupportedFormulaError) {
-          warnings.push(`Formule non gérée en ${address} : ${e.fn}`);
+          warnings.push(`Formule non geree en ${address} : ${e.fn}`);
         }
       }
     }
   }
 
-  // ── 5. Écrire les résultats figés à la place des formules ──
   for (const { address } of formulas) {
     const result = values[address];
     const cell = ws[address] as XLSX.CellObject | undefined;
@@ -228,22 +211,7 @@ export function writeFilledWorkbook(
     ws[address] = next;
   }
 
-  // ── 6. Moyenne générale en balise (secours si pas de formule) ──
-  for (const [address, role] of Object.entries(mapping.fields)) {
-    if (role !== "general_average") continue;
-    const cell = ws[address] as XLSX.CellObject | undefined;
-    // Si on a déjà écrit un résultat de formule, ne pas écraser
-    if (cell && cell.v !== undefined && cell.v !== null && cell.v !== "" && !cell.f) continue;
-    const raw = cell?.v !== null && cell?.v !== undefined ? String(cell.v).trim() : "";
-    const isToken = /^\s*[[{].+[\]}]\s*$/.test(raw);
-    if (raw && !isToken && cell && typeof cell.v === "number") continue;
-    setInputCell(address, fieldValue("general_average", data));
-    if (typeof fieldValue("general_average", data) === "number") {
-      values[address] = fieldValue("general_average", data) as number;
-    }
-  }
-
-  // ── 7. Extraire les moyennes recalculées par le modèle ──
+  // Extraire les moyennes UNIQUEMENT depuis les formules du modele — jamais inventees.
   let generalAverage: number | null = null;
   for (const [address, role] of Object.entries(mapping.fields)) {
     if (role !== "general_average") continue;
@@ -266,10 +234,6 @@ export function writeFilledWorkbook(
   };
 }
 
-/**
- * Extrait les moyennes depuis un classeur déjà rempli (valeurs figées ou formules évaluées).
- * Utile si le buffer a déjà passé par writeFilledWorkbook.
- */
 export function extractComputedAveragesFromRecalculated(
   recalculatedBuffer: ArrayBuffer,
   mapping: TemplateMapping,
@@ -313,10 +277,6 @@ export function extractComputedAveragesFromRecalculated(
   return { generalAverage, subjectAverages };
 }
 
-/**
- * Ancien point d'entrée « conversion en ligne » — non disponible sans service externe.
- * Conservé pour ne pas casser les imports ; retourne toujours null.
- */
 export async function convertWorkbookOnline(
   _workbook: ArrayBuffer,
   _filename?: string,
