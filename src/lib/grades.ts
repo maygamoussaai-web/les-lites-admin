@@ -47,6 +47,19 @@ export function groupGradesBySubject(grades: Grade[], studentId: string): Map<st
 // l'application (fiche élève, résultats de classe, bulletin, rapport) DOIT
 // passer par les fonctions de calcul de ce fichier, jamais par un calcul
 // local, sous peine d'incohérences.
+//
+// EXCEPTION explicite (2026-09-17) : une fois un bulletin VALIDÉ via un
+// modèle Excel (src/lib/xlsx-template.ts), la moyenne générale et les
+// moyennes par matière RECALCULÉES PAR LES FORMULES DU MODÈLE deviennent
+// autoritaires pour cet élève sur cette période — c'est ce qui est
+// réellement imprimé sur le bulletin. Elles sont écrites dans
+// student_report_cards.general_average / subject_averages et reversées
+// dans students.term{N}_average à la validation (src/components/school/
+// bulletin-helpers.tsx). Une fois disponibles, elles priment sur un
+// recalcul local. Les fonctions de ce fichier restent la référence pour
+// tout ce qui précède la validation : classement provisoire utilisé pour
+// remplir le modèle, statistiques de classe en direct, aperçu avant
+// validation, et pour les classes sans modèle Excel actif.
 // ============================================================================
 
 import { useMemo } from "react";
