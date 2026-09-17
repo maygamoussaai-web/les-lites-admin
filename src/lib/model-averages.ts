@@ -1,10 +1,11 @@
 /**
- * Moyennes : formules du modele Excel en priorite, sinon notes saisies.
+ * Moyennes UNIQUEMENT a partir des formules du modele Excel.
+ * L'app n'invente jamais de moyenne a partir des notes saisies.
  */
 import { writeFilledWorkbook } from "@/lib/xlsx-writeback";
 import type { TemplateMapping, FillData } from "@/lib/xlsx-template";
 import type { ClassSubject, Grade } from "@/lib/grades";
-import { groupGradesBySubject, studentAverage, subjectAverage } from "@/lib/grades";
+import { groupGradesBySubject } from "@/lib/grades";
 
 export type ModelAverages = {
   generalAverage: number | null;
@@ -72,15 +73,10 @@ export function computeModelAverages(
   fillData: FillData,
 ): ModelAverages {
   const written = writeFilledWorkbook(templateBuffer, mapping, fillData);
-  let general = written.computed.generalAverage;
-  const subjectAverages = written.computed.subjectAverages;
-  if (general === null) {
-    const vals = Object.values(subjectAverages).filter((v): v is number => v !== null);
-    if (vals.length) general = vals.reduce((a, b) => a + b, 0) / vals.length;
-  }
+  // generalAverage et subjectAverages = resultats des formules du fichier uniquement
   return {
-    generalAverage: general,
-    subjectAverages,
+    generalAverage: written.computed.generalAverage,
+    subjectAverages: written.computed.subjectAverages,
     warnings: written.warnings,
   };
 }
@@ -130,30 +126,9 @@ export function computeClassModelAverages(opts: {
     });
     const result = computeModelAverages(templateBuffer, mapping, fill);
     allWarnings.push(...result.warnings);
-
-    let general = result.generalAverage;
-    const subjectAverages = { ...result.subjectAverages };
-
-    // Repli : si le modele n'a pas renvoye de moyenne, utiliser les notes saisies
-    if (general === null) {
-      const appAvg = studentAverage(bySubject);
-      if (appAvg !== null) {
-        general = appAvg;
-        allWarnings.push(
-          `Eleve ${s.last_name}: moyenne modele indisponible — repli notes saisies (${appAvg.toFixed(2)})`,
-        );
-      }
-    }
-    for (const sub of subjects) {
-      if (subjectAverages[sub.name] != null) continue;
-      const gs = bySubject.get(sub.id) ?? [];
-      const avg = subjectAverage(gs);
-      if (avg !== null) subjectAverages[sub.name] = avg;
-    }
-
     perStudent.set(s.id, {
-      generalAverage: general,
-      subjectAverages,
+      generalAverage: result.generalAverage,
+      subjectAverages: result.subjectAverages,
     });
   }
 
