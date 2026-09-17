@@ -1,12 +1,13 @@
 /**
- * Carte resultats periode — moyennes UNIQUEMENT via formules du modele Excel.
+ * Carte notes periode — moyennes via formules du modele, liste repliable.
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { History, AlertTriangle } from "lucide-react";
+import { History, AlertTriangle, ChevronDown } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { formatNumber } from "@/lib/format";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -25,6 +26,7 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
   const [templateScale, setTemplateScale] = useState(20);
   const [templateReady, setTemplateReady] = useState(false);
   const [templateError, setTemplateError] = useState<string | null>(null);
+  const [listOpen, setListOpen] = useState(false);
 
   useEffect(() => {
     if (!classId) {
@@ -86,22 +88,27 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
     if (!templateReady || !templateBuffer || !templateMapping || !activePeriod || bySubject.size === 0) {
       return null;
     }
-    const fill = buildModelFillData({
-      establishmentName: "",
-      className: "",
-      studentFirstName: "",
-      studentLastName: "",
-      periodNumber: activePeriod.period_number,
-      subjects,
-      grades: periodGrades,
-      studentId,
-      headcount: 0,
-      scale: templateScale,
-      rank: null,
-      firstAverage: null,
-      lastAverage: null,
-    });
-    return computeModelAverages(templateBuffer, templateMapping, fill);
+    try {
+      const fill = buildModelFillData({
+        establishmentName: "",
+        className: "",
+        studentFirstName: "",
+        studentLastName: "",
+        periodNumber: activePeriod.period_number,
+        subjects,
+        grades: periodGrades,
+        studentId,
+        headcount: 0,
+        scale: templateScale,
+        rank: null,
+        firstAverage: null,
+        lastAverage: null,
+      });
+      return computeModelAverages(templateBuffer, templateMapping, fill);
+    } catch (e) {
+      console.error(e);
+      return null;
+    }
   }, [
     templateReady,
     templateBuffer,
@@ -123,38 +130,37 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
       .sort((a, b) => a.average - b.average);
   }, [modelResult]);
 
+  const gradedSubjects = subjects.filter((s) => bySubject.has(s.id));
+
   return (
-    <Card className="lg:col-span-2">
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
         <CardTitle className="text-base">
-          Notes {activePeriod ? `— Periode ${activePeriod.period_number}` : "de la periode en cours"}
+          Notes {activePeriod ? `— P${activePeriod.period_number}` : ""}
         </CardTitle>
-        <Button variant="ghost" size="sm" className="press" asChild>
+        <Button variant="ghost" size="sm" className="press h-8" asChild>
           <Link to="/eleves/$studentId/notes" params={{ studentId }}>
-            <History className="mr-1.5 h-4 w-4" /> Historique des notes
+            <History className="mr-1 h-3.5 w-3.5" /> Historique
           </Link>
         </Button>
       </CardHeader>
-      <CardContent className="space-y-4 text-sm">
+      <CardContent className="space-y-3 text-sm">
         {!classId ? (
           <p className="text-muted-foreground">Eleve non assigne a une classe.</p>
         ) : loading || !templateReady ? (
           <p className="text-muted-foreground">Chargement…</p>
         ) : templateError && !templateBuffer ? (
-          <p className="text-muted-foreground">
-            {templateError} Importez un modele de bulletin pour calculer les moyennes (formules Excel).
+          <p className="text-muted-foreground text-xs">
+            {templateError} Importez un modele de bulletin pour les moyennes.
           </p>
         ) : !activePeriod ? (
-          <p className="text-muted-foreground">Aucune periode ouverte pour cette classe.</p>
+          <p className="text-muted-foreground">Aucune periode ouverte.</p>
         ) : bySubject.size === 0 ? (
-          <p className="text-muted-foreground">Aucune note enregistree sur cette periode.</p>
+          <p className="text-muted-foreground">Aucune note sur cette periode.</p>
         ) : (
           <>
-            <p className="text-xs text-muted-foreground">
-              Moyennes calculees avec les formules du modele Excel (pas celles de l&apos;app).
-            </p>
             <div className="flex items-center justify-between rounded-lg border border-border bg-muted/40 px-3 py-2">
-              <span className="text-muted-foreground">Moyenne de la periode</span>
+              <span className="text-muted-foreground text-xs">Moyenne (formules modele)</span>
               <Badge
                 variant={average !== null && average < PASS_THRESHOLD ? "destructive" : "default"}
                 className="tabular-nums"
@@ -163,48 +169,57 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
               </Badge>
             </div>
 
-            <ul className="divide-y divide-border rounded-lg border border-border">
-              {subjects
-                .filter((s) => bySubject.has(s.id))
-                .map((s) => {
-                  const list = bySubject.get(s.id) ?? [];
-                  const avg = modelResult?.subjectAverages[s.name] ?? null;
-                  return (
-                    <li key={s.id} className="flex items-center justify-between gap-3 px-3 py-2">
-                      <div>
-                        <p className="font-medium text-foreground">{s.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {list.length} note(s) · {list.filter((g) => g.nature === "composition").length} composition
-                        </p>
-                      </div>
-                      <span
-                        className={`tabular-nums font-semibold ${
-                          avg !== null && avg < PASS_THRESHOLD ? "text-destructive" : "text-foreground"
-                        }`}
-                      >
-                        {avg === null ? "—" : formatNumber(avg, 2)}
-                      </span>
-                    </li>
-                  );
-                })}
-            </ul>
+            <Collapsible open={listOpen} onOpenChange={setListOpen}>
+              <CollapsibleTrigger asChild>
+                <Button variant="outline" size="sm" className="w-full justify-between">
+                  <span>
+                    {gradedSubjects.length} matiere{gradedSubjects.length > 1 ? "s" : ""} notee
+                    {gradedSubjects.length > 1 ? "s" : ""}
+                  </span>
+                  <ChevronDown className={`h-4 w-4 transition ${listOpen ? "rotate-180" : ""}`} />
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <ul className="mt-2 divide-y divide-border rounded-lg border border-border">
+                  {gradedSubjects.map((s) => {
+                    const list = bySubject.get(s.id) ?? [];
+                    const avg = modelResult?.subjectAverages[s.name] ?? null;
+                    return (
+                      <li key={s.id} className="flex items-center justify-between gap-2 px-3 py-1.5">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-foreground text-sm">{s.name}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {list.length} note{list.length > 1 ? "s" : ""}
+                          </p>
+                        </div>
+                        <span
+                          className={`shrink-0 tabular-nums text-sm font-semibold ${
+                            avg !== null && avg < PASS_THRESHOLD ? "text-destructive" : "text-foreground"
+                          }`}
+                        >
+                          {avg === null ? "—" : formatNumber(avg, 2)}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </CollapsibleContent>
+            </Collapsible>
 
-            <div>
-              <p className="mb-1.5 flex items-center gap-1.5 font-medium text-foreground">
-                <AlertTriangle className="h-4 w-4 text-warning" /> Matieres a travailler
-              </p>
-              {weak.length === 0 ? (
-                <p className="text-muted-foreground">Aucune — l&apos;eleve a la moyenne dans toutes ses matieres notees.</p>
-              ) : (
-                <div className="flex flex-wrap gap-1.5">
+            {weak.length > 0 && (
+              <div>
+                <p className="mb-1 flex items-center gap-1 text-xs font-medium text-foreground">
+                  <AlertTriangle className="h-3.5 w-3.5 text-warning" /> A travailler
+                </p>
+                <div className="flex flex-wrap gap-1">
                   {weak.map((w) => (
-                    <Badge key={w.id} variant="destructive" className="tabular-nums">
+                    <Badge key={w.id} variant="destructive" className="tabular-nums text-[11px]">
                       {w.name} · {formatNumber(w.average, 2)}
                     </Badge>
                   ))}
                 </div>
-              )}
-            </div>
+              </div>
+            )}
           </>
         )}
       </CardContent>

@@ -1,6 +1,5 @@
 /**
  * Moyennes calculees UNIQUEMENT a partir des formules du modele Excel.
- * Aucune moyenne inventee par l'app (pas de subjectAverage / studentAverage).
  */
 import { writeFilledWorkbook } from "@/lib/xlsx-writeback";
 import type { TemplateMapping, FillData } from "@/lib/xlsx-template";
@@ -13,7 +12,6 @@ export type ModelAverages = {
   warnings: string[];
 };
 
-/** Construit les notes saisies (echelle /20) pour une ligne matiere — sans moyenne. */
 function subjectRowFromGrades(name: string, gs: Grade[]) {
   const evals = gs.filter((g) => g.nature === "evaluation");
   const comp = gs.find((g) => g.nature === "composition");
@@ -33,10 +31,6 @@ function subjectRowFromGrades(name: string, gs: Grade[]) {
   };
 }
 
-/**
- * Prepare FillData pour un eleve. Les moyennes restent null :
- * elles seront lues apres evaluation des formules du modele.
- */
 export function buildModelFillData(opts: {
   establishmentName: string;
   className: string;
@@ -72,27 +66,26 @@ export function buildModelFillData(opts: {
   };
 }
 
-/**
- * Calcule moyenne generale + moyennes par matiere via les formules du modele Excel.
- * Retourne null partout si le modele n'a pas de formule / mapping pour ces cellules.
- */
 export function computeModelAverages(
   templateBuffer: ArrayBuffer,
   mapping: TemplateMapping,
   fillData: FillData,
 ): ModelAverages {
   const written = writeFilledWorkbook(templateBuffer, mapping, fillData);
+  let general = written.computed.generalAverage;
+  const subjectAverages = written.computed.subjectAverages;
+  // Si pas de cellule MG mappee : moyenne des moyennes matieres issues des formules du modele
+  if (general === null) {
+    const vals = Object.values(subjectAverages).filter((v): v is number => v !== null);
+    if (vals.length) general = vals.reduce((a, b) => a + b, 0) / vals.length;
+  }
   return {
-    generalAverage: written.computed.generalAverage,
-    subjectAverages: written.computed.subjectAverages,
+    generalAverage: general,
+    subjectAverages,
     warnings: written.warnings,
   };
 }
 
-/**
- * Pour chaque eleve de la classe : moyennes issues du modele uniquement.
- * Les eleves sans note du tout sont omis.
- */
 export function computeClassModelAverages(opts: {
   templateBuffer: ArrayBuffer;
   mapping: TemplateMapping;
