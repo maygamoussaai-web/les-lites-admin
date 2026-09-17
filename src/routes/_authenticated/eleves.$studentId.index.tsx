@@ -52,7 +52,7 @@ export const Route = createFileRoute("/_authenticated/eleves/$studentId/")({
   head: () => ({
     meta: [
       { title: "Fiche élève – Les Élites de Gao" },
-      { name: "description", content: "Profil complet d'un élève : identité, scolarité et résultats." },
+      { name: "description", content: "Profil élève : identité, scolarité et résultats." },
     ],
   }),
   component: Page,
@@ -219,7 +219,7 @@ function Page() {
         description={`${establishment?.name ?? "—"} · Inscrit le ${formatDate(student.enrolled_at)}`}
       />
 
-      <div className="flex flex-wrap items-center gap-4 rounded-xl border border-border/70 bg-card p-4">
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border/70 bg-card p-3 sm:p-4">
         <StudentPhoto
           studentId={student.id}
           establishmentId={student.establishment_id}
@@ -229,35 +229,35 @@ function Page() {
           compact
         />
         <div className="min-w-0 flex-1">
-          <p className="font-display text-lg font-semibold text-foreground">
+          <p className="font-display text-base font-semibold text-foreground sm:text-lg">
             {student.last_name} {student.first_name}
           </p>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-xs text-muted-foreground sm:text-sm">
             {klass?.name ?? "Classe non assignée"} · {establishment?.name ?? "—"}
           </p>
         </div>
-        <Button variant="outline" size="sm" className="press" asChild>
+        <Button variant="outline" size="sm" className="press shrink-0" asChild>
           <Link to="/eleves/$studentId/identite" params={{ studentId: student.id }}>
-            <IdCard className="mr-1.5 h-4 w-4" /> Identité et informations
+            <IdCard className="mr-1.5 h-4 w-4" /> Identité
           </Link>
         </Button>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2">
-            <CardTitle className="text-base">Scolarité (période en cours)</CardTitle>
-            <Button variant="ghost" size="sm" className="press" asChild>
+          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
+            <CardTitle className="text-base">Scolarité</CardTitle>
+            <Button variant="ghost" size="sm" className="press h-8" asChild>
               <Link to="/eleves/$studentId/scolarite" params={{ studentId: student.id }}>
-                <Receipt className="mr-1.5 h-4 w-4" /> Fiche de scolarité
+                <Receipt className="mr-1 h-3.5 w-3.5" /> Détail
               </Link>
             </Button>
           </CardHeader>
-          <CardContent className="space-y-2.5 text-sm">
+          <CardContent className="space-y-2 text-sm">
             {enrollment ? (
               <>
                 <Row label="Payé" value={formatFCFA(paid)} />
-                <Row label="Total attendu" value={formatFCFA(totalDue)} />
+                <Row label="Total" value={formatFCFA(totalDue)} />
                 <Row
                   label="Statut"
                   value={
@@ -268,33 +268,33 @@ function Page() {
                         <Badge className="bg-success text-success-foreground">À jour</Badge>
                       )
                     ) : (
-                      "Aucun modèle"
+                      "—"
                     )
                   }
                 />
                 <Button size="sm" className="press w-full" onClick={() => setPayOpen(true)}>
-                  <Wallet className="mr-1.5 h-4 w-4" /> Enregistrer un paiement de scolarité
+                  <Wallet className="mr-1.5 h-4 w-4" /> Paiement
                 </Button>
               </>
             ) : (
-              <p className="text-muted-foreground">Aucune période active — assignez l'élève à une classe.</p>
+              <p className="text-muted-foreground text-xs">Aucune période active.</p>
             )}
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-base">Résultats</CardTitle>
+        <StudentGradesCard studentId={student.id} classId={student.class_id} />
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Résultats trimestriels</CardTitle>
           </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Metric label="Trimestre 1" value={student.term1_average} />
-            <Metric label="Trimestre 2" value={student.term2_average} />
-            <Metric label="Trimestre 3" value={student.term3_average} />
-            <Metric label="Moyenne annuelle" value={avg} highlight />
+          <CardContent className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <Metric label="T1" value={student.term1_average} />
+            <Metric label="T2" value={student.term2_average} />
+            <Metric label="T3" value={student.term3_average} />
+            <Metric label="Annuelle" value={avg} highlight />
           </CardContent>
         </Card>
-
-        <StudentGradesCard studentId={student.id} classId={student.class_id} />
 
         <StudentDocuments studentId={student.id} establishmentId={student.establishment_id} />
       </div>
@@ -304,12 +304,12 @@ function Page() {
           <Pencil className="mr-1.5 h-4 w-4" /> Modifier
         </Button>
         <Button variant="outline" className="press" onClick={() => setTransferOpen(true)}>
-          <ArrowRightLeft className="mr-1.5 h-4 w-4" /> {student.class_id ? "Transférer l'élève" : "Assigner l'élève"}
+          <ArrowRightLeft className="mr-1.5 h-4 w-4" /> {student.class_id ? "Transférer" : "Assigner"}
         </Button>
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button variant="destructive" className="press">
-              <Trash2 className="mr-1.5 h-4 w-4" /> Supprimer l'élève
+              <Trash2 className="mr-1.5 h-4 w-4" /> Supprimer
             </Button>
           </AlertDialogTrigger>
           <AlertDialogContent>
@@ -318,8 +318,7 @@ function Page() {
                 Supprimer {student.first_name} {student.last_name} ?
               </AlertDialogTitle>
               <AlertDialogDescription>
-                L'élève disparaîtra de la liste de sa classe. Son historique (paiements, transferts, résultats) reste
-                conservé.
+                L'élève disparaîtra de la liste. L'historique reste conservé.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -359,9 +358,16 @@ function Page() {
       <RecordDialog
         open={transferOpen}
         onOpenChange={setTransferOpen}
-        title={student.class_id ? `Transférer ${student.first_name} ${student.last_name}` : `Assigner ${student.first_name} ${student.last_name}`}
-        description="Une nouvelle période de scolarité sera ouverte pour la classe de destination ; l'ancienne reste consultable dans la fiche de scolarité."
-        fields={[{ name: "class_id", label: "Classe", type: "select", required: true, colSpan: 2, options: classOptions }]}
+        title={student.class_id ? `Transférer ${student.first_name}` : `Assigner ${student.first_name}`}
+        description="Nouvelle période de scolarité pour la classe de destination."
+        fields={[{
+          name: "class_id",
+          label: "Classe",
+          type: "select",
+          required: true,
+          colSpan: 2,
+          options: classOptions,
+        }]}
         submitting={transferring}
         onSubmit={transferStudent}
       />
@@ -389,7 +395,9 @@ function PayDialog({
   open: boolean;
   onClose: () => void;
   student: NonNullable<ReturnType<typeof useSchoolData>["students"][number]>;
-  enrollment: ReturnType<typeof useSchoolData>["activeEnrollmentByStudent"] extends Map<string, infer V> ? V | undefined : never;
+  enrollment: ReturnType<typeof useSchoolData>["activeEnrollmentByStudent"] extends Map<string, infer V>
+    ? V | undefined
+    : never;
   paid: number;
   totalDue: number;
 }) {
@@ -436,7 +444,7 @@ function PayDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
-            Paiement de scolarité — {student.last_name} {student.first_name}
+            Paiement — {student.last_name} {student.first_name}
           </DialogTitle>
           <DialogDescription>Reste dû : {formatFCFA(remaining)}</DialogDescription>
         </DialogHeader>
@@ -448,7 +456,7 @@ function PayDialog({
             <Input type="number" step="any" value={amount} onChange={(e) => setAmount(e.target.value)} />
             {exceeds ? (
               <p className="mt-1 text-xs font-medium text-destructive">
-                Le montant dépasse le reste dû ({formatFCFA(remaining)}).
+                Dépassement du reste dû ({formatFCFA(remaining)}).
               </p>
             ) : null}
           </div>
@@ -457,7 +465,7 @@ function PayDialog({
             <Input type="date" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
           </div>
           <div>
-            <Label className="mb-1.5 block text-sm">Moyen de paiement</Label>
+            <Label className="mb-1.5 block text-sm">Moyen</Label>
             <Select value={method} onValueChange={setMethod}>
               <SelectTrigger>
                 <SelectValue />
@@ -471,15 +479,15 @@ function PayDialog({
           </div>
           <div className="sm:col-span-2">
             <Label className="mb-1.5 block text-sm">Note</Label>
-            <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
+            <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} />
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Annuler
           </Button>
-          <Button disabled={!canSubmit} onClick={submit}>
-            Enregistrer
+          <Button onClick={submit} disabled={!canSubmit}>
+            {submitting ? "…" : "Enregistrer"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -489,19 +497,27 @@ function PayDialog({
 
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between border-b border-border/60 pb-2">
+    <div className="flex items-center justify-between gap-2">
       <span className="text-muted-foreground">{label}</span>
       <span className="font-medium text-foreground">{value}</span>
     </div>
   );
 }
 
-function Metric({ label, value, highlight }: { label: string; value: number | null; highlight?: boolean }) {
+function Metric({
+  label,
+  value,
+  highlight,
+}: {
+  label: string;
+  value: number | null | undefined;
+  highlight?: boolean;
+}) {
   return (
-    <div className="rounded-lg border border-border/70 bg-muted/30 p-3 text-center">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={highlight ? "mt-1 font-display text-xl font-semibold text-primary" : "mt-1 text-lg font-semibold"}>
-        {value === null || value === undefined ? "—" : formatNumber(value, 2)}
+    <div className={`rounded-lg border border-border p-2 text-center ${highlight ? "bg-muted/40" : ""}`}>
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className="tabular-nums text-sm font-semibold text-foreground">
+        {value == null ? "—" : formatNumber(Number(value), 2)}
       </p>
     </div>
   );
