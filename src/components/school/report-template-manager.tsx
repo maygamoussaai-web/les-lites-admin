@@ -1,10 +1,10 @@
 /**
- * Import + vérification d'un modèle de bulletin Excel pour une classe.
+ * Import modele bulletin — balises ([prenom], [classe]…) auto-detectees.
  */
 import { useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { FileSpreadsheet, Loader2, Upload, Check, AlertTriangle } from "lucide-react";
+import { FileSpreadsheet, Loader2, Upload, Check, AlertTriangle, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { supabase } from "@/integrations/supabase/client";
 import { writeAudit, useRows } from "@/lib/data";
 import { describeError } from "@/lib/errors";
@@ -79,6 +80,7 @@ export function ReportTemplateManager({
   const [warnings, setWarnings] = useState<string[]>([]);
   const [scale, setScale] = useState("20");
   const [templateName, setTemplateName] = useState("");
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   const reset = () => {
     setStep("idle");
@@ -90,6 +92,7 @@ export function ReportTemplateManager({
     setScale("20");
     setTemplateName("");
     setBusy(false);
+    setAdvancedOpen(false);
   };
 
   const onFile = async (file: File | undefined) => {
@@ -161,7 +164,6 @@ export function ReportTemplateManager({
         .single();
       if (error) throw error;
 
-      // Uniquement les vraies matières ; purge des faux libellés déjà en base.
       const existing = await supabase.from("class_subjects").select("id, name").eq("class_id", classId);
       if (existing.error) throw existing.error;
       const junkIds = (existing.data ?? []).filter((s) => !isSubjectLabel(s.name)).map((s) => s.id);
@@ -192,11 +194,11 @@ export function ReportTemplateManager({
       });
       qc.invalidateQueries({ queryKey: ["report_templates"] });
       qc.invalidateQueries({ queryKey: ["class_subjects"] });
-      toast.success("Modèle de bulletin enregistré — matières synchronisées");
+      toast.success("Modele enregistre — matieres synchronisees");
       setOpen(false);
       reset();
     } catch (e) {
-      toast.error(describeError(e, "Enregistrement du modèle impossible", "report_templates"));
+      toast.error(describeError(e, "Enregistrement impossible", "report_templates"));
     } finally {
       setBusy(false);
     }
@@ -208,22 +210,19 @@ export function ReportTemplateManager({
         <div className="min-w-0">
           <p className="flex items-center gap-2 text-sm font-medium text-foreground">
             <FileSpreadsheet className="h-4 w-4 text-primary" />
-            Modèle de bulletin
+            Modele de bulletin
           </p>
           {active ? (
             <p className="mt-1 text-xs text-muted-foreground">
-              Actif : <span className="font-medium text-foreground">{active.name}</span>
-              {" · "}barème /{active.scale}
+              Actif : <span className="font-medium text-foreground">{active.name}</span> · bareme /{active.scale}
             </p>
           ) : (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Aucun modèle — importez un Excel pour définir les matières et le rendu des bulletins.
-            </p>
+            <p className="mt-1 text-xs text-muted-foreground">Aucun modele — importez un Excel.</p>
           )}
         </div>
         <Button size="sm" variant="outline" className="press" onClick={() => setOpen(true)}>
           <Upload className="mr-1.5 h-4 w-4" />
-          {active ? "Remplacer le modèle" : "Importer un modèle"}
+          {active ? "Remplacer" : "Importer"}
         </Button>
       </div>
 
@@ -238,9 +237,9 @@ export function ReportTemplateManager({
       >
         <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Modèle de bulletin Excel</DialogTitle>
+            <DialogTitle>Modele de bulletin Excel</DialogTitle>
             <DialogDescription>
-              Importez le fichier .xlsx. L'app ne garde que les vraies matières (pas Total, Observations…).
+              Les balises ([prenom], [nom], [classe]…) et colonnes sont reconnues automatiquement.
             </DialogDescription>
           </DialogHeader>
 
@@ -276,86 +275,44 @@ export function ReportTemplateManager({
             <div className="space-y-4 py-1">
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
-                  <Label className="mb-1.5 block text-sm">Nom du modèle</Label>
+                  <Label className="mb-1.5 block text-sm">Nom du modele</Label>
                   <Input value={templateName} onChange={(e) => setTemplateName(e.target.value)} />
                 </div>
                 <div>
-                  <Label className="mb-1.5 block text-sm">Barème (note max)</Label>
+                  <Label className="mb-1.5 block text-sm">Bareme (note max)</Label>
                   <Input type="number" step="any" value={scale} onChange={(e) => setScale(e.target.value)} />
                 </div>
               </div>
 
-              <div>
-                <p className="mb-2 text-sm font-medium">Colonnes du tableau des matières</p>
-                <div className="space-y-1.5">
-                  {Object.keys(mapping.columns).length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Aucune colonne détectée.</p>
-                  ) : (
-                    Object.entries(mapping.columns).map(([letter, role]) => (
-                      <div key={letter} className="flex items-center gap-2">
-                        <Badge variant="outline" className="w-10 justify-center font-mono">
-                          {letter}
-                        </Badge>
-                        <Select
-                          value={role}
-                          onValueChange={(v) =>
-                            setMapping((m) => (m ? { ...m, columns: { ...m.columns, [letter]: v as ColumnRole } } : m))
-                          }
-                        >
-                          <SelectTrigger className="flex-1">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(Object.keys(COLUMN_ROLE_LABELS) as ColumnRole[]).map((r) => (
-                              <SelectItem key={r} value={r}>
-                                {COLUMN_ROLE_LABELS[r]}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ))
-                  )}
+              <div className="rounded-lg border border-success/30 bg-success/10 p-3 space-y-2">
+                <p className="text-sm font-medium text-success">Detection automatique</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(mapping.columns)
+                    .filter(([, r]) => r !== "ignore")
+                    .map(([letter, role]) => (
+                      <Badge key={letter} variant="secondary" className="font-normal">
+                        Col. {letter} → {COLUMN_ROLE_LABELS[role]}
+                      </Badge>
+                    ))}
+                  {Object.entries(mapping.fields)
+                    .filter(([, r]) => r !== "ignore")
+                    .map(([addr, role]) => (
+                      <Badge key={addr} variant="secondary" className="font-normal">
+                        {addr} → {FIELD_ROLE_LABELS[role]}
+                      </Badge>
+                    ))}
                 </div>
-              </div>
-
-              <div>
-                <p className="mb-2 text-sm font-medium">Cases isolées (balises)</p>
-                <div className="space-y-1.5">
-                  {Object.keys(mapping.fields).length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Aucune balise détectée.</p>
-                  ) : (
-                    Object.entries(mapping.fields).map(([address, role]) => (
-                      <div key={address} className="flex items-center gap-2">
-                        <Badge variant="outline" className="w-14 justify-center font-mono">
-                          {address}
-                        </Badge>
-                        <Select
-                          value={role}
-                          onValueChange={(v) =>
-                            setMapping((m) => (m ? { ...m, fields: { ...m.fields, [address]: v as FieldRole } } : m))
-                          }
-                        >
-                          <SelectTrigger className="flex-1">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(Object.keys(FIELD_ROLE_LABELS) as FieldRole[]).map((r) => (
-                              <SelectItem key={r} value={r}>
-                                {FIELD_ROLE_LABELS[r]}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ))
-                  )}
-                </div>
+                {Object.keys(mapping.fields).length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Aucune balise. Utilisez dans Excel : [prenom], [nom], [nom de famille], [classe], [effectif],
+                    [rang], [date], [moyenne generale], [moyenne du premier]…
+                  </p>
+                )}
               </div>
 
               {subjectLabels.length > 0 && (
                 <div>
-                  <p className="mb-2 text-sm font-medium">Matières détectées ({subjectLabels.length})</p>
+                  <p className="mb-2 text-sm font-medium">Matieres ({subjectLabels.length})</p>
                   <div className="flex flex-wrap gap-1.5">
                     {subjectLabels.map((s) => (
                       <Badge key={s} variant="secondary">
@@ -378,6 +335,73 @@ export function ReportTemplateManager({
                   </ul>
                 </div>
               )}
+
+              <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" size="sm" className="w-full justify-between">
+                    Modifier la correspondance (optionnel)
+                    <ChevronDown className={`h-4 w-4 transition ${advancedOpen ? "rotate-180" : ""}`} />
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="space-y-3 pt-2">
+                  <div className="space-y-1.5">
+                    {Object.entries(mapping.columns).map(([letter, role]) => (
+                      <div key={letter} className="flex items-center gap-2">
+                        <Badge variant="outline" className="w-10 justify-center font-mono">
+                          {letter}
+                        </Badge>
+                        <Select
+                          value={role}
+                          onValueChange={(v) =>
+                            setMapping((m) =>
+                              m ? { ...m, columns: { ...m.columns, [letter]: v as ColumnRole } } : m,
+                            )
+                          }
+                        >
+                          <SelectTrigger className="flex-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(Object.keys(COLUMN_ROLE_LABELS) as ColumnRole[]).map((r) => (
+                              <SelectItem key={r} value={r}>
+                                {COLUMN_ROLE_LABELS[r]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="space-y-1.5">
+                    {Object.entries(mapping.fields).map(([address, role]) => (
+                      <div key={address} className="flex items-center gap-2">
+                        <Badge variant="outline" className="w-14 justify-center font-mono">
+                          {address}
+                        </Badge>
+                        <Select
+                          value={role}
+                          onValueChange={(v) =>
+                            setMapping((m) =>
+                              m ? { ...m, fields: { ...m.fields, [address]: v as FieldRole } } : m,
+                            )
+                          }
+                        >
+                          <SelectTrigger className="flex-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {(Object.keys(FIELD_ROLE_LABELS) as FieldRole[]).map((r) => (
+                              <SelectItem key={r} value={r}>
+                                {FIELD_ROLE_LABELS[r]}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ))}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
             </div>
           )}
 
@@ -397,7 +421,7 @@ export function ReportTemplateManager({
             {step === "review" && (
               <Button onClick={save} disabled={busy || !mapping}>
                 {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Check className="mr-1.5 h-4 w-4" />}
-                Valider le modèle
+                Valider le modele
               </Button>
             )}
           </DialogFooter>
