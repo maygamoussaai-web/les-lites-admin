@@ -19,6 +19,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { writeAudit } from "@/lib/data";
 import { describeError } from "@/lib/errors";
 import { canvasToPdfBlob, downloadBlob } from "@/lib/pdf-export";
+import { uploadBulletinWorkbook, uploadStudentPdf } from "@/lib/storage-upload";
 import {
   readTemplate,
   fillTemplate,
@@ -299,6 +300,7 @@ export function BulletinWalkthroughDialog({
       let fileMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
       const downloadName = `Bulletin — Periode ${period.period_number}`;
       let pdfBlob: Blob | null = null;
+      let storageBucket = "student-documents";
 
       if (templateBuffer && mapping && fillData && templateSheet) {
         const written = writeFilledWorkbook(templateBuffer, mapping, fillData);
@@ -319,9 +321,9 @@ export function BulletinWalkthroughDialog({
         }
       } else {
         for (const s of subjects) {
-          subjectAverages[s.name] = subjectAverage(bySubject.get(s.id) ?? []);
+          subjectAverages[s.name] = null;
         }
-        generalAverage = average;
+        generalAverage = liveModel?.generalAverage ?? null;
         const canvas = renderBulletinCanvas({
           establishmentName,
           className: klass.name,
@@ -329,7 +331,7 @@ export function BulletinWalkthroughDialog({
           periodNumber: period.period_number,
           subjects,
           bySubject,
-          average,
+          average: generalAverage,
         });
         blob = await canvasToPdfBlob(canvas);
         fileExt = "pdf";
@@ -344,10 +346,14 @@ export function BulletinWalkthroughDialog({
         .map(([name]) => name);
       const stamp = Date.now();
       const path = `${klass.establishment_id}/${student.id}/bulletin-p${period.period_number}-${stamp}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage
-        .from("student-documents")
-        .upload(path, blob, { contentType: fileMime, upsert: false });
-      if (uploadError) throw uploadError;
+
+      if (fileExt === "xlsx") {
+        const up = await uploadBulletinWorkbook(path, blob);
+        storageBucket = up.bucket;
+        fileMime = up.contentType;
+      } else {
+        await uploadStudentPdf(path, blob);
+      }
 
       const { data: doc, error: docError } = await supabase
         .from("student_documents")
@@ -355,7 +361,7 @@ export function BulletinWalkthroughDialog({
           student_id: student.id,
           establishment_id: klass.establishment_id,
           name: downloadName,
-          file_path: path,
+          file_path: storageBucket === "student-documents" ? path : `${storageBucket}:${path}`,
           file_type: fileMime,
           file_size: blob.size,
         })
@@ -365,10 +371,8 @@ export function BulletinWalkthroughDialog({
 
       if (pdfBlob && pdfBlob.size > 0 && fileExt === "xlsx") {
         const pdfPath = `${klass.establishment_id}/${student.id}/bulletin-p${period.period_number}-${stamp}.pdf`;
-        const { error: pdfUp } = await supabase.storage
-          .from("student-documents")
-          .upload(pdfPath, pdfBlob, { contentType: "application/pdf", upsert: false });
-        if (!pdfUp) {
+        try {
+          await uploadStudentPdf(pdfPath, pdfBlob);
           await supabase.from("student_documents").insert({
             student_id: student.id,
             establishment_id: klass.establishment_id,
@@ -377,8 +381,8 @@ export function BulletinWalkthroughDialog({
             file_type: "application/pdf",
             file_size: pdfBlob.size,
           });
-        } else {
-          console.warn("PDF upload", pdfUp);
+        } catch (e) {
+          console.warn("PDF upload", e);
         }
       }
 
@@ -423,7 +427,7 @@ export function BulletinWalkthroughDialog({
         renderedVia === "offline-template"
           ? generalAverage != null
             ? `Bulletin valide (moyenne modele : ${generalAverage.toFixed(2)}/20)`
-            : "Bulletin valide — fichier .xlsx du modele"
+            : "Bulletin valide — fichier Excel du modele"
           : "Bulletin valide — PDF provisoire (aucun modele Excel actif)",
       );
     } catch (e) {
@@ -444,15 +448,22 @@ export function BulletinWalkthroughDialog({
       .eq("id", documentId)
       .single();
     if (!doc) return;
-    const { data: signed, error } = await supabase.storage
-      .from("student-documents")
-      .createSignedUrl(doc.file_path, 300);
+    let bucket = "student-documents";
+    let path = doc.file_path;
+    if (path.includes(":") && !path.startsWith("http")) {
+      const [b, ...rest] = path.split(":");
+      if (b === "report-templates" || b === "student-documents") {
+        bucket = b;
+        path = rest.join(":");
+      }
+    }
+    const { data: signed, error } = await supabase.storage.from(bucket).createSignedUrl(path, 300);
     if (error || !signed) {
       toast.error("Lien indisponible");
       return;
     }
     const res = await fetch(signed.signedUrl);
-    const ext = doc.file_path?.includes(".xlsx") ? "xlsx" : doc.file_path?.includes(".pdf") ? "pdf" : "xlsx";
+    const ext = path.includes(".xlsx") ? "xlsx" : path.includes(".pdf") ? "pdf" : "xlsx";
     downloadBlob(await res.blob(), `${doc.name}.${ext}`);
   };
 
@@ -517,7 +528,7 @@ export function BulletinWalkthroughDialog({
                 const subjectGrades = bySubject.get(s.id) ?? [];
                 const evals = subjectGrades.filter((g) => g.nature === "evaluation");
                 const comp = subjectGrades.find((g) => g.nature === "composition");
-                const moy = liveModel?.subjectAverages[s.name] ?? subjectAverage(subjectGrades);
+                const moy = liveModel?.subjectAverages[s.name] ?? null;
                 return (
                   <tr key={s.id} className="border-t border-border">
                     <td className="p-2 font-medium">{s.name}</td>
@@ -541,7 +552,7 @@ export function BulletinWalkthroughDialog({
           <span className="font-semibold text-foreground tabular-nums">
             {liveModel?.generalAverage != null ? `${liveModel.generalAverage.toFixed(2)}/20` : "—"}
           </span>
-          {" · "}Les moyennes viennent des formules Excel du modele quand il est charge.
+          {" · "}Eval / composition ne comptent pas comme moyenne. Seule la formule Excel compte.
         </p>
 
         <DialogFooter className="flex-wrap gap-2 sm:justify-between">
