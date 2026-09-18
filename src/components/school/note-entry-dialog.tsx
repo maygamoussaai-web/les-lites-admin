@@ -27,7 +27,8 @@ import { describeError } from "@/lib/errors";
 import { enqueue } from "@/lib/offline-queue";
 import { flushQueue } from "@/lib/offline-sync";
 import { isSubjectLabel } from "@/lib/xlsx-template";
-import type { ClassSubject, GradePeriod } from "@/lib/grades";
+import { subjectsOfTemplate } from "@/lib/report-template";
+import { subjectAverage, type ClassSubject, type GradePeriod, type Grade } from "@/lib/grades";
 
 type StudentRef = { id: string; first_name: string; last_name: string };
 
@@ -56,6 +57,8 @@ export function NoteEntryDialog({
   students,
   subjects,
   currentPeriod,
+  subjectLabels,
+  existingGrades = [],
 }: {
   open: boolean;
   onClose: () => void;
@@ -64,9 +67,16 @@ export function NoteEntryDialog({
   students: StudentRef[];
   subjects: ClassSubject[];
   currentPeriod: GradePeriod | null;
+  /** Matieres du modele actif (si present) — seules celles-ci sont proposees. */
+  subjectLabels?: string[];
+  /** Notes deja saisies (pour moyenne live). */
+  existingGrades?: Grade[];
 }) {
   const qc = useQueryClient();
-  const realSubjects = subjects.filter((s) => isSubjectLabel(s.name));
+  const realSubjects = subjectsOfTemplate(
+    subjects.filter((s) => isSubjectLabel(s.name)),
+    subjectLabels,
+  );
   const [nature, setNature] = useState<"composition" | "evaluation">("evaluation");
   const [subjectId, setSubjectId] = useState("");
   const [scale, setScale] = useState("20");
@@ -82,6 +92,27 @@ export function NoteEntryDialog({
   const scaleNum = Number(scale);
   const canSubmit =
     !!subjectId && scaleNum > 0 && Object.values(values).some((v) => v !== "") && !submitting;
+
+  /** Moyenne live : note saisie + notes deja en base pour cette matiere/eleve. */
+  const liveAverageFor = (studentId: string, typed: string): number | null => {
+    const n = typed === "" ? null : Number(typed);
+    const prior = existingGrades.filter(
+      (g) =>
+        g.student_id === studentId &&
+        g.subject_id === subjectId &&
+        (!currentPeriod || g.period_id === currentPeriod.id) &&
+        g.nature !== nature,
+    );
+    const synthetic: Pick<Grade, "value" | "scale" | "nature">[] = prior.map((g) => ({
+      value: g.value,
+      scale: g.scale,
+      nature: g.nature,
+    }));
+    if (n !== null && Number.isFinite(n) && scaleNum > 0) {
+      synthetic.push({ value: n, scale: scaleNum, nature });
+    }
+    return subjectAverage(synthetic);
+  };
 
   const submit = async () => {
     if (!canSubmit) return;
@@ -221,7 +252,7 @@ export function NoteEntryDialog({
         <DialogHeader>
           <DialogTitle>Enregistrer une note</DialogTitle>
           <DialogDescription>
-            Nature, matière et barème, puis notes par élève. Fonctionne aussi hors ligne.
+            Matieres du modele de bulletin uniquement. Moyenne live a la saisie. Hors ligne OK.
           </DialogDescription>
         </DialogHeader>
 
@@ -275,20 +306,26 @@ export function NoteEntryDialog({
             <p className="text-sm text-muted-foreground">Aucun élève dans cette classe.</p>
           ) : (
             <div className="max-h-72 space-y-1.5 overflow-y-auto">
-              {students.map((s) => (
-                <div key={s.id} className="flex items-center gap-2">
-                  <span className="flex-1 truncate text-sm">
-                    {s.last_name} {s.first_name}
-                  </span>
-                  <Input
-                    type="number"
-                    step="any"
-                    className="w-24"
-                    value={values[s.id] ?? ""}
-                    onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))}
-                  />
-                </div>
-              ))}
+              {students.map((s) => {
+                const live = liveAverageFor(s.id, values[s.id] ?? "");
+                return (
+                  <div key={s.id} className="flex items-center gap-2">
+                    <span className="flex-1 truncate text-sm">
+                      {s.last_name} {s.first_name}
+                    </span>
+                    <Input
+                      type="number"
+                      step="any"
+                      className="w-24"
+                      value={values[s.id] ?? ""}
+                      onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))}
+                    />
+                    <span className="w-14 text-right text-xs tabular-nums text-muted-foreground">
+                      {live !== null ? live.toFixed(2) : "—"}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
