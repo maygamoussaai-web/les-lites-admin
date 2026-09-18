@@ -1,5 +1,6 @@
 /**
  * Helpers bulletins : remplissage Excel, reexport bulletin annuel.
+ * Telechargement .xlsx force dans le navigateur (independant du stockage).
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
@@ -32,7 +33,6 @@ import { renderFilledSheetCanvas } from "@/lib/xlsx-render";
 import { renderBulletinCanvas } from "@/components/school/bulletin-annual";
 import {
   PASS_THRESHOLD,
-  subjectAverage,
   studentAverage,
   groupGradesBySubject,
   type ClassSubject,
@@ -141,6 +141,9 @@ export function BulletinWalkthroughDialog({
   const qc = useQueryClient();
   const [index, setIndex] = useState(0);
   const [validated, setValidated] = useState<Record<string, string>>({});
+  const [localFiles, setLocalFiles] = useState<
+    Record<string, { blob: Blob; name: string; ext: string }>
+  >({});
   const [busy, setBusy] = useState(false);
   const [templateSheet, setTemplateSheet] = useState<TemplateSheet | null>(null);
   const [templateMapping, setTemplateMapping] = useState<TemplateMapping | null>(null);
@@ -298,9 +301,10 @@ export function BulletinWalkthroughDialog({
 
       let fileExt = "xlsx";
       let fileMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-      const downloadName = `Bulletin — Periode ${period.period_number}`;
+      const downloadName = `Bulletin ${student.last_name} ${student.first_name} - Periode ${period.period_number}`;
       let pdfBlob: Blob | null = null;
       let storageBucket = "student-documents";
+      let docId = `local-${student.id}-${Date.now()}`;
 
       if (templateBuffer && mapping && fillData && templateSheet) {
         const written = writeFilledWorkbook(templateBuffer, mapping, fillData);
@@ -341,49 +345,61 @@ export function BulletinWalkthroughDialog({
 
       if (!blob || blob.size === 0) throw new Error("Generation du bulletin impossible (fichier vide).");
 
+      // Telechargement immediat dans le navigateur (ne depend pas du stockage)
+      downloadBlob(blob, `${downloadName}.${fileExt}`);
+      setLocalFiles((prev) => ({
+        ...prev,
+        [student.id]: { blob, name: downloadName, ext: fileExt },
+      }));
+
       const weakSubjects = Object.entries(subjectAverages)
         .filter(([, avg]) => avg !== null && avg < PASS_THRESHOLD)
         .map(([name]) => name);
       const stamp = Date.now();
       const path = `${klass.establishment_id}/${student.id}/bulletin-p${period.period_number}-${stamp}.${fileExt}`;
 
-      if (fileExt === "xlsx") {
-        const up = await uploadBulletinWorkbook(path, blob);
-        storageBucket = up.bucket;
-        fileMime = up.contentType;
-      } else {
-        await uploadStudentPdf(path, blob);
-      }
-
-      const { data: doc, error: docError } = await supabase
-        .from("student_documents")
-        .insert({
-          student_id: student.id,
-          establishment_id: klass.establishment_id,
-          name: downloadName,
-          file_path: storageBucket === "student-documents" ? path : `${storageBucket}:${path}`,
-          file_type: fileMime,
-          file_size: blob.size,
-        })
-        .select()
-        .single();
-      if (docError) throw docError;
-
-      if (pdfBlob && pdfBlob.size > 0 && fileExt === "xlsx") {
-        const pdfPath = `${klass.establishment_id}/${student.id}/bulletin-p${period.period_number}-${stamp}.pdf`;
-        try {
-          await uploadStudentPdf(pdfPath, pdfBlob);
-          await supabase.from("student_documents").insert({
+      // Stockage : non bloquant (le navigateur a deja le fichier)
+      try {
+        if (fileExt === "xlsx") {
+          const up = await uploadBulletinWorkbook(path, blob);
+          storageBucket = up.bucket;
+          fileMime = up.contentType;
+        } else {
+          await uploadStudentPdf(path, blob);
+        }
+        const { data: doc, error: docError } = await supabase
+          .from("student_documents")
+          .insert({
             student_id: student.id,
             establishment_id: klass.establishment_id,
-            name: `${downloadName} (PDF)`,
-            file_path: pdfPath,
-            file_type: "application/pdf",
-            file_size: pdfBlob.size,
-          });
-        } catch (e) {
-          console.warn("PDF upload", e);
+            name: downloadName,
+            file_path: storageBucket === "student-documents" ? path : `${storageBucket}:${path}`,
+            file_type: fileMime,
+            file_size: blob.size,
+          })
+          .select()
+          .single();
+        if (!docError && doc) docId = doc.id;
+
+        if (pdfBlob && pdfBlob.size > 0 && fileExt === "xlsx") {
+          const pdfPath = `${klass.establishment_id}/${student.id}/bulletin-p${period.period_number}-${stamp}.pdf`;
+          try {
+            await uploadStudentPdf(pdfPath, pdfBlob);
+            await supabase.from("student_documents").insert({
+              student_id: student.id,
+              establishment_id: klass.establishment_id,
+              name: `${downloadName} (PDF)`,
+              file_path: pdfPath,
+              file_type: "application/pdf",
+              file_size: pdfBlob.size,
+            });
+          } catch (e) {
+            console.warn("PDF upload", e);
+          }
         }
+      } catch (e) {
+        console.warn("Stockage bulletin (fichier deja telecharge)", e);
+        toast.message("Fichier telecharge. Enregistrement cloud en echec — reessayez plus tard.");
       }
 
       const cardPayload = {
@@ -395,15 +411,18 @@ export function BulletinWalkthroughDialog({
         weak_subjects: weakSubjects as never,
         general_average: generalAverage,
         subject_averages: subjectAverages as never,
-        document_id: doc.id,
+        document_id: docId.startsWith("local-") ? null : docId,
         validated_at: new Date().toISOString(),
       };
-      const { error: cardError } = await supabase
-        .from("student_report_cards")
-        .upsert(cardPayload, { onConflict: "student_id,period_id" });
-      if (cardError) {
-        const { error: insErr } = await supabase.from("student_report_cards").insert(cardPayload);
-        if (insErr) throw cardError;
+      try {
+        const { error: cardError } = await supabase
+          .from("student_report_cards")
+          .upsert(cardPayload, { onConflict: "student_id,period_id" });
+        if (cardError) {
+          await supabase.from("student_report_cards").insert(cardPayload);
+        }
+      } catch (e) {
+        console.warn("report card", e);
       }
 
       if (generalAverage !== null && period.period_number >= 1 && period.period_number <= 3) {
@@ -419,16 +438,18 @@ export function BulletinWalkthroughDialog({
         else qc.invalidateQueries({ queryKey: ["students"] });
       }
 
-      await writeAudit("create", "student_report_cards" as never, student.id, { period_id: period.id });
+      try {
+        await writeAudit("create", "student_report_cards" as never, student.id, { period_id: period.id });
+      } catch {
+        /* ignore */
+      }
       qc.invalidateQueries({ queryKey: ["student_documents"] });
       qc.invalidateQueries({ queryKey: ["student_report_cards"] });
-      setValidated((v) => ({ ...v, [student.id]: doc.id }));
+      setValidated((v) => ({ ...v, [student.id]: docId }));
       toast.success(
         renderedVia === "offline-template"
-          ? generalAverage != null
-            ? `Bulletin valide (moyenne modele : ${generalAverage.toFixed(2)}/20)`
-            : "Bulletin valide — fichier Excel du modele"
-          : "Bulletin valide — PDF provisoire (aucun modele Excel actif)",
+          ? `Bulletin .xlsx telecharge${generalAverage != null ? ` (moy. ${generalAverage.toFixed(2)})` : ""}`
+          : "Bulletin PDF provisoire telecharge",
       );
     } catch (e) {
       console.error("validate bulletin", e);
@@ -440,8 +461,16 @@ export function BulletinWalkthroughDialog({
 
   const download = async () => {
     if (!student) return;
+    const local = localFiles[student.id];
+    if (local) {
+      downloadBlob(local.blob, `${local.name}.${local.ext}`);
+      return;
+    }
     const documentId = validated[student.id];
-    if (!documentId) return;
+    if (!documentId || documentId.startsWith("local-")) {
+      toast.error("Fichier non disponible — revalidez le bulletin.");
+      return;
+    }
     const { data: doc } = await supabase
       .from("student_documents")
       .select("file_path,name,file_type")
@@ -503,7 +532,7 @@ export function BulletinWalkthroughDialog({
         )}
         {templateSheet && templateMapping && !templateLoading && (
           <div className="rounded-md border border-success/30 bg-success/10 px-3 py-2 text-xs text-success">
-            Livrable : .xlsx du modele + PDF.
+            A la validation : telechargement .xlsx immediat + enregistrement bibliotheque.
           </div>
         )}
 
@@ -563,11 +592,11 @@ export function BulletinWalkthroughDialog({
           </Button>
           <div className="flex flex-wrap gap-2">
             {validated[student.id] ? (
-              <Button variant="outline" onClick={download}>
+              <Button variant="outline" onClick={() => void download()}>
                 <Download className="mr-1.5 h-4 w-4" /> Telecharger
               </Button>
             ) : (
-              <Button onClick={validate} disabled={busy || templateLoading}>
+              <Button onClick={() => void validate()} disabled={busy || templateLoading}>
                 {busy ? "Validation…" : "Valider"}
               </Button>
             )}
