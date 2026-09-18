@@ -418,6 +418,9 @@ export type FilledSheet = {
   values: Record<string, CellValue>;
   warnings: string[];
   computed: ComputedAverages;
+  // NOTE POUR CLAUDE: ligne du tableau -> nom de matiere, pour rejouer les
+  // regles de moyenne (src/lib/live-averages.ts) sans refaire la detection.
+  rowSubjects: Record<number, string>;
 };
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
@@ -576,6 +579,7 @@ export function fillTemplate(sheet: TemplateSheet, mapping: TemplateMapping, dat
     values,
     warnings: [...new Set(warnings)],
     computed: { generalAverage: generalAverageOut, subjectAverages: subjectAveragesOut },
+    rowSubjects: Object.fromEntries(rowSubjectName),
   };
 }
 
