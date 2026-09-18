@@ -166,18 +166,28 @@ export function ReportTemplateManager({
 
       const existing = await supabase.from("class_subjects").select("id, name").eq("class_id", classId);
       if (existing.error) throw existing.error;
-      const junkIds = (existing.data ?? []).filter((s) => !isSubjectLabel(s.name)).map((s) => s.id);
-      if (junkIds.length) {
-        const { error: delErr } = await supabase.from("class_subjects").delete().in("id", junkIds);
+      const normKey = (name: string) =>
+        name.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
+      const wanted = new Set(subjectLabels.map(normKey));
+      const toDelete = (existing.data ?? []).filter((s) => {
+        if (!isSubjectLabel(s.name)) return true;
+        if (wanted.size === 0) return false;
+        return !wanted.has(normKey(s.name));
+      });
+      if (toDelete.length) {
+        const { error: delErr } = await supabase
+          .from("class_subjects")
+          .delete()
+          .in(
+            "id",
+            toDelete.map((s) => s.id),
+          );
         if (delErr) throw delErr;
       }
-      const byNorm = new Map(
-        (existing.data ?? [])
-          .filter((s) => isSubjectLabel(s.name))
-          .map((s) => [s.name.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim(), s]),
-      );
+      const remaining = (existing.data ?? []).filter((s) => !toDelete.some((d) => d.id === s.id));
+      const byNorm = new Map(remaining.map((s) => [normKey(s.name), s]));
       for (const label of subjectLabels) {
-        const key = label.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
+        const key = normKey(label);
         if (byNorm.has(key)) continue;
         const { data: sub, error: subErr } = await supabase
           .from("class_subjects")
