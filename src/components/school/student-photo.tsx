@@ -36,7 +36,12 @@ export function StudentPhoto({
     if (!file) return;
     setBusy(true);
     try {
-      const compressed = await compressImage(file, 600, 0.8);
+      // Recadrage centre en carre : pas d'etirement dans l'avatar rond
+      const compressed = await compressImage(file, {
+        squareCrop: true,
+        squareSize: 512,
+        quality: 0.9,
+      });
       const path = `${establishmentId}/${studentId}.jpg`;
       const { error } = await supabase.storage
         .from("student-photos")
@@ -47,7 +52,7 @@ export function StudentPhoto({
       const { error: updateError } = await supabase.from("students").update({ photo_url: url }).eq("id", studentId);
       if (updateError) throw updateError;
       refresh();
-      toast.success("Photo mise à jour");
+      toast.success("Photo mise a jour");
     } catch (e) {
       toast.error(describeError(e, "Envoi de la photo impossible", "students"));
     } finally {
@@ -62,7 +67,7 @@ export function StudentPhoto({
       const { error } = await supabase.from("students").update({ photo_url: null }).eq("id", studentId);
       if (error) throw error;
       refresh();
-      toast.success("Photo supprimée");
+      toast.success("Photo supprimee");
     } catch (e) {
       toast.error(describeError(e, "Suppression de la photo impossible", "students"));
     } finally {
@@ -79,22 +84,28 @@ export function StudentPhoto({
         aria-label={photoUrl ? "Agrandir la photo" : "Aucune photo"}
       >
         <Avatar className={compact ? "h-14 w-14 border border-border" : "h-16 w-16 border border-border"}>
-          {photoUrl ? <AvatarImage src={photoUrl} alt={`${firstName} ${lastName}`} /> : null}
+          {photoUrl ? (
+            <AvatarImage
+              src={photoUrl}
+              alt={`${firstName} ${lastName}`}
+              className="object-cover object-center"
+            />
+          ) : null}
           <AvatarFallback>{initials(firstName, lastName)}</AvatarFallback>
         </Avatar>
       </button>
       {!compact && (
-      <div className="flex flex-col gap-1.5">
-        <Button variant="outline" size="sm" className="press" disabled={busy} onClick={() => inputRef.current?.click()}>
-          {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Camera className="mr-1.5 h-4 w-4" />}
-          {photoUrl ? "Remplacer" : "Ajouter une photo"}
-        </Button>
-        {photoUrl ? (
-          <Button variant="ghost" size="sm" className="text-destructive" disabled={busy} onClick={remove}>
-            <Trash2 className="mr-1.5 h-4 w-4" /> Supprimer
+        <div className="flex flex-col gap-1.5">
+          <Button variant="outline" size="sm" className="press" disabled={busy} onClick={() => inputRef.current?.click()}>
+            {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Camera className="mr-1.5 h-4 w-4" />}
+            {photoUrl ? "Remplacer" : "Ajouter une photo"}
           </Button>
-        ) : null}
-      </div>
+          {photoUrl ? (
+            <Button variant="ghost" size="sm" className="text-destructive" disabled={busy} onClick={remove}>
+              <Trash2 className="mr-1.5 h-4 w-4" /> Supprimer
+            </Button>
+          ) : null}
+        </div>
       )}
       <input
         ref={inputRef}
@@ -111,7 +122,13 @@ export function StudentPhoto({
           <DialogTitle className="sr-only">
             Photo de {firstName} {lastName}
           </DialogTitle>
-          {photoUrl ? <img src={photoUrl} alt={`${firstName} ${lastName}`} className="w-full rounded-md" /> : null}
+          {photoUrl ? (
+            <img
+              src={photoUrl}
+              alt={`${firstName} ${lastName}`}
+              className="w-full rounded-md object-contain"
+            />
+          ) : null}
         </DialogContent>
       </Dialog>
     </div>
