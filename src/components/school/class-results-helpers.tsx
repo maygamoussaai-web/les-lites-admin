@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { FileBarChart, Download, Trash2, Eye, Clock } from "lucide-react";
+import { FileBarChart, Download, Trash2, Clock } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -37,29 +37,41 @@ export function StudentGroupCard({
 }) {
   if (!rows.length) return null;
   return (
-    <Card className="animate-rise panel-gradient">
-      <CardHeader>
+    <Card className="animate-rise panel-gradient min-w-0 overflow-hidden">
+      <CardHeader className="pb-3">
         <CardTitle className="font-display text-base">{title}</CardTitle>
       </CardHeader>
-      <CardContent className="space-y-2">
+      <CardContent className="min-w-0 space-y-2">
         {rows.map((r) => (
           <div
             key={r.student.id}
-            className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-sm"
+            className="flex min-w-0 flex-col gap-1.5 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-sm sm:flex-row sm:items-start sm:justify-between sm:gap-3"
           >
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1 overflow-hidden">
               <Link
                 to="/eleves/$studentId"
                 params={{ studentId: r.student.id }}
-                className="font-medium hover:underline"
+                className="block truncate font-medium hover:underline"
               >
                 {r.student.last_name} {r.student.first_name}
               </Link>
               {r.weakSubjects.length > 0 && (
-                <p className="truncate text-xs text-muted-foreground">{r.weakSubjects.join(", ")}</p>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {r.weakSubjects.map((subject) => (
+                    <span
+                      key={subject}
+                      className="max-w-full truncate rounded-md bg-background/80 px-1.5 py-0.5 text-[11px] leading-tight text-muted-foreground"
+                    >
+                      {subject}
+                    </span>
+                  ))}
+                </div>
               )}
             </div>
-            <Badge variant={tone === "destructive" ? "destructive" : "secondary"} className="tabular-nums">
+            <Badge
+              variant={tone === "destructive" ? "destructive" : "secondary"}
+              className="w-fit shrink-0 self-start tabular-nums"
+            >
               {r.average.toFixed(2)}
             </Badge>
           </div>
@@ -93,7 +105,7 @@ export function ClassReportsSection({
 
   const generate = async () => {
     if (!period || !stats) {
-      toast.error("Aucune période ou statistiques disponibles.");
+      toast.error("Aucune periode ou statistiques disponibles.");
       return;
     }
     try {
@@ -120,9 +132,9 @@ export function ClassReportsSection({
       if (error) throw error;
       await writeAudit("create", "class_reports" as never, null, { class_id: classId });
       qc.invalidateQueries({ queryKey: ["class_reports"] });
-      toast.success("Rapport de classe généré");
+      toast.success("Rapport de classe genere");
     } catch (e) {
-      toast.error((e as Error).message || "Génération impossible");
+      toast.error((e as Error).message || "Generation impossible");
     }
   };
 
@@ -133,7 +145,7 @@ export function ClassReportsSection({
       const res = await fetch(data.signedUrl);
       downloadBlob(await res.blob(), `Rapport-${className}.pdf`);
     } catch (e) {
-      toast.error((e as Error).message || "Téléchargement impossible");
+      toast.error((e as Error).message || "Telechargement impossible");
     }
   };
 
@@ -143,35 +155,35 @@ export function ClassReportsSection({
       const { error } = await supabase.from("class_reports").delete().eq("id", report.id);
       if (error) throw error;
       qc.invalidateQueries({ queryKey: ["class_reports"] });
-      toast.success("Rapport supprimé");
+      toast.success("Rapport supprime");
     } catch (e) {
       toast.error((e as Error).message || "Suppression impossible");
     }
   };
 
   return (
-    <Card>
+    <Card className="min-w-0 overflow-hidden">
       <CardHeader className="flex flex-row items-center justify-between gap-2">
         <CardTitle className="text-base">Rapports de classe</CardTitle>
         <Button size="sm" variant="outline" onClick={generate} disabled={!period || !stats}>
-          <FileBarChart className="mr-1.5 h-4 w-4" /> Générer
+          <FileBarChart className="mr-1.5 h-4 w-4" /> Generer
         </Button>
       </CardHeader>
       <CardContent>
         {reports.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Aucun rapport généré.</p>
+          <p className="text-sm text-muted-foreground">Aucun rapport genere.</p>
         ) : (
           <div className="space-y-2">
             {reports.map((r) => (
               <div
                 key={r.id}
-                className="flex items-center justify-between gap-2 rounded-lg border border-border/70 px-3 py-2 text-sm"
+                className="flex min-w-0 items-center justify-between gap-2 rounded-lg border border-border/70 px-3 py-2 text-sm"
               >
-                <div className="flex items-center gap-2 min-w-0">
+                <div className="flex min-w-0 items-center gap-2">
                   <Clock className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <span className="truncate">{formatDateTime(r.generated_at)}</span>
                 </div>
-                <div className="flex gap-1">
+                <div className="flex shrink-0 gap-1">
                   <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => download(r)}>
                     <Download className="h-4 w-4" />
                   </Button>
@@ -210,7 +222,7 @@ function renderClassReportCanvas({
   ctx.font = "bold 28px sans-serif";
   ctx.fillText(establishmentName, 60, 60);
   ctx.font = "20px sans-serif";
-  ctx.fillText(`Rapport de classe — ${className} — Période ${periodNumber}`, 60, 100);
+  ctx.fillText(`Rapport de classe — ${className} — Periode ${periodNumber}`, 60, 100);
   let y = 160;
   ctx.font = "16px sans-serif";
   ctx.fillText(
@@ -219,6 +231,6 @@ function renderClassReportCanvas({
     y,
   );
   y += 40;
-  ctx.fillText(`Réussite : ${stats.passing.length}/${stats.withAvg.length}`, 60, y);
+  ctx.fillText(`Reussite : ${stats.passing.length}/${stats.withAvg.length}`, 60, y);
   return canvas;
 }
