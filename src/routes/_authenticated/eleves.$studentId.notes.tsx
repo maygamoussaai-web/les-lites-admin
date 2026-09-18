@@ -1,14 +1,6 @@
 /**
- * HISTORIQUE DES NOTES D'UN ÉLÈVE.
- *
- * NOTE POUR CLAUDE :
- * - Données chargées via useClassGrades (src/lib/grades.ts) : mêmes requêtes
- *   et même cache que la fiche de classe, aucune duplication.
- * - Les notes sont regroupées par période (les anciennes périodes restent
- *   consultables et ne sont jamais supprimées).
- * - Modification / suppression d'une note agissent directement sur la table
- *   `grades` ; les moyennes se recalculent automatiquement partout puisque
- *   tout passe par les fonctions de src/lib/grades.ts.
+ * HISTORIQUE DES NOTES D'UN ELEVE.
+ * Periodes closes = lecture seule (pas de modification / suppression).
  */
 import { useMemo, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
@@ -58,8 +50,8 @@ import {
 export const Route = createFileRoute("/_authenticated/eleves/$studentId/notes")({
   head: () => ({
     meta: [
-      { title: "Historique des notes – Les Élites de Gao" },
-      { name: "description", content: "Toutes les notes d'un élève, période par période." },
+      { title: "Historique des notes – Les Elites de Gao" },
+      { name: "description", content: "Toutes les notes d'un eleve, periode par periode." },
     ],
   }),
   component: Page,
@@ -99,8 +91,8 @@ function Page() {
     return (
       <EmptyState
         icon={ShieldAlert}
-        title="Élève introuvable"
-        description="Cet élève n'existe pas ou vous n'y avez pas accès."
+        title="Eleve introuvable"
+        description="Cet eleve n'existe pas ou vous n'y avez pas acces."
       />
     );
   }
@@ -114,30 +106,32 @@ function Page() {
         className="-ml-2 w-fit"
         onClick={() => navigate({ to: "/eleves/$studentId", params: { studentId } })}
       >
-        <ArrowLeft className="mr-1.5 h-4 w-4" /> Retour à la fiche
+        <ArrowLeft className="mr-1.5 h-4 w-4" /> Retour a la fiche
       </Button>
 
       <PageHeader
         eyebrow="Historique"
         title={`Notes — ${student.last_name} ${student.first_name}`}
-        description="Toutes les périodes sont conservées. Modifier ou supprimer une note recalcule immédiatement les moyennes et les bulletins non validés."
+        description="Les periodes closes sont en lecture seule : notes et moyennes non modifiables. Seule la periode en cours peut etre editee."
       />
 
       {!classId ? (
-        <EmptyState icon={ShieldAlert} title="Aucune classe" description="Assignez l'élève à une classe pour saisir des notes." />
+        <EmptyState icon={ShieldAlert} title="Aucune classe" description="Assignez l'eleve a une classe pour saisir des notes." />
       ) : loading ? (
         <p className="text-sm text-muted-foreground">Chargement…</p>
       ) : byPeriod.length === 0 ? (
-        <EmptyState icon={ShieldAlert} title="Aucune période" description="Aucune période scolaire n'a encore été ouverte pour cette classe." />
+        <EmptyState icon={ShieldAlert} title="Aucune periode" description="Aucune periode scolaire n'a encore ete ouverte pour cette classe." />
       ) : (
         <div className="space-y-4">
           {byPeriod.map(({ period, grades: list, average }) => (
             <Card key={period.id}>
               <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
                 <div>
-                  <CardTitle className="text-base">Période {period.period_number}</CardTitle>
+                  <CardTitle className="text-base">Periode {period.period_number}</CardTitle>
                   <p className="text-xs text-muted-foreground">
-                    Du {formatDate(period.started_at)} {period.ended_at ? `au ${formatDate(period.ended_at)}` : "— en cours"}
+                    Du {formatDate(period.started_at)}{" "}
+                    {period.ended_at ? `au ${formatDate(period.ended_at)}` : "— en cours"}
+                    {period.ended_at ? " · lecture seule" : ""}
                   </p>
                 </div>
                 <Badge
@@ -149,11 +143,16 @@ function Page() {
               </CardHeader>
               <CardContent>
                 {list.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Aucune note sur cette période.</p>
+                  <p className="text-sm text-muted-foreground">Aucune note sur cette periode.</p>
                 ) : (
                   <ul className="divide-y divide-border">
                     {list.map((g) => (
-                      <GradeRow key={g.id} grade={g} subject={subjectName.get(g.subject_id) ?? "Matière"} />
+                      <GradeRow
+                        key={g.id}
+                        grade={g}
+                        subject={subjectName.get(g.subject_id) ?? "Matiere"}
+                        locked={period.ended_at !== null}
+                      />
                     ))}
                   </ul>
                 )}
@@ -166,7 +165,7 @@ function Page() {
   );
 }
 
-function GradeRow({ grade, subject }: { grade: Grade; subject: string }) {
+function GradeRow({ grade, subject, locked }: { grade: Grade; subject: string; locked?: boolean }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState(String(grade.value));
@@ -176,10 +175,14 @@ function GradeRow({ grade, subject }: { grade: Grade; subject: string }) {
   const refresh = () => qc.invalidateQueries({ queryKey: ["grades"] });
 
   const save = async () => {
+    if (locked) {
+      toast.error("Cette periode est close : modification impossible.");
+      return;
+    }
     const v = Number(value);
     const s = Number(scale);
     if (!(s > 0) || !(v >= 0) || v > s) {
-      toast.error("Note invalide : elle doit être comprise entre 0 et le barème.");
+      toast.error("Note invalide : elle doit etre comprise entre 0 et le bareme.");
       return;
     }
     setBusy(true);
@@ -188,7 +191,7 @@ function GradeRow({ grade, subject }: { grade: Grade; subject: string }) {
       if (error) throw error;
       await writeAudit("update", "grades" as never, grade.id, { value: v, scale: s });
       refresh();
-      toast.success("Note modifiée");
+      toast.success("Note modifiee");
       setOpen(false);
     } catch (e) {
       toast.error(describeError(e, "Modification impossible", "grades"));
@@ -198,13 +201,17 @@ function GradeRow({ grade, subject }: { grade: Grade; subject: string }) {
   };
 
   const remove = async () => {
+    if (locked) {
+      toast.error("Cette periode est close : suppression impossible.");
+      return;
+    }
     setBusy(true);
     try {
       const { error } = await supabase.from("grades").delete().eq("id", grade.id);
       if (error) throw error;
       await writeAudit("delete", "grades" as never, grade.id, {});
       refresh();
-      toast.success("Note supprimée");
+      toast.success("Note supprimee");
     } catch (e) {
       toast.error(describeError(e, "Suppression impossible", "grades"));
     } finally {
@@ -219,7 +226,7 @@ function GradeRow({ grade, subject }: { grade: Grade; subject: string }) {
       <div className="min-w-0">
         <p className="font-medium text-foreground">{subject}</p>
         <p className="text-xs text-muted-foreground">
-          {grade.nature === "composition" ? "Composition" : `Évaluation ${grade.sequence_number}`} ·{" "}
+          {grade.nature === "composition" ? "Composition" : `Evaluation ${grade.sequence_number}`} ·{" "}
           {formatDate(grade.created_at)}
         </p>
       </div>
@@ -230,30 +237,38 @@ function GradeRow({ grade, subject }: { grade: Grade; subject: string }) {
         <Badge variant={normalized < PASS_THRESHOLD ? "destructive" : "outline"} className="tabular-nums">
           {formatNumber(normalized, 2)} /20
         </Badge>
-        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setOpen(true)} aria-label="Modifier la note">
-          <Pencil className="h-4 w-4" />
-        </Button>
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" aria-label="Supprimer la note">
-              <Trash2 className="h-4 w-4" />
+        {locked ? (
+          <Badge variant="secondary" className="text-[10px]">
+            Periode close
+          </Badge>
+        ) : (
+          <>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setOpen(true)} aria-label="Modifier la note">
+              <Pencil className="h-4 w-4" />
             </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Supprimer cette note ?</AlertDialogTitle>
-              <AlertDialogDescription>
-                La note de {subject} sera définitivement supprimée et les moyennes recalculées.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Annuler</AlertDialogCancel>
-              <AlertDialogAction disabled={busy} onClick={() => void remove()}>
-                Supprimer
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" aria-label="Supprimer la note">
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Supprimer cette note ?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    La note de {subject} sera definitivement supprimee et les moyennes recalculees.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Annuler</AlertDialogCancel>
+                  <AlertDialogAction disabled={busy} onClick={() => void remove()}>
+                    Supprimer
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </>
+        )}
       </div>
 
       <Dialog open={open} onOpenChange={setOpen}>
@@ -261,7 +276,7 @@ function GradeRow({ grade, subject }: { grade: Grade; subject: string }) {
           <DialogHeader>
             <DialogTitle>Modifier la note — {subject}</DialogTitle>
             <DialogDescription>
-              {grade.nature === "composition" ? "Composition" : "Évaluation"} · la moyenne est recalculée immédiatement.
+              {grade.nature === "composition" ? "Composition" : "Evaluation"} · la moyenne est recalculee immediatement.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -270,7 +285,7 @@ function GradeRow({ grade, subject }: { grade: Grade; subject: string }) {
               <Input type="number" step="any" value={value} onChange={(e) => setValue(e.target.value)} />
             </div>
             <div>
-              <Label className="mb-1.5 block text-sm">Barème</Label>
+              <Label className="mb-1.5 block text-sm">Bareme</Label>
               <Input type="number" step="any" value={scale} onChange={(e) => setScale(e.target.value)} />
             </div>
           </div>
@@ -278,7 +293,7 @@ function GradeRow({ grade, subject }: { grade: Grade; subject: string }) {
             <Button variant="outline" onClick={() => setOpen(false)}>
               Annuler
             </Button>
-            <Button disabled={busy} onClick={() => void save()}>
+            <Button disabled={busy || locked} onClick={() => void save()}>
               Enregistrer
             </Button>
           </DialogFooter>
