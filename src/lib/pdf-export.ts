@@ -1,10 +1,10 @@
 /**
- * Génère un PDF d'une page à partir d'une image JPEG, à la main, sans
- * dépendance externe. Fonctionne entièrement dans le navigateur.
+ * Genere un PDF d'une page a partir d'une image JPEG, a la main, sans
+ * dependance externe. Fonctionne entierement dans le navigateur.
  */
 function readJpegSize(data: Uint8Array): { width: number; height: number } {
   const at = (i: number) => data[i] ?? 0;
-  let offset = 2; // saute le marqueur SOI (0xFFD8)
+  let offset = 2;
   while (offset < data.length - 8) {
     if (at(offset) !== 0xff) {
       offset++;
@@ -23,7 +23,6 @@ function readJpegSize(data: Uint8Array): { width: number; height: number } {
   throw new Error("Dimensions de l'image introuvables");
 }
 
-/** Assemble un PDF d'une page autour d'un JPEG déjà encodé (bytes connus). */
 function assemblePdf(jpegBytes: Uint8Array, width: number, height: number): Blob {
   const enc = new TextEncoder();
   const parts: Uint8Array[] = [];
@@ -71,7 +70,6 @@ function assemblePdf(jpegBytes: Uint8Array, width: number, height: number): Blob
   return new Blob(parts as BlobPart[], { type: "application/pdf" });
 }
 
-/** Convertit une image (URL) en PDF d'une page. */
 export async function imageToPdfBlob(imageUrl: string): Promise<Blob> {
   const res = await fetch(imageUrl);
   const jpegBytes = new Uint8Array(await res.arrayBuffer());
@@ -79,30 +77,26 @@ export async function imageToPdfBlob(imageUrl: string): Promise<Blob> {
   return assemblePdf(jpegBytes, width, height);
 }
 
-/**
- * Convertit un <canvas> (utilisé pour dessiner bulletins et rapports à la
- * main, en texte natif) directement en PDF d'une page — réutilise le même
- * assemblage PDF que pour les documents élèves, sans nouvelle dépendance.
- */
 export async function canvasToPdfBlob(canvas: HTMLCanvasElement, quality = 0.92): Promise<Blob> {
   const blob = await new Promise<Blob>((resolve, reject) =>
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Génération de l'image échouée"))), "image/jpeg", quality),
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Generation de l'image echouee"))), "image/jpeg", quality),
   );
   const jpegBytes = new Uint8Array(await blob.arrayBuffer());
   return assemblePdf(jpegBytes, canvas.width, canvas.height);
 }
 
-/** Déclenche le téléchargement d'un blob (ouvre dans un nouvel onglet — plus fiable que le téléchargement forcé sur mobile). */
+/**
+ * Telechargement force avec le nom de fichier (fonctionne pour .xlsx et .pdf).
+ * Preferer <a download> plutot qu'ouvrir un onglet (mobile + Excel).
+ */
 export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
-  const win = window.open(url, "_blank", "noopener,noreferrer");
-  if (!win) {
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  }
-  setTimeout(() => URL.revokeObjectURL(url), 30000);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.rel = "noopener";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
