@@ -1,5 +1,5 @@
 /**
- * Helpers bulletins : remplissage Excel, bulletin annuel.
+ * Helpers bulletins : remplissage Excel, reexport bulletin annuel.
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
@@ -21,11 +21,14 @@ import { describeError } from "@/lib/errors";
 import { canvasToPdfBlob, downloadBlob } from "@/lib/pdf-export";
 import {
   readTemplate,
+  fillTemplate,
   type TemplateMapping,
   type FillData,
   type TemplateSheet,
 } from "@/lib/xlsx-template";
 import { writeFilledWorkbook } from "@/lib/xlsx-writeback";
+import { renderFilledSheetCanvas } from "@/lib/xlsx-render";
+import { renderBulletinCanvas } from "@/components/school/bulletin-annual";
 import {
   PASS_THRESHOLD,
   subjectAverage,
@@ -199,11 +202,60 @@ export function BulletinWalkthroughDialog({
   );
   const average = studentAverage(bySubject);
 
+  const liveModel = useMemo(() => {
+    if (!student || !templateBuffer || !templateMapping) return null;
+    try {
+      const sorted = [...students]
+        .map((s) => studentAverage(groupGradesBySubject(grades, s.id)))
+        .filter((a): a is number => a !== null)
+        .sort((a, b) => b - a);
+      let rankVal: number | null = null;
+      if (average !== null && sorted.length) {
+        const idx = sorted.findIndex((x) => x === average);
+        rankVal = idx >= 0 ? idx + 1 : null;
+      }
+      const fillData = buildFillData({
+        establishmentName,
+        className: klass.name,
+        studentName: `${student.last_name} ${student.first_name}`,
+        studentFirstName: student.first_name,
+        studentLastName: student.last_name,
+        periodNumber: period.period_number,
+        subjects,
+        bySubject,
+        allStudentsAverages: sorted,
+        headcount: students.length,
+        scale: templateScale,
+        rank: rankVal,
+      });
+      const written = writeFilledWorkbook(templateBuffer, templateMapping, fillData);
+      return {
+        generalAverage: written.computed.generalAverage,
+        subjectAverages: written.computed.subjectAverages,
+      };
+    } catch (e) {
+      console.warn("live model averages", e);
+      return null;
+    }
+  }, [
+    student,
+    templateBuffer,
+    templateMapping,
+    templateScale,
+    grades,
+    subjects,
+    bySubject,
+    students,
+    establishmentName,
+    klass.name,
+    period.period_number,
+    average,
+  ]);
+
   const allStudentsAverages = useMemo(() => {
     const avgs: number[] = [];
     for (const s of students) {
-      const bs = groupGradesBySubject(grades, s.id);
-      const a = studentAverage(bs);
+      const a = studentAverage(groupGradesBySubject(grades, s.id));
       if (a !== null) avgs.push(a);
     }
     return avgs;
@@ -226,7 +278,6 @@ export function BulletinWalkthroughDialog({
       }
 
       const mapping = templateMapping;
-
       const fillData = mapping
         ? buildFillData({
             establishmentName,
@@ -247,23 +298,25 @@ export function BulletinWalkthroughDialog({
       let fileExt = "xlsx";
       let fileMime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
       const downloadName = `Bulletin — Periode ${period.period_number}`;
+      let pdfBlob: Blob | null = null;
 
-      if (templateBuffer && mapping && fillData) {
+      if (templateBuffer && mapping && fillData && templateSheet) {
         const written = writeFilledWorkbook(templateBuffer, mapping, fillData);
         if (written.warnings.length) console.warn("Bulletin formules", written.warnings);
         generalAverage = written.computed.generalAverage;
-        if (generalAverage === null) {
-          const vals = Object.values(written.computed.subjectAverages).filter(
-            (v): v is number => v !== null,
-          );
-          if (vals.length) generalAverage = vals.reduce((a, b) => a + b, 0) / vals.length;
-        }
         for (const s of subjects) {
           subjectAverages[s.name] = written.computed.subjectAverages[s.name] ?? null;
         }
         const bytes = toBlobBytes(written.buffer as ArrayBuffer | Uint8Array | number[]);
         blob = new Blob([bytes], { type: fileMime });
         renderedVia = "offline-template";
+        try {
+          const filled = fillTemplate(templateSheet, mapping, fillData);
+          const canvas = renderFilledSheetCanvas(templateSheet, filled.values);
+          pdfBlob = await canvasToPdfBlob(canvas);
+        } catch (e) {
+          console.warn("PDF modele", e);
+        }
       } else {
         for (const s of subjects) {
           subjectAverages[s.name] = subjectAverage(bySubject.get(s.id) ?? []);
@@ -289,7 +342,8 @@ export function BulletinWalkthroughDialog({
       const weakSubjects = Object.entries(subjectAverages)
         .filter(([, avg]) => avg !== null && avg < PASS_THRESHOLD)
         .map(([name]) => name);
-      const path = `${klass.establishment_id}/${student.id}/bulletin-p${period.period_number}-${Date.now()}.${fileExt}`;
+      const stamp = Date.now();
+      const path = `${klass.establishment_id}/${student.id}/bulletin-p${period.period_number}-${stamp}.${fileExt}`;
       const { error: uploadError } = await supabase.storage
         .from("student-documents")
         .upload(path, blob, { contentType: fileMime, upsert: false });
@@ -308,6 +362,25 @@ export function BulletinWalkthroughDialog({
         .select()
         .single();
       if (docError) throw docError;
+
+      if (pdfBlob && pdfBlob.size > 0 && fileExt === "xlsx") {
+        const pdfPath = `${klass.establishment_id}/${student.id}/bulletin-p${period.period_number}-${stamp}.pdf`;
+        const { error: pdfUp } = await supabase.storage
+          .from("student-documents")
+          .upload(pdfPath, pdfBlob, { contentType: "application/pdf", upsert: false });
+        if (!pdfUp) {
+          await supabase.from("student_documents").insert({
+            student_id: student.id,
+            establishment_id: klass.establishment_id,
+            name: `${downloadName} (PDF)`,
+            file_path: pdfPath,
+            file_type: "application/pdf",
+            file_size: pdfBlob.size,
+          });
+        } else {
+          console.warn("PDF upload", pdfUp);
+        }
+      }
 
       const cardPayload = {
         student_id: student.id,
@@ -419,7 +492,7 @@ export function BulletinWalkthroughDialog({
         )}
         {templateSheet && templateMapping && !templateLoading && (
           <div className="rounded-md border border-success/30 bg-success/10 px-3 py-2 text-xs text-success">
-            Livrable : .xlsx du modele (notes + formules Excel du fichier).
+            Livrable : .xlsx du modele + PDF.
           </div>
         )}
 
@@ -436,6 +509,7 @@ export function BulletinWalkthroughDialog({
                 <th className="p-2">Matiere</th>
                 <th className="p-2 text-right">Eval.</th>
                 <th className="p-2 text-right">Compo</th>
+                <th className="p-2 text-right">Moy.</th>
               </tr>
             </thead>
             <tbody>
@@ -443,6 +517,7 @@ export function BulletinWalkthroughDialog({
                 const subjectGrades = bySubject.get(s.id) ?? [];
                 const evals = subjectGrades.filter((g) => g.nature === "evaluation");
                 const comp = subjectGrades.find((g) => g.nature === "composition");
+                const moy = liveModel?.subjectAverages[s.name] ?? subjectAverage(subjectGrades);
                 return (
                   <tr key={s.id} className="border-t border-border">
                     <td className="p-2 font-medium">{s.name}</td>
@@ -452,6 +527,9 @@ export function BulletinWalkthroughDialog({
                     <td className="p-2 text-right tabular-nums">
                       {comp ? `${comp.value}/${comp.scale}` : "—"}
                     </td>
+                    <td className="p-2 text-right tabular-nums font-medium">
+                      {moy !== null && moy !== undefined ? moy.toFixed(2) : "—"}
+                    </td>
                   </tr>
                 );
               })}
@@ -459,7 +537,11 @@ export function BulletinWalkthroughDialog({
           </table>
         </div>
         <p className="text-xs text-muted-foreground">
-          Moyennes matieres et moyenne generale = formules du fichier Excel a la validation.
+          Moyenne generale (modele) :{" "}
+          <span className="font-semibold text-foreground tabular-nums">
+            {liveModel?.generalAverage != null ? `${liveModel.generalAverage.toFixed(2)}/20` : "—"}
+          </span>
+          {" · "}Les moyennes viennent des formules Excel du modele quand il est charge.
         </p>
 
         <DialogFooter className="flex-wrap gap-2 sm:justify-between">
@@ -488,144 +570,4 @@ export function BulletinWalkthroughDialog({
   );
 }
 
-export function renderBulletinCanvas({
-  establishmentName,
-  className,
-  studentName,
-  periodNumber,
-  subjects,
-  bySubject,
-  average,
-}: {
-  establishmentName: string;
-  className: string;
-  studentName: string;
-  periodNumber: number;
-  subjects: ClassSubject[];
-  bySubject: Map<string, Grade[]>;
-  average: number | null;
-}) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 1240;
-  canvas.height = 1754;
-  const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#12266B";
-  ctx.font = "bold 34px sans-serif";
-  ctx.fillText(establishmentName, 60, 80);
-  ctx.font = "bold 44px sans-serif";
-  ctx.fillText(periodNumber === 0 ? "BULLETIN ANNUEL" : `BULLETIN — Periode ${periodNumber}`, 60, 140);
-  ctx.fillStyle = "#374151";
-  ctx.font = "24px sans-serif";
-  ctx.fillText(`Classe : ${className}`, 60, 190);
-  ctx.fillText(`Eleve : ${studentName}`, 60, 230);
-  let y = 300;
-  ctx.font = "bold 20px sans-serif";
-  ctx.fillText("Matiere", 60, y);
-  ctx.fillText("Moyenne", 900, y);
-  y += 40;
-  ctx.font = "20px sans-serif";
-  for (const s of subjects) {
-    const avg = subjectAverage(bySubject.get(s.id) ?? []);
-    ctx.fillText(s.name, 60, y);
-    ctx.fillText(avg !== null ? avg.toFixed(2) : "—", 900, y);
-    y += 36;
-  }
-  y += 20;
-  ctx.font = "bold 24px sans-serif";
-  ctx.fillText(`Moyenne generale : ${average !== null ? average.toFixed(2) : "—"} / 20`, 60, y);
-  return canvas;
-}
-
-export function AnnualBulletinDialog({
-  open,
-  onClose,
-  klass,
-  establishmentName,
-  students,
-  subjects,
-  periods,
-  grades,
-}: {
-  open: boolean;
-  onClose: () => void;
-  klass: { id: string; name: string; establishment_id: string };
-  establishmentName: string;
-  students: StudentRef[];
-  subjects: ClassSubject[];
-  periods: GradePeriod[];
-  grades: Grade[];
-}) {
-  const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(0);
-  const qc = useQueryClient();
-
-  const generateAll = async () => {
-    setBusy(true);
-    setDone(0);
-    try {
-      for (const s of students) {
-        const bySubject = groupGradesBySubject(grades, s.id);
-        const avg = studentAverage(bySubject);
-        const canvas = renderBulletinCanvas({
-          establishmentName,
-          className: klass.name,
-          studentName: `${s.last_name} ${s.first_name}`,
-          periodNumber: 0,
-          subjects,
-          bySubject,
-          average: avg,
-        });
-        const blob = await canvasToPdfBlob(canvas);
-        const path = `${klass.establishment_id}/${s.id}/bulletin-annuel-${Date.now()}.pdf`;
-        await supabase.storage.from("student-documents").upload(path, blob, {
-          contentType: "application/pdf",
-        });
-        await supabase.from("student_documents").insert({
-          student_id: s.id,
-          establishment_id: klass.establishment_id,
-          name: "Bulletin annuel",
-          file_path: path,
-          file_type: "application/pdf",
-          file_size: blob.size,
-        });
-        setDone((d) => d + 1);
-      }
-      qc.invalidateQueries({ queryKey: ["student_documents"] });
-      toast.success("Bulletins annuels generes");
-      onClose();
-    } catch (e) {
-      toast.error(describeError(e, "Generation annuelle impossible"));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Bulletin annuel</DialogTitle>
-          <DialogDescription>
-            Genere un PDF provisoire par eleve a partir de toutes les notes des periodes ({periods.length} periode
-            {periods.length > 1 ? "s" : ""}).
-          </DialogDescription>
-        </DialogHeader>
-        {busy && (
-          <p className="text-sm text-muted-foreground">
-            {done} / {students.length}…
-          </p>
-        )}
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Annuler
-          </Button>
-          <Button onClick={generateAll} disabled={busy || students.length === 0}>
-            {busy ? "Generation…" : "Generer"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
+export { AnnualBulletinDialog, renderBulletinCanvas } from "@/components/school/bulletin-annual";
