@@ -86,18 +86,34 @@ export function StudentDocuments({
     try {
       let file = pendingFile;
       if (file.type.startsWith("image/") && file.type !== "image/gif") {
-        // Compression + conversion systématique en JPEG (image plus légère,
-        // et format unique dont on sait toujours lire les dimensions).
         file = await compressImage(file, 1600, 0.85);
       }
       if (file.size > MAX_SIZE) {
         toast.error("Le fichier dépasse 8 Mo même après compression.");
         return;
       }
-      const ext = file.type === "application/pdf" ? "pdf" : "jpg";
+      const mime = file.type || "";
+      const nameLower = (pendingFile?.name || file.name || "").toLowerCase();
+      let ext = "bin";
+      if (mime === "application/pdf" || nameLower.endsWith(".pdf")) ext = "pdf";
+      else if (
+        mime.includes("spreadsheet") ||
+        mime.includes("excel") ||
+        nameLower.endsWith(".xlsx")
+      )
+        ext = "xlsx";
+      else if (nameLower.endsWith(".xls")) ext = "xls";
+      else if (mime.startsWith("image/")) ext = "jpg";
+      else if (nameLower.includes(".")) ext = nameLower.split(".").pop() || "bin";
+      const contentType =
+        ext === "xlsx"
+          ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          : ext === "xls"
+            ? "application/vnd.ms-excel"
+            : mime || "application/octet-stream";
       const path = `${establishmentId}/${studentId}/${Date.now()}.${ext}`;
       const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, file, {
-        contentType: file.type,
+        contentType: contentType,
       });
       if (uploadError) throw uploadError;
 
@@ -106,7 +122,7 @@ export function StudentDocuments({
         establishment_id: establishmentId,
         name: docName.trim(),
         file_path: path,
-        file_type: file.type,
+        file_type: contentType,
         file_size: file.size,
       });
       if (insertError) throw insertError;
@@ -142,10 +158,16 @@ export function StudentDocuments({
       const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(doc.file_path, 300);
       if (error || !data) throw error ?? new Error("Lien indisponible");
 
-      if (doc.file_type === "application/pdf") {
+      const isPdf = doc.file_type === "application/pdf" || doc.file_path?.endsWith(".pdf");
+      const isXlsx =
+        doc.file_type?.includes("spreadsheet") ||
+        doc.file_type?.includes("excel") ||
+        !!doc.file_path?.match(/\.xlsx?$/i);
+      if (isPdf || isXlsx) {
         const res = await fetch(data.signedUrl);
         const blob = await res.blob();
-        downloadBlob(blob, `${doc.name}.pdf`);
+        const ext = isXlsx ? (doc.file_path?.endsWith(".xls") ? "xls" : "xlsx") : "pdf";
+        downloadBlob(blob, `${doc.name}.${ext}`);
       } else {
         const blob = await imageToPdfBlob(data.signedUrl);
         downloadBlob(blob, `${doc.name}.pdf`);
@@ -203,7 +225,7 @@ export function StudentDocuments({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*,application/pdf"
+          accept="image/*,application/pdf,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
           className="hidden"
           onChange={(e) => {
             onPick(e.target.files?.[0]);
@@ -249,7 +271,7 @@ export function StudentDocuments({
                     className="h-8 w-8"
                     disabled={busyId === doc.id}
                     onClick={() => downloadAsPdf(doc)}
-                    aria-label="Télécharger en PDF"
+                    aria-label="Télécharger"
                   >
                     <Download className="h-4 w-4" />
                   </Button>
