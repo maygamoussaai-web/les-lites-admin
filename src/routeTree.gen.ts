@@ -30,6 +30,7 @@ import { Route as AuthenticatedEtablissementsIdRouteImport } from './routes/_aut
 import { Route as AuthenticatedPersonnelIndexRouteImport } from './routes/_authenticated/personnel.index'
 import { Route as AuthenticatedPersonnelIdRouteImport } from './routes/_authenticated/personnel.$id'
 import { Route as AuthenticatedElevesStudentIdIndexRouteImport } from './routes/_authenticated/eleves.$studentId.index'
+import { Route as AuthenticatedElevesStudentIdIdentiteRouteImport } from './routes/_authenticated/eleves.$studentId.identite'
 import { Route as AuthenticatedElevesStudentIdNotesRouteImport } from './routes/_authenticated/eleves.$studentId.notes'
 import { Route as AuthenticatedElevesStudentIdScolariteRouteImport } from './routes/_authenticated/eleves.$studentId.scolarite'
 
@@ -149,6 +150,12 @@ const AuthenticatedElevesStudentIdIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedElevesStudentIdRoute,
   } as any)
+const AuthenticatedElevesStudentIdIdentiteRoute =
+  AuthenticatedElevesStudentIdIdentiteRouteImport.update({
+    id: '/identite',
+    path: '/identite',
+    getParentRoute: () => AuthenticatedElevesStudentIdRoute,
+  } as any)
 const AuthenticatedElevesStudentIdNotesRoute =
   AuthenticatedElevesStudentIdNotesRouteImport.update({
     id: '/notes',
@@ -182,6 +189,7 @@ export interface FileRoutesByFullPath {
   '/enseignants/': typeof AuthenticatedEnseignantsIndexRoute
   '/etablissements/': typeof AuthenticatedEtablissementsIndexRoute
   '/personnel/': typeof AuthenticatedPersonnelIndexRoute
+  '/eleves/$studentId/identite': typeof AuthenticatedElevesStudentIdIdentiteRoute
   '/eleves/$studentId/notes': typeof AuthenticatedElevesStudentIdNotesRoute
   '/eleves/$studentId/scolarite': typeof AuthenticatedElevesStudentIdScolariteRoute
   '/eleves/$studentId/': typeof AuthenticatedElevesStudentIdIndexRoute
@@ -203,6 +211,7 @@ export interface FileRoutesByTo {
   '/enseignants': typeof AuthenticatedEnseignantsIndexRoute
   '/etablissements': typeof AuthenticatedEtablissementsIndexRoute
   '/personnel': typeof AuthenticatedPersonnelIndexRoute
+  '/eleves/$studentId/identite': typeof AuthenticatedElevesStudentIdIdentiteRoute
   '/eleves/$studentId/notes': typeof AuthenticatedElevesStudentIdNotesRoute
   '/eleves/$studentId/scolarite': typeof AuthenticatedElevesStudentIdScolariteRoute
   '/eleves/$studentId': typeof AuthenticatedElevesStudentIdIndexRoute
@@ -229,6 +238,7 @@ export interface FileRoutesById {
   '/_authenticated/enseignants/': typeof AuthenticatedEnseignantsIndexRoute
   '/_authenticated/etablissements/': typeof AuthenticatedEtablissementsIndexRoute
   '/_authenticated/personnel/': typeof AuthenticatedPersonnelIndexRoute
+  '/_authenticated/eleves/$studentId/identite': typeof AuthenticatedElevesStudentIdIdentiteRoute
   '/_authenticated/eleves/$studentId/notes': typeof AuthenticatedElevesStudentIdNotesRoute
   '/_authenticated/eleves/$studentId/scolarite': typeof AuthenticatedElevesStudentIdScolariteRoute
   '/_authenticated/eleves/$studentId/': typeof AuthenticatedElevesStudentIdIndexRoute
@@ -255,6 +265,7 @@ export interface FileRouteTypes {
     | '/enseignants/'
     | '/etablissements/'
     | '/personnel/'
+    | '/eleves/$studentId/identite'
     | '/eleves/$studentId/notes'
     | '/eleves/$studentId/scolarite'
     | '/eleves/$studentId/'
@@ -276,6 +287,7 @@ export interface FileRouteTypes {
     | '/enseignants'
     | '/etablissements'
     | '/personnel'
+    | '/eleves/$studentId/identite'
     | '/eleves/$studentId/notes'
     | '/eleves/$studentId/scolarite'
     | '/eleves/$studentId'
@@ -301,6 +313,7 @@ export interface FileRouteTypes {
     | '/_authenticated/enseignants/'
     | '/_authenticated/etablissements/'
     | '/_authenticated/personnel/'
+    | '/_authenticated/eleves/$studentId/identite'
     | '/_authenticated/eleves/$studentId/notes'
     | '/_authenticated/eleves/$studentId/scolarite'
     | '/_authenticated/eleves/$studentId/'
@@ -463,6 +476,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedElevesStudentIdIndexRouteImport
       parentRoute: typeof AuthenticatedElevesStudentIdRoute
     }
+    '/_authenticated/eleves/$studentId/identite': {
+      id: '/_authenticated/eleves/$studentId/identite'
+      path: '/identite'
+      fullPath: '/eleves/$studentId/identite'
+      preLoaderRoute: typeof AuthenticatedElevesStudentIdIdentiteRouteImport
+      parentRoute: typeof AuthenticatedElevesStudentIdRoute
+    }
     '/_authenticated/eleves/$studentId/notes': {
       id: '/_authenticated/eleves/$studentId/notes'
       path: '/notes'
@@ -514,6 +534,7 @@ const AuthenticatedPersonnelRouteWithChildren =
   )
 
 interface AuthenticatedElevesStudentIdRouteChildren {
+  AuthenticatedElevesStudentIdIdentiteRoute: typeof AuthenticatedElevesStudentIdIdentiteRoute
   AuthenticatedElevesStudentIdNotesRoute: typeof AuthenticatedElevesStudentIdNotesRoute
   AuthenticatedElevesStudentIdScolariteRoute: typeof AuthenticatedElevesStudentIdScolariteRoute
   AuthenticatedElevesStudentIdIndexRoute: typeof AuthenticatedElevesStudentIdIndexRoute
@@ -521,6 +542,8 @@ interface AuthenticatedElevesStudentIdRouteChildren {
 
 const AuthenticatedElevesStudentIdRouteChildren: AuthenticatedElevesStudentIdRouteChildren =
   {
+    AuthenticatedElevesStudentIdIdentiteRoute:
+      AuthenticatedElevesStudentIdIdentiteRoute,
     AuthenticatedElevesStudentIdNotesRoute:
       AuthenticatedElevesStudentIdNotesRoute,
     AuthenticatedElevesStudentIdScolariteRoute:
