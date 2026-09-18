@@ -2,7 +2,7 @@ import { useState } from "react";
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, Pencil, ArrowRightLeft, Trash2, ShieldAlert, Receipt, Wallet, IdCard } from "lucide-react";
+import { ArrowLeft, Pencil, ArrowRightLeft, Trash2, ShieldAlert, Receipt, Wallet, IdCard, Library } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { EmptyState } from "@/components/app/empty-state";
 import { RecordDialog, type Field } from "@/components/app/record-dialog";
@@ -38,21 +38,21 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StudentDocuments } from "@/components/school/student-documents";
+import { PeriodResultsCard } from "@/components/school/period-results-card";
 import { StudentPhoto } from "@/components/school/student-photo";
 import { StudentGradesCard } from "@/components/school/student-grades";
 import { supabase } from "@/integrations/supabase/client";
 import { useAdminProfile } from "@/hooks/use-auth";
 import { useSaveRow, useArchiveRow, writeAudit } from "@/lib/data";
 import { useSchoolData } from "@/lib/school-data";
-import { annualAverage, lateStatus, sum, type Installment } from "@/lib/school";
-import { formatDate, formatFCFA, formatNumber } from "@/lib/format";
+import { lateStatus, sum, type Installment } from "@/lib/school";
+import { formatDate, formatFCFA } from "@/lib/format";
 
 export const Route = createFileRoute("/_authenticated/eleves/$studentId/")({
   head: () => ({
     meta: [
-      { title: "Fiche élève – Les Élites de Gao" },
-      { name: "description", content: "Profil élève : identité, scolarité et résultats." },
+      { title: "Fiche eleve – Les Elites de Gao" },
+      { name: "description", content: "Profil eleve : identite, scolarite et resultats." },
     ],
   }),
   component: Page,
@@ -64,8 +64,8 @@ function Page() {
   const qc = useQueryClient();
   const { isDG, establishmentIds, establishmentIdsLoading } = useAdminProfile();
   const data = useSchoolData();
-  const save = useSaveRow("students", "Élève");
-  const archive = useArchiveRow("students", "Élève");
+  const save = useSaveRow("students", "Eleve");
+  const archive = useArchiveRow("students", "Eleve");
   const [editOpen, setEditOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferring, setTransferring] = useState(false);
@@ -78,8 +78,8 @@ function Page() {
     return (
       <EmptyState
         icon={ShieldAlert}
-        title="Élève introuvable"
-        description="Cet élève n'existe pas, a été archivé, ou vous n'y avez pas accès."
+        title="Eleve introuvable"
+        description="Cet eleve n'existe pas, a ete archive, ou vous n'y avez pas acces."
       />
     );
   }
@@ -94,10 +94,9 @@ function Page() {
     : 0;
   const totalDue = enrollment ? Number(enrollment.total_amount) : 0;
   const late = installments.length ? lateStatus(paid, installments) : null;
-  const avg = annualAverage(student);
 
   const editFields: Field[] = [
-    { name: "first_name", label: "Prénom", required: true },
+    { name: "first_name", label: "Prenom", required: true },
     { name: "last_name", label: "Nom", required: true },
     {
       name: "gender",
@@ -106,15 +105,12 @@ function Page() {
       required: true,
       options: [
         { value: "M", label: "Masculin" },
-        { value: "F", label: "Féminin" },
+        { value: "F", label: "Feminin" },
       ],
     },
     { name: "date_of_birth", label: "Date de naissance", type: "date" },
-    { name: "parent_phone_1", label: "Téléphone parent 1" },
-    { name: "parent_phone_2", label: "Téléphone parent 2" },
-    { name: "term1_average", label: "Moyenne trimestre 1", type: "number" },
-    { name: "term2_average", label: "Moyenne trimestre 2", type: "number" },
-    { name: "term3_average", label: "Moyenne trimestre 3", type: "number" },
+    { name: "parent_phone_1", label: "Telephone parent 1" },
+    { name: "parent_phone_2", label: "Telephone parent 2" },
   ];
 
   const classOptions = data.classes
@@ -192,11 +188,11 @@ function Page() {
 
       qc.invalidateQueries({ queryKey: ["students"] });
       qc.invalidateQueries({ queryKey: ["student_enrollments"] });
-      toast.success(student.class_id ? "Élève transféré" : "Élève assigné");
+      toast.success(student.class_id ? "Eleve transfere" : "Eleve assigne");
       setTransferOpen(false);
       navigate({ to: "/etablissements/$id", params: { id: target.establishment_id } });
     } catch (e) {
-      toast.error((e as Error).message || "Opération impossible");
+      toast.error((e as Error).message || "Operation impossible");
     } finally {
       setTransferring(false);
     }
@@ -210,11 +206,11 @@ function Page() {
         className="-ml-2 w-fit"
         onClick={() => navigate({ to: "/etablissements/$id", params: { id: student.establishment_id } })}
       >
-        <ArrowLeft className="mr-1.5 h-4 w-4" /> Retour à {establishment?.name ?? "l'établissement"}
+        <ArrowLeft className="mr-1.5 h-4 w-4" /> Retour a {establishment?.name ?? "l'etablissement"}
       </Button>
 
       <PageHeader
-        eyebrow={klass?.name ?? "Élève"}
+        eyebrow={klass?.name ?? "Eleve"}
         title={`${student.last_name} ${student.first_name}`}
         description={`${establishment?.name ?? "—"} · Inscrit le ${formatDate(student.enrolled_at)}`}
       />
@@ -233,12 +229,12 @@ function Page() {
             {student.last_name} {student.first_name}
           </p>
           <p className="text-xs text-muted-foreground sm:text-sm">
-            {klass?.name ?? "Classe non assignée"} · {establishment?.name ?? "—"}
+            {klass?.name ?? "Classe non assignee"} · {establishment?.name ?? "—"}
           </p>
         </div>
         <Button variant="outline" size="sm" className="press shrink-0" asChild>
           <Link to="/eleves/$studentId/identite" params={{ studentId: student.id }}>
-            <IdCard className="mr-1.5 h-4 w-4" /> Identité
+            <IdCard className="mr-1.5 h-4 w-4" /> Identite
           </Link>
         </Button>
       </div>
@@ -246,17 +242,17 @@ function Page() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
-            <CardTitle className="text-base">Scolarité</CardTitle>
+            <CardTitle className="text-base">Scolarite</CardTitle>
             <Button variant="ghost" size="sm" className="press h-8" asChild>
               <Link to="/eleves/$studentId/scolarite" params={{ studentId: student.id }}>
-                <Receipt className="mr-1 h-3.5 w-3.5" /> Détail
+                <Receipt className="mr-1 h-3.5 w-3.5" /> Detail
               </Link>
             </Button>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
             {enrollment ? (
               <>
-                <Row label="Payé" value={formatFCFA(paid)} />
+                <Row label="Paye" value={formatFCFA(paid)} />
                 <Row label="Total" value={formatFCFA(totalDue)} />
                 <Row
                   label="Statut"
@@ -265,7 +261,7 @@ function Page() {
                       late.isLate ? (
                         <Badge variant="destructive">Retard {formatFCFA(late.overdueAmount)}</Badge>
                       ) : (
-                        <Badge className="bg-success text-success-foreground">À jour</Badge>
+                        <Badge className="bg-success text-success-foreground">A jour</Badge>
                       )
                     ) : (
                       "—"
@@ -277,26 +273,35 @@ function Page() {
                 </Button>
               </>
             ) : (
-              <p className="text-muted-foreground text-xs">Aucune période active.</p>
+              <p className="text-muted-foreground text-xs">Aucune periode active.</p>
             )}
           </CardContent>
         </Card>
 
         <StudentGradesCard studentId={student.id} classId={student.class_id} />
 
+        <PeriodResultsCard studentId={student.id} classId={student.class_id} />
+
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Résultats trimestriels</CardTitle>
+          <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
+            <CardTitle className="text-base">Bibliotheque</CardTitle>
+            <Button variant="ghost" size="sm" className="press h-8" asChild>
+              <Link to="/eleves/$studentId/bibliotheque" params={{ studentId: student.id }}>
+                <Library className="mr-1 h-3.5 w-3.5" /> Acceder
+              </Link>
+            </Button>
           </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            <Metric label="T1" value={student.term1_average} />
-            <Metric label="T2" value={student.term2_average} />
-            <Metric label="T3" value={student.term3_average} />
-            <Metric label="Annuelle" value={avg} highlight />
+          <CardContent>
+            <p className="text-xs text-muted-foreground">
+              Bulletins, actes et fichiers de l'eleve, classes par classe et par date.
+            </p>
+            <Button className="press mt-3 w-full" variant="outline" asChild>
+              <Link to="/eleves/$studentId/bibliotheque" params={{ studentId: student.id }}>
+                <Library className="mr-1.5 h-4 w-4" /> Acceder a la bibliotheque de l'eleve
+              </Link>
+            </Button>
           </CardContent>
         </Card>
-
-        <StudentDocuments studentId={student.id} establishmentId={student.establishment_id} />
       </div>
 
       <div className="flex flex-wrap gap-2">
@@ -304,7 +309,7 @@ function Page() {
           <Pencil className="mr-1.5 h-4 w-4" /> Modifier
         </Button>
         <Button variant="outline" className="press" onClick={() => setTransferOpen(true)}>
-          <ArrowRightLeft className="mr-1.5 h-4 w-4" /> {student.class_id ? "Transférer" : "Assigner"}
+          <ArrowRightLeft className="mr-1.5 h-4 w-4" /> {student.class_id ? "Transferer" : "Assigner"}
         </Button>
         <AlertDialog>
           <AlertDialogTrigger asChild>
@@ -318,7 +323,7 @@ function Page() {
                 Supprimer {student.first_name} {student.last_name} ?
               </AlertDialogTitle>
               <AlertDialogDescription>
-                L'élève disparaîtra de la liste. L'historique reste conservé.
+                L'eleve disparaitra de la liste. L'historique reste conserve.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -348,7 +353,7 @@ function Page() {
       <RecordDialog
         open={editOpen}
         onOpenChange={setEditOpen}
-        title="Modifier l'élève"
+        title="Modifier l'eleve"
         fields={editFields}
         initial={student}
         submitting={save.isPending}
@@ -358,16 +363,18 @@ function Page() {
       <RecordDialog
         open={transferOpen}
         onOpenChange={setTransferOpen}
-        title={student.class_id ? `Transférer ${student.first_name}` : `Assigner ${student.first_name}`}
-        description="Nouvelle période de scolarité pour la classe de destination."
-        fields={[{
-          name: "class_id",
-          label: "Classe",
-          type: "select",
-          required: true,
-          colSpan: 2,
-          options: classOptions,
-        }]}
+        title={student.class_id ? `Transferer ${student.first_name}` : `Assigner ${student.first_name}`}
+        description="Nouvelle periode de scolarite pour la classe de destination."
+        fields={[
+          {
+            name: "class_id",
+            label: "Classe",
+            type: "select",
+            required: true,
+            colSpan: 2,
+            options: classOptions,
+          },
+        ]}
         submitting={transferring}
         onSubmit={transferStudent}
       />
@@ -428,7 +435,7 @@ function PayDialog({
       });
       if (error) throw error;
       qc.invalidateQueries({ queryKey: ["tuition_payments"] });
-      toast.success("Paiement enregistré");
+      toast.success("Paiement enregistre");
       setAmount("");
       setNote("");
       onClose();
@@ -446,7 +453,7 @@ function PayDialog({
           <DialogTitle>
             Paiement — {student.last_name} {student.first_name}
           </DialogTitle>
-          <DialogDescription>Reste dû : {formatFCFA(remaining)}</DialogDescription>
+          <DialogDescription>Reste du : {formatFCFA(remaining)}</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
@@ -456,7 +463,7 @@ function PayDialog({
             <Input type="number" step="any" value={amount} onChange={(e) => setAmount(e.target.value)} />
             {exceeds ? (
               <p className="mt-1 text-xs font-medium text-destructive">
-                Dépassement du reste dû ({formatFCFA(remaining)}).
+                Depassement du reste du ({formatFCFA(remaining)}).
               </p>
             ) : null}
           </div>
@@ -471,7 +478,7 @@ function PayDialog({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="cash">Espèces</SelectItem>
+                <SelectItem value="cash">Especes</SelectItem>
                 <SelectItem value="mobile_money">Mobile money</SelectItem>
                 <SelectItem value="bank">Banque</SelectItem>
               </SelectContent>
@@ -486,8 +493,8 @@ function PayDialog({
           <Button variant="outline" onClick={onClose}>
             Annuler
           </Button>
-          <Button onClick={submit} disabled={!canSubmit}>
-            {submitting ? "…" : "Enregistrer"}
+          <Button disabled={!canSubmit} onClick={() => void submit()}>
+            {submitting ? "Enregistrement…" : "Enregistrer"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -500,25 +507,6 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
     <div className="flex items-center justify-between gap-2">
       <span className="text-muted-foreground">{label}</span>
       <span className="font-medium text-foreground">{value}</span>
-    </div>
-  );
-}
-
-function Metric({
-  label,
-  value,
-  highlight,
-}: {
-  label: string;
-  value: number | null | undefined;
-  highlight?: boolean;
-}) {
-  return (
-    <div className={`rounded-lg border border-border p-2 text-center ${highlight ? "bg-muted/40" : ""}`}>
-      <p className="text-[11px] text-muted-foreground">{label}</p>
-      <p className="tabular-nums text-sm font-semibold text-foreground">
-        {value == null ? "—" : formatNumber(Number(value), 2)}
-      </p>
     </div>
   );
 }
