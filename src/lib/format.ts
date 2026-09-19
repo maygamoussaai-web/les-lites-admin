@@ -1,80 +1,75 @@
-export const formatFCFA = (value: number | null | undefined) =>
-  new Intl.NumberFormat("fr-ML", { maximumFractionDigits: 0 }).format(Number(value ?? 0)) + " FCFA";
+/** Formatage et libellés d'audit (FR). */
 
-export const formatNumber = (value: number | null | undefined, digits = 2) =>
-  new Intl.NumberFormat("fr-FR", { maximumFractionDigits: digits }).format(Number(value ?? 0));
+export function initials(first?: string | null, last?: string | null) {
+  const a = (first ?? "").trim().charAt(0);
+  const b = (last ?? "").trim().charAt(0);
+  return `${a}${b}`.toUpperCase() || "?";
+}
 
-export const formatDate = (value: string | null | undefined) =>
-  value ? new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" }).format(new Date(value)) : "—";
+export function formatDate(value?: string | null) {
+  if (!value) return "—";
+  try {
+    return new Date(value).toLocaleDateString("fr-FR");
+  } catch {
+    return value;
+  }
+}
 
-export const formatDateTime = (value: string | null | undefined) =>
-  value ? new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "—";
+export function formatDateTime(value?: string | null) {
+  if (!value) return "—";
+  try {
+    return new Date(value).toLocaleString("fr-FR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return value;
+  }
+}
 
-export const ESTABLISHMENT_TYPES = [
-  { value: "lycee", label: "Lycée" },
-  { value: "college", label: "Collège" },
-  { value: "fondamentale", label: "Fondamentale" },
-] as const;
+export function formatNumber(value?: number | null) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  return new Intl.NumberFormat("fr-FR").format(value);
+}
 
-export const establishmentTypeLabel = (type: string) =>
-  ESTABLISHMENT_TYPES.find((t) => t.value === type)?.label ?? type;
-
-export const ADMIN_ROLES = [
-  { value: "director_general", label: "Directeur Général" },
-  { value: "administrative_staff", label: "Personnel administratif" },
-] as const;
-
-export const roleLabel = (role: string | null | undefined) =>
-  ADMIN_ROLES.find((r) => r.value === role)?.label ?? role ?? "—";
-
-export const initials = (first?: string | null, last?: string | null) =>
-  `${(first ?? "").charAt(0)}${(last ?? "").charAt(0)}`.toUpperCase() || "?";
+export function formatFCFA(value?: number | null) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  return `${new Intl.NumberFormat("fr-FR").format(Math.round(value))} FCFA`;
+}
 
 export const AUDIT_ACTION_LABELS: Record<string, string> = {
   create: "Création",
   update: "Modification",
   delete: "Suppression",
   archive: "Archivage",
-  invitation_created: "Invitation envoyée",
-  invitation_accepted: "Invitation acceptée",
-  admin_activated: "Accès activé",
-  admin_deactivated: "Accès désactivé",
-  admin_deleted: "Compte supprimé",
-  validate: "Validation",
-  generate: "Génération",
-  upload: "Téléversement",
-  download: "Téléchargement",
   login: "Connexion",
   logout: "Déconnexion",
 };
 
-export const auditActionLabel = (action: string) =>
-  AUDIT_ACTION_LABELS[action] ?? action.replace(/_/g, " ");
-
-
-export const AUDIT_ENTITY_LABELS: Record<string, string> = {
-  students: "élève",
-  teachers: "enseignant",
-  classes: "classe",
-  fee_plans: "modèle de scolarité",
-  fee_plan_installments: "tranche de scolarité",
-  tuition_payments: "paiement de scolarité",
-  teacher_assignments: "affectation enseignant",
-  teacher_sessions: "séance enseignant",
-  teacher_payments: "paiement enseignant",
-  admin_profiles: "personnel administratif",
-  invitations: "invitation",
-  establishments: "établissement",
-  grades: "note",
-  grade_periods: "période de notes",
-  class_subjects: "matière",
-  report_templates: "modèle de bulletin",
-  student_report_cards: "bulletin",
-  class_reports: "rapport de classe",
-  student_documents: "document élève",
-  student_enrollments: "scolarité",
-  audit_logs: "journal",
+export const AUDIT_TABLE_LABELS: Record<string, string> = {
+  establishments: "Établissement",
+  classes: "Classe",
+  students: "Élève",
+  student_enrollments: "Inscription",
+  fee_plans: "Grille tarifaire",
+  fee_plan_installments: "Tranche",
+  tuition_payments: "Paiement scolarité",
+  teachers: "Enseignant",
+  teacher_assignments: "Affectation",
+  teacher_sessions: "Séance",
+  teacher_session_completions: "Séance effectuée",
+  teacher_payments: "Paiement enseignant",
+  admin_profiles: "Compte personnel",
+  admin_invitations: "Invitation",
+  audit_logs: "Journal",
+  grades: "Note",
+  grade_periods: "Période",
+  class_subjects: "Matière",
+  report_templates: "Modèle de bulletin",
+  student_documents: "Document",
+  student_report_cards: "Bulletin",
+  class_reports: "Rapport de classe",
 };
-
-export const auditEntityLabel = (entity: string) =>
-  AUDIT_ENTITY_LABELS[entity] ?? entity.replace(/_/g, " ");
