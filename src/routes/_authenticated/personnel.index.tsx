@@ -16,6 +16,7 @@ import { generateInvitationToken, sha256Hex } from "@/lib/invitations";
 import { roleLabel, formatDateTime, initials } from "@/lib/format";
 import { useAdminProfile } from "@/hooks/use-auth";
 import type { Tables } from "@/integrations/supabase/types";
+import { describeError } from "@/lib/errors";
 
 export const Route = createFileRoute("/_authenticated/personnel/")({
   head: () => ({
@@ -80,7 +81,7 @@ function Page() {
       qc.invalidateQueries({ queryKey: ["invitations"] });
       toast.success("Invitation générée");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(describeError(e, "Opération impossible")),
   });
 
   const columns: Column<Tables<"admin_profiles">>[] = [
@@ -102,7 +103,7 @@ function Page() {
         </div>
       ),
     },
-    { key: "role", header: "Rôle", cell: (r) => <Badge variant={r.role === "director_general" ? "default" : "secondary"}>{roleLabel(r.role)}</Badge> },
+    { key: "role", header: "Rôle", cell: (r) => <Badge variant={r.role === "director_general" ? "default" : "secondary">{roleLabel(r.role)}</Badge> },
     {
       key: "est",
       header: "Établissement(s)",
