@@ -85,17 +85,11 @@ export function BulletinWalkthroughDialog({
         });
         const fileName = `Bulletin_${student.last_name}_${student.first_name}_P${period.period_number}.xlsx`;
         downloadBlob(blob, fileName);
+        const storagePath = `${klass.establishment_id}/${klass.id}/${student.id}/P${period.period_number}/${fileName}`;
         try {
-          await uploadBulletinWorkbook({
-            establishmentId: klass.establishment_id,
-            classId: klass.id,
-            studentId: student.id,
-            periodId: period.id,
-            blob,
-            fileName,
-          });
+          await uploadBulletinWorkbook(storagePath, blob);
         } catch {
-          /* stockage optionnel */
+          /* stockage optionnel — téléchargement local déjà fait */
         }
         const general = written.computed.generalAverage ?? avg;
         await supabase.from("student_report_cards").upsert(
@@ -135,7 +129,7 @@ export function BulletinWalkthroughDialog({
           <DialogTitle className="font-display">Créer les bulletins</DialogTitle>
           <DialogDescription>
             Génération Excel à partir du modèle actif — période {period.period_number}.
-            {ranked.length} élève(s) avec notes. Les fichiers .xlsx se téléchargent automatiquement.
+            {" "}{ranked.length} élève(s) avec notes. Les fichiers .xlsx se téléchargent automatiquement.
           </DialogDescription>
         </DialogHeader>
         {!activeTemplate && (
