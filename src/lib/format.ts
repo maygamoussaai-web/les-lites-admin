@@ -40,9 +40,17 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   admin_activated: "Accès activé",
   admin_deactivated: "Accès désactivé",
   admin_deleted: "Compte supprimé",
+  validate: "Validation",
+  generate: "Génération",
+  upload: "Téléversement",
+  download: "Téléchargement",
+  login: "Connexion",
+  logout: "Déconnexion",
 };
 
-export const auditActionLabel = (action: string) => AUDIT_ACTION_LABELS[action] ?? action;
+export const auditActionLabel = (action: string) =>
+  AUDIT_ACTION_LABELS[action] ?? action.replace(/_/g, " ");
+
 
 export const AUDIT_ENTITY_LABELS: Record<string, string> = {
   students: "élève",
@@ -57,6 +65,16 @@ export const AUDIT_ENTITY_LABELS: Record<string, string> = {
   admin_profiles: "personnel administratif",
   invitations: "invitation",
   establishments: "établissement",
+  grades: "note",
+  grade_periods: "période de notes",
+  class_subjects: "matière",
+  report_templates: "modèle de bulletin",
+  student_report_cards: "bulletin",
+  class_reports: "rapport de classe",
+  student_documents: "document élève",
+  student_enrollments: "scolarité",
+  audit_logs: "journal",
 };
 
-export const auditEntityLabel = (entity: string) => AUDIT_ENTITY_LABELS[entity] ?? entity;
+export const auditEntityLabel = (entity: string) =>
+  AUDIT_ENTITY_LABELS[entity] ?? entity.replace(/_/g, " ");
