@@ -6,23 +6,11 @@ export type Grade = Tables<"grades">;
 export type StudentReportCard = Tables<"student_report_cards">;
 export type ClassReport = Tables<"class_reports">;
 
-export const PASS_THRESHOLD = 10; // /20 — "a eu la moyenne"
-export const EXCELLENT_THRESHOLD = 15; // /20 — 75% du barème
+export const PASS_THRESHOLD = 10;
+export const EXCELLENT_THRESHOLD = 15;
 
-/** Normalise une note sur 20, quel que soit son barème d'origine. */
 export const to20 = (value: number, scale: number) => (value / scale) * 20;
 
-/**
- * Une matière est « complète » si l'élève a toutes les natures requises
- * (valeurs numériques valides).
- *
- * Par défaut : évaluation + composition (modèle classique).
- * Si le modèle Excel n'a que des colonnes composition (ou que des évals),
- * passer `required` dérivé de `gradeNaturesFromMapping(mapping)`.
- *
- * Incomplete → traitée comme « sans note » : hors matières à difficulté
- * et hors ranking meilleures/pires moyennes de classe.
- */
 export function subjectNotesComplete(
   grades: Pick<Grade, "value" | "scale" | "nature">[],
   required: Array<"evaluation" | "composition"> = ["evaluation", "composition"],
@@ -38,16 +26,6 @@ export function subjectNotesComplete(
   return required.every((nature) => present.some((g) => g.nature === nature));
 }
 
-/**
- * Moyenne provisoire d'une matière (avant formules du modele Excel) :
- * - case vide = ignoree (jamais 0)
- * - une seule note (eval OU composition) = cette note
- * - plusieurs notes = moyenne simple des notes presentes (normalisees /20)
- * Une fois le bulletin valide via modele Excel, les formules du fichier priment.
- *
- * Attention : pour les stats « difficulté » / ranking classe, utiliser
- * subjectNotesComplete avant de considérer la moyenne.
- */
 export function subjectAverage(
   grades: Pick<Grade, "value" | "scale" | "nature">[],
 ): number | null {
@@ -60,14 +38,12 @@ export function subjectAverage(
   return total / present.length;
 }
 
-/** Moyenne générale d'un élève : moyenne des moyennes de chaque matière (sur 20), sans coefficient. */
 export function studentAverage(gradesBySubject: Map<string, Pick<Grade, "value" | "scale">[]>): number | null {
   const averages = [...gradesBySubject.values()].map(subjectAverage).filter((a): a is number => a !== null);
   if (!averages.length) return null;
   return averages.reduce((a, b) => a + b, 0) / averages.length;
 }
 
-/** Regroupe les notes d'un élève par matière. */
 export function groupGradesBySubject(grades: Grade[], studentId: string): Map<string, Grade[]> {
   const map = new Map<string, Grade[]>();
   for (const g of grades) {
@@ -82,7 +58,6 @@ export function groupGradesBySubject(grades: Grade[], studentId: string): Map<st
 import { useMemo } from "react";
 import { useRows } from "@/lib/data";
 
-/** Charge matières, périodes et notes d'une classe (une requête par table, mises en cache). */
 export function useClassGrades(classId: string, enabled = true) {
   const subjects = useRows<ClassSubject>("class_subjects", {
     eq: { class_id: classId },
@@ -113,7 +88,6 @@ export function useClassGrades(classId: string, enabled = true) {
   }, [subjects.data, subjects.isPending, periods.data, periods.isPending, grades.data, grades.isPending]);
 }
 
-/** Charge toutes les notes d'un élève (historique, toutes périodes confondues). */
 export function useStudentGrades(studentId: string) {
   const grades = useRows<Grade>("grades", {
     eq: { student_id: studentId },
@@ -124,12 +98,10 @@ export function useStudentGrades(studentId: string) {
 
 export type SubjectStat = { subject: ClassSubject; average: number | null; count: number };
 
-/** Moyenne d'un élève sur une période (moyenne des moyennes par matière). */
 export function studentPeriodAverage(grades: Grade[], studentId: string): number | null {
   return studentAverage(groupGradesBySubject(grades, studentId));
 }
 
-/** Matières où l'élève n'a pas la moyenne — uniquement si notes complètes (eval + composition). */
 export function weakSubjectsFor(
   grades: Grade[],
   studentId: string,
@@ -164,10 +136,6 @@ export type ClassStats = {
   worstSubject: SubjectStat | null;
 };
 
-/**
- * Statistiques d'une classe pour une période donnée. Source unique de vérité
- * pour la page Résultats, le rapport de classe et les bulletins.
- */
 export function computeClassStats(
   students: { id: string; first_name: string; last_name: string }[],
   periodGrades: Grade[],
