@@ -21,62 +21,59 @@ import { describeError } from "@/lib/errors";
 export const Route = createFileRoute("/_authenticated/personnel/")({
   head: () => ({
     meta: [
-      { title: "Personnel administratif – Les Élites de Gao" },
-      { name: "description", content: "Comptes administratifs du complexe Les Élites de Gao, invitations, rôles et établissements rattachés." },
-      { property: "og:title", content: "Personnel administratif – Les Élites de Gao" },
-      { property: "og:description", content: "Invitez et gérez les accès du personnel administratif." },
+      { title: "Personnel – Les Élites de Gao" },
+      { name: "description", content: "Comptes administratifs et invitations." },
     ],
   }),
   component: Page,
 });
 
 function Page() {
-  const { isDG, user } = useAdminProfile();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const [link, setLink] = useState<string | null>(null);
-
-  const { data: establishments = [] } = useRows<Tables<"establishments">>("establishments", { order: { column: "name" } });
-  const { data = [], isLoading } = useRows<Tables<"admin_profiles">>("admin_profiles", { order: { column: "last_name" } });
-  const { data: invitations = [] } = useRows<Tables<"invitations">>("invitations", {
-    order: { column: "created_at", ascending: false },
-    enabled: isDG,
+  const { isDG } = useAdminProfile();
+  const profilesQ = useRows<Tables<"admin_profiles">>("admin_profiles", {
+    order: { column: "last_name" },
   });
-  const { data: memberships = [] } = useRows<{ profile_id: string; establishment_id: string }>(
-    "admin_profile_establishments",
-  );
+  const membershipsQ = useRows<Tables<"admin_profile_establishments">>("admin_profile_establishments");
+  const establishmentsQ = useRows<Tables<"establishments">>("establishments", {
+    order: { column: "name" },
+  });
+  const invitationsQ = useRows<Tables<"invitations">>("invitations", {
+    order: { column: "created_at", ascending: false },
+  });
 
+  const profiles = profilesQ.data ?? [];
+  const establishments = establishmentsQ.data ?? [];
+  const invitations = invitationsQ.data ?? [];
   const membershipsByProfile = new Map<string, string[]>();
-  for (const m of memberships) {
+  for (const m of membershipsQ.data ?? []) {
     const list = membershipsByProfile.get(m.profile_id) ?? [];
     list.push(m.establishment_id);
     membershipsByProfile.set(m.profile_id, list);
   }
 
+  const [open, setOpen] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+
   const invite = useMutation({
-    mutationFn: async (values: Record<string, any>) => {
+    mutationFn: async (values: Record<string, unknown>) => {
+      const establishmentId = String(values["establishment_id"] ?? "");
+      if (!establishmentId) throw new Error("Établissement requis");
       const token = generateInvitationToken();
-      const token_hash = await sha256Hex(token);
-      const days = Number(values['days'] ?? 7) || 7;
+      const tokenHash = await sha256Hex(token);
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
       const { error } = await supabase.from("invitations").insert({
-        token_hash,
-        establishment_id: values['establishment_id'],
-        invited_by: user?.id ?? null,
-        expires_at: new Date(Date.now() + days * 86_400_000).toISOString(),
+        establishment_id: establishmentId,
+        token_hash: tokenHash,
+        expires_at: expiresAt,
       });
       if (error) throw error;
-      await supabase.from("audit_logs").insert({
-        actor_id: user?.id ?? null,
-        action: "invitation_created",
-        entity_type: "invitations",
-        establishment_id: values['establishment_id'],
-        metadata: {},
-      });
-      return `${window.location.origin}/activation?token=${token}`;
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      return `${origin}/invitation/${token}`;
     },
     onSuccess: (url) => {
-      setLink(url);
+      setInviteUrl(url);
       setOpen(false);
       qc.invalidateQueries({ queryKey: ["invitations"] });
       toast.success("Invitation générée");
@@ -97,27 +94,47 @@ function Page() {
             </AvatarFallback>
           </Avatar>
           <div>
-            <p className="font-medium text-foreground">{r.last_name} {r.first_name}</p>
+            <p className="font-medium text-foreground">
+              {r.last_name} {r.first_name}
+            </p>
             <p className="text-xs text-muted-foreground">{r.phone ?? "—"}</p>
           </div>
         </div>
       ),
     },
-    { key: "role", header: "Rôle", cell: (r) => <Badge variant={r.role === "director_general" ? "default" : "secondary">{roleLabel(r.role)}</Badge> },
+    {
+      key: "role",
+      header: "Rôle",
+      cell: (r) => (
+        <Badge variant={r.role === "director_general" ? "default" : "secondary"}>
+          {roleLabel(r.role)}
+        </Badge>
+      ),
+    },
     {
       key: "est",
       header: "Établissement(s)",
       cell: (r) => {
         if (r.role === "director_general") return "Tout le complexe";
         const ids = membershipsByProfile.get(r.id) ?? [];
-        const names = ids.map((eid) => establishments.find((e) => e.id === eid)?.name).filter(Boolean) as string[];
+        const names = ids
+          .map((eid) => establishments.find((e) => e.id === eid)?.name)
+          .filter(Boolean) as string[];
         if (names.length === 0) return "Aucun";
         if (names.length === 1) return names[0];
         return `${names[0]} +${names.length - 1}`;
       },
     },
-    { key: "active", header: "Accès", cell: (r) => <span className="text-sm">{r.is_active ? "Actif" : "Désactivé"}</span> },
-    { key: "created", header: "Créé le", cell: (r) => formatDateTime(r.created_at) },
+    {
+      key: "active",
+      header: "Accès",
+      cell: (r) => <span className="text-sm">{r.is_active ? "Actif" : "Désactivé"}</span>,
+    },
+    {
+      key: "created",
+      header: "Créé le",
+      cell: (r) => formatDateTime(r.created_at),
+    },
   ];
 
   const pending = invitations.filter((i) => !i.accepted_at && new Date(i.expires_at) > new Date());
@@ -127,22 +144,33 @@ function Page() {
       <PageHeader
         title="Personnel administratif"
         description="Les comptes sont créés uniquement sur invitation du Directeur Général. Cliquez sur un membre pour voir sa fiche."
-        actions={isDG ? <Button onClick={() => setOpen(true)}><UserPlus className="mr-2 h-4 w-4" />Inviter</Button> : undefined}
+        actions={
+          isDG ? (
+            <Button onClick={() => setOpen(true)}>
+              <UserPlus className="mr-2 h-4 w-4" />
+              Inviter
+            </Button>
+          ) : undefined
+        }
       />
 
-      {link && (
-        <Card className="border-primary/40">
+      {inviteUrl && (
+        <Card className="border-primary/30 bg-primary/5">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Lien d'invitation</CardTitle>
           </CardHeader>
-          <CardContent className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <code className="min-w-0 flex-1 truncate rounded-md bg-muted px-3 py-2 text-xs">{link}</code>
+          <CardContent className="flex flex-wrap items-center gap-2">
+            <code className="flex-1 break-all rounded-md bg-background px-2 py-1 text-xs">{inviteUrl}</code>
             <Button
-              variant="outline"
               size="sm"
-              onClick={() => { navigator.clipboard.writeText(link); toast.success("Lien copié"); }}
+              variant="outline"
+              onClick={async () => {
+                await navigator.clipboard.writeText(inviteUrl);
+                toast.success("Lien copié");
+              }}
             >
-              <Copy className="mr-2 h-4 w-4" /> Copier
+              <Copy className="mr-1.5 h-3.5 w-3.5" />
+              Copier
             </Button>
           </CardContent>
         </Card>
@@ -150,28 +178,27 @@ function Page() {
 
       <DataTable
         columns={columns}
-        rows={data}
-        loading={isLoading}
-        emptyLabel="Aucun compte."
+        rows={profiles}
+        loading={profilesQ.isPending}
         onRowClick={(r) => navigate({ to: "/personnel/$id", params: { id: r.id } })}
+        emptyLabel="Aucun membre pour le moment."
       />
 
-      {isDG && (
+      {isDG && pending.length > 0 && (
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader>
             <CardTitle className="text-base">Invitations en attente ({pending.length})</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-sm">
-            {pending.length === 0 ? (
-              <p className="text-muted-foreground">Aucune invitation en attente.</p>
-            ) : (
-              pending.map((i) => (
-                <div key={i.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border px-3 py-2">
-                  <span>{establishments.find((e) => e.id === i.establishment_id)?.name ?? "—"}</span>
-                  <span className="text-xs text-muted-foreground">Expire le {formatDateTime(i.expires_at)}</span>
+            {pending.map((i) => {
+              const est = establishments.find((e) => e.id === i.establishment_id);
+              return (
+                <div key={i.id} className="flex justify-between border-b border-border/50 pb-1.5 last:border-0">
+                  <span>{est?.name ?? "—"}</span>
+                  <span className="text-muted-foreground">Expire le {formatDateTime(i.expires_at)}</span>
                 </div>
-              ))
-            )}
+              );
+            })}
           </CardContent>
         </Card>
       )}
@@ -179,10 +206,8 @@ function Page() {
       <RecordDialog
         open={open}
         onOpenChange={setOpen}
-        title="Inviter un membre du personnel"
-        description="Le lien généré permet d'activer un compte rattaché à un seul établissement. Vous pourrez lui en ajouter d'autres ensuite depuis sa fiche."
-        submitting={invite.isPending}
-        onSubmit={(v) => invite.mutate(v)}
+        title="Inviter un membre"
+        description="Le destinataire utilisera le lien pour créer son compte."
         fields={[
           {
             name: "establishment_id",
@@ -192,8 +217,9 @@ function Page() {
             colSpan: 2,
             options: establishments.map((e) => ({ value: e.id, label: e.name })),
           },
-          { name: "days", label: "Validité (jours)", type: "number", defaultValue: 7, colSpan: 2 },
         ]}
+        submitting={invite.isPending}
+        onSubmit={(values) => invite.mutate(values)}
       />
     </>
   );
