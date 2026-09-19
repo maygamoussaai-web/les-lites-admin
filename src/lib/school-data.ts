@@ -18,25 +18,32 @@ import {
   type TuitionPayment,
 } from "@/lib/school";
 
-// Données structurelles qui changent rarement (un établissement, une classe,
-// un modèle de scolarité ne se modifient pas d'une minute à l'autre) : on
-// espace les revalidations silencieuses en arrière-plan à 5 minutes au lieu
-// des 30 secondes par défaut, pour réduire le nombre de requêtes réseau sans
-// jamais affecter l'affichage (toujours instantané grâce au cache).
+// Structure stable : moins de refetch, UI plus fluide (surtout mobile).
 const STABLE_STALE_TIME = 5 * 60_000;
+// Listes qui bougent un peu plus souvent mais pas a chaque seconde.
+const SEMI_STALE_TIME = 2 * 60_000;
 
 /**
- * Charge l'ensemble des données visibles par l'utilisateur courant.
- * Les RLS Supabase limitent automatiquement le personnel à son établissement.
+ * Charge l'ensemble des donnees visibles par l'utilisateur courant.
+ * RLS Supabase limite le personnel a son etablissement.
  */
 export function useSchoolData() {
   const establishments = useRows<Establishment>("establishments", {
     order: { column: "name" },
     staleTime: STABLE_STALE_TIME,
   });
-  const classes = useRows<ClassRow>("classes", { order: { column: "name" }, staleTime: STABLE_STALE_TIME });
-  const students = useRows<Student>("students", { order: { column: "last_name" } });
-  const feePlans = useRows<FeePlan>("fee_plans", { order: { column: "name" }, staleTime: STABLE_STALE_TIME });
+  const classes = useRows<ClassRow>("classes", {
+    order: { column: "name" },
+    staleTime: STABLE_STALE_TIME,
+  });
+  const students = useRows<Student>("students", {
+    order: { column: "last_name" },
+    staleTime: SEMI_STALE_TIME,
+  });
+  const feePlans = useRows<FeePlan>("fee_plans", {
+    order: { column: "name" },
+    staleTime: STABLE_STALE_TIME,
+  });
   const installments = useRows<Installment>("fee_plan_installments", {
     order: { column: "position" },
     staleTime: STABLE_STALE_TIME,
@@ -44,11 +51,24 @@ export function useSchoolData() {
   const tuitionPayments = useRows<TuitionPayment>("tuition_payments", {
     order: { column: "paid_at", ascending: false },
   });
-  const enrollments = useRows<StudentEnrollment>("student_enrollments", { order: { column: "started_at" } });
-  const teachers = useRows<Teacher>("teachers", { order: { column: "last_name" } });
-  const assignments = useRows<TeacherAssignment>("teacher_assignments");
-  const sessions = useRows<TeacherSession>("teacher_sessions", { order: { column: "weekday" } });
-  const sessionCompletions = useRows<TeacherSessionCompletion>("teacher_session_completions");
+  const enrollments = useRows<StudentEnrollment>("student_enrollments", {
+    order: { column: "started_at" },
+    staleTime: SEMI_STALE_TIME,
+  });
+  const teachers = useRows<Teacher>("teachers", {
+    order: { column: "last_name" },
+    staleTime: SEMI_STALE_TIME,
+  });
+  const assignments = useRows<TeacherAssignment>("teacher_assignments", {
+    staleTime: SEMI_STALE_TIME,
+  });
+  const sessions = useRows<TeacherSession>("teacher_sessions", {
+    order: { column: "weekday" },
+    staleTime: STABLE_STALE_TIME,
+  });
+  const sessionCompletions = useRows<TeacherSessionCompletion>("teacher_session_completions", {
+    staleTime: SEMI_STALE_TIME,
+  });
   const teacherPayments = useRows<TeacherPayment>("teacher_payments", {
     order: { column: "paid_at", ascending: false },
   });
@@ -62,9 +82,6 @@ export function useSchoolData() {
     tuitionPayments.isPending ||
     enrollments.isPending;
 
-  // Mémorisé : sans cela, chaque rendu recréait listes et index, ce qui
-  // invalidait tous les useMemo en aval (statistiques, tableaux) et rendait
-  // l'interface lourde sur mobile.
   return useMemo(() => {
     const allStudents = students.data ?? [];
     const allTeachers = teachers.data ?? [];
@@ -86,7 +103,6 @@ export function useSchoolData() {
       loading,
       establishments: establishments.data ?? [],
       classes: classes.data ?? [],
-      // Listes actives (archivés exclus) — utilisées pour les cartes, formulaires et pickers.
       students: allStudents.filter((s) => !s.archived_at),
       feePlans: feePlans.data ?? [],
       installments: installments.data ?? [],
@@ -99,8 +115,6 @@ export function useSchoolData() {
       sessions: sessions.data ?? [],
       sessionCompletions: sessionCompletions.data ?? [],
       teacherPayments: teacherPayments.data ?? [],
-      // Recherches non filtrées — utilisées pour retrouver le NOM dans l'historique
-      // (paiements, journal d'audit) même après archivage d'un élève ou d'un enseignant.
       studentsById: new Map(allStudents.map((s) => [s.id, s])),
       teachersById: new Map(allTeachers.map((t) => [t.id, t])),
     };
@@ -158,7 +172,10 @@ export function useEstablishmentStats(data: SchoolData, since?: string) {
         );
         expected += total;
         outstanding += Math.max(0, total - paidForEnrollment);
-        const status = lateStatus(paidForEnrollment, (enrollment.installments_snapshot as unknown as Installment[]) ?? []);
+        const status = lateStatus(
+          paidForEnrollment,
+          (enrollment.installments_snapshot as unknown as Installment[]) ?? [],
+        );
         if (status.isLate) lateStudents += 1;
       }
 
