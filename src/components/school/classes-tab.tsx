@@ -1,10 +1,9 @@
 /**
  * Onglet Classes — cartes compactes : nom + barre effectif / capacité.
- * Un clic ouvre la page résultats de la classe.
  */
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Plus, GraduationCap } from "lucide-react";
+import { Plus, GraduationCap, Users } from "lucide-react";
 import { EmptyState } from "@/components/app/empty-state";
 import { RecordDialog, type Field } from "@/components/app/record-dialog";
 import { Button } from "@/components/ui/button";
@@ -50,28 +49,42 @@ export function ClassesTab({ establishmentId, data }: { establishmentId: string;
           description="Créez la première classe de cet établissement."
         />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {rows.map((c, index) => {
+        <div className="stagger grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {rows.map((c) => {
             const effectif = data.students.filter((s) => s.class_id === c.id).length;
             const capacity = Number(c.capacity) || 0;
             const ratio = capacity > 0 ? Math.min(100, (effectif / capacity) * 100) : 0;
+            const full = capacity > 0 && effectif >= capacity;
             return (
               <Card
                 key={c.id}
-                className="card-lift animate-rise cursor-pointer border-border/70 transition-colors hover:border-primary/40"
-                style={{ animationDelay: `${index * 40}ms` }}
+                className="card-lift group cursor-pointer overflow-hidden border-border/60 transition-colors hover:border-primary/35"
                 onClick={() => navigate({ to: "/classes/$classId", params: { classId: c.id } })}
               >
-                <CardContent className="space-y-2 p-4">
-                  <p className="truncate font-display text-sm font-semibold text-foreground">{c.name}</p>
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                      <span>
+                <CardContent className="space-y-3 p-4">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary transition-transform duration-200 group-hover:scale-105">
+                      <Users className="h-4 w-4" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-display text-sm font-semibold text-foreground">{c.name}</p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
                         {effectif} élève{effectif > 1 ? "s" : ""}
-                      </span>
-                      <span>{capacity > 0 ? `${effectif} / ${capacity}` : "Capacité non définie"}</span>
+                        {capacity > 0 ? ` · cap. ${capacity}` : ""}
+                      </p>
                     </div>
-                    <Progress value={capacity > 0 ? ratio : 0} className="h-1.5" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-muted-foreground">Effectif</span>
+                      <span className={full ? "font-medium text-destructive" : "tabular-nums text-foreground"}>
+                        {capacity > 0 ? `${effectif} / ${capacity}` : effectif}
+                      </span>
+                    </div>
+                    <Progress
+                      value={capacity > 0 ? ratio : 0}
+                      className={`h-1.5 ${full ? "[&>div]:bg-destructive" : ""}`}
+                    />
                   </div>
                 </CardContent>
               </Card>
