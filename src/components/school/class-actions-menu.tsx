@@ -29,6 +29,7 @@ import { useSaveRow, useDeleteRow, writeAudit } from "@/lib/data";
 import { formatFCFA } from "@/lib/format";
 import type { SchoolData } from "@/lib/school-data";
 import type { ClassRow } from "@/lib/school";
+import { describeError } from "@/lib/errors";
 
 export function ClassActionsMenu({
   klass,
@@ -79,7 +80,7 @@ export function ClassActionsMenu({
       toast.success(`Classe « ${klass.name} » renouvelée`);
       setRenewOpen(false);
     } catch (e) {
-      toast.error((e as Error).message || "Renouvellement impossible");
+      toast.error(describeError(e, "Renouvellement impossible"));
     } finally {
       setRenewBusy(false);
     }

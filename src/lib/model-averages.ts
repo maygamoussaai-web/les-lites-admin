@@ -73,7 +73,6 @@ export function computeModelAverages(
   fillData: FillData,
 ): ModelAverages {
   const written = writeFilledWorkbook(templateBuffer, mapping, fillData);
-  // generalAverage et subjectAverages = resultats des formules du fichier uniquement
   return {
     generalAverage: written.computed.generalAverage,
     subjectAverages: written.computed.subjectAverages,
