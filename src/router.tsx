@@ -3,17 +3,32 @@ import { createRouter } from "@tanstack/react-router";
 import { routeTree } from "./routeTree.gen";
 import { QUERY_PERSIST_MAX_AGE } from "./lib/query-persist";
 
+function isBrowserOnline() {
+  return typeof navigator === "undefined" || navigator.onLine;
+}
+
 export const getRouter = () => {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
-        // Aligné sur QUERY_PERSIST_MAX_AGE : le cache reste utilisable en
-        // mémoire au moins aussi longtemps que ce qui est persisté en local,
-        // pour un fonctionnement hors ligne cohérent.
+        // Cache memoire = duree du cache disque (1 semaine) pour lecture hors ligne.
         gcTime: QUERY_PERSIST_MAX_AGE,
-        staleTime: 60_000,
+        // Donnees considerees fraiches 90s : moins de refetch silencieux, UI plus fluide.
+        staleTime: 90_000,
+        // Hors ligne : sert le cache persiste sans attendre le reseau.
+        networkMode: "offlineFirst",
         refetchOnWindowFocus: false,
-        retry: 1,
+        // Au retour en ligne, revalider une fois les ecrans montes.
+        refetchOnReconnect: true,
+        // Pas de retry inutile sans reseau (latence / erreurs fantomes).
+        retry: (failureCount) => {
+          if (!isBrowserOnline()) return false;
+          return failureCount < 1;
+        },
+      },
+      mutations: {
+        networkMode: "offlineFirst",
+        retry: false,
       },
     },
   });
@@ -23,10 +38,8 @@ export const getRouter = () => {
     context: { queryClient },
     scrollRestoration: true,
     defaultPreload: "intent",
-    // Un survol/intent répété sur le même lien ne redéclenche pas une requête
-    // si les données ont moins de 30s — réduit les appels réseau redondants
-    // sans nuire à la fraîcheur perçue par l'utilisateur.
-    defaultPreloadStaleTime: 30_000,
+    // Preload au survol seulement si les donnees ont plus de 45s.
+    defaultPreloadStaleTime: 45_000,
   });
 
   return router;
