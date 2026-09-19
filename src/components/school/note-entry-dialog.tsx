@@ -1,7 +1,7 @@
 /**
  * Dialogue de saisie de notes — matières du plan bulletin, hors ligne OK.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -27,12 +27,17 @@ import { describeError } from "@/lib/errors";
 import { enqueue } from "@/lib/offline-queue";
 import { flushQueue } from "@/lib/offline-sync";
 import { isSubjectLabel } from "@/lib/xlsx-template";
-import { subjectsOfTemplate } from "@/lib/report-template";
+import { subjectsOfTemplate, type GradeNature } from "@/lib/report-template";
 import { subjectAverage, type ClassSubject, type GradePeriod, type Grade } from "@/lib/grades";
 
 type StudentRef = { id: string; first_name: string; last_name: string };
 
 const isOnline = () => typeof navigator === "undefined" || navigator.onLine;
+
+const NATURE_LABELS: Record<GradeNature, string> = {
+  evaluation: "Note d'évaluation",
+  composition: "Note de composition",
+};
 
 function applyOptimisticGrades(
   qc: ReturnType<typeof useQueryClient>,
@@ -58,6 +63,7 @@ export function NoteEntryDialog({
   subjects,
   currentPeriod,
   subjectLabels,
+  allowedNatures,
   existingGrades = [],
 }: {
   open: boolean;
@@ -67,9 +73,8 @@ export function NoteEntryDialog({
   students: StudentRef[];
   subjects: ClassSubject[];
   currentPeriod: GradePeriod | null;
-  /** Matieres du modele actif (si present) — seules celles-ci sont proposees. */
   subjectLabels?: string[];
-  /** Notes deja saisies (pour moyenne live). */
+  allowedNatures?: GradeNature[];
   existingGrades?: Grade[];
 }) {
   const qc = useQueryClient();
@@ -77,11 +82,23 @@ export function NoteEntryDialog({
     subjects.filter((s) => isSubjectLabel(s.name)),
     subjectLabels,
   );
-  const [nature, setNature] = useState<"composition" | "evaluation">("evaluation");
+  const natures: GradeNature[] =
+    allowedNatures && allowedNatures.length > 0
+      ? allowedNatures
+      : ["evaluation", "composition"];
+  const naturesKey = natures.join("|");
+  const [nature, setNature] = useState<GradeNature>(natures[0]!);
   const [subjectId, setSubjectId] = useState("");
   const [scale, setScale] = useState("20");
   const [values, setValues] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const allowed = naturesKey.split("|") as GradeNature[];
+    if (!allowed.includes(nature)) {
+      setNature(allowed[0]!);
+    }
+  }, [naturesKey, nature]);
 
   const reset = () => {
     setSubjectId("");
@@ -93,7 +110,6 @@ export function NoteEntryDialog({
   const canSubmit =
     !!subjectId && scaleNum > 0 && Object.values(values).some((v) => v !== "") && !submitting;
 
-  /** Moyenne live : note saisie + notes deja en base pour cette matiere/eleve. */
   const liveAverageFor = (studentId: string, typed: string): number | null => {
     const n = typed === "" ? null : Number(typed);
     const prior = existingGrades.filter(
@@ -252,22 +268,31 @@ export function NoteEntryDialog({
         <DialogHeader>
           <DialogTitle>Enregistrer une note</DialogTitle>
           <DialogDescription>
-            Matieres du modele de bulletin uniquement. Moyenne live a la saisie. Hors ligne OK.
+            Matières et types de notes issus du modèle Excel. Moyenne live à la saisie. Hors ligne OK.
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
             <Label className="mb-1.5 block text-sm">Nature</Label>
-            <Select value={nature} onValueChange={(v) => setNature(v as "composition" | "evaluation")}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="evaluation">Note d'évaluation</SelectItem>
-                <SelectItem value="composition">Note de composition</SelectItem>
-              </SelectContent>
-            </Select>
+            {natures.length === 1 ? (
+              <div className="flex h-10 items-center rounded-md border border-border bg-muted/40 px-3 text-sm">
+                {NATURE_LABELS[natures[0]!]}
+              </div>
+            ) : (
+              <Select value={nature} onValueChange={(v) => setNature(v as GradeNature)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {natures.map((n) => (
+                    <SelectItem key={n} value={n}>
+                      {NATURE_LABELS[n]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
           <div>
             <Label className="mb-1.5 block text-sm">
