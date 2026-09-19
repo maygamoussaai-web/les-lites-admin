@@ -1,52 +1,45 @@
+/**
+ * Uploads storage — bulletins xlsx / PDF élèves.
+ * Retente si le bucket principal refuse le type MIME.
+ */
 import { supabase } from "@/integrations/supabase/client";
 
-const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+export type UploadResult = { path: string; bucket: string };
 
-function isMimeRejected(error: unknown): boolean {
-  const message = error && typeof error === "object" && "message" in error ? String((error as { message?: string }).message) : String(error ?? "");
-  return /mime type|not supported|invalid.*type/i.test(message);
-}
-
-/**
- * Le bucket student-documents n'accepte souvent que JPEG/PNG/PDF.
- * On retente octet-stream puis le bucket des modeles Excel.
- */
-export async function uploadBulletinWorkbook(
-  path: string,
-  bytes: Blob | Uint8Array | ArrayBuffer,
-): Promise<{ path: string; bucket: string; contentType: string }> {
-  const blob =
-    bytes instanceof Blob
-      ? bytes
-      : new Blob([bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes], { type: XLSX_MIME });
-
-  const attempts: { bucket: string; contentType: string }[] = [
-    { bucket: "student-documents", contentType: XLSX_MIME },
-    { bucket: "student-documents", contentType: "application/octet-stream" },
-    { bucket: "report-templates", contentType: XLSX_MIME },
-    { bucket: "report-templates", contentType: "application/octet-stream" },
-  ];
-
-  let lastError: unknown = null;
-  for (const attempt of attempts) {
-    const { error } = await supabase.storage.from(attempt.bucket).upload(path, blob, {
-      contentType: attempt.contentType,
-      upsert: false,
-    });
-    if (!error) return { path, bucket: attempt.bucket, contentType: attempt.contentType };
-    lastError = error;
-    if (!isMimeRejected(error)) throw error;
-  }
-  throw lastError ?? new Error("Envoi du fichier Excel impossible.");
-}
-
-export async function uploadStudentPdf(
+async function uploadWithFallback(
+  preferredBucket: string,
+  fallbackBucket: string,
   path: string,
   blob: Blob,
-): Promise<{ path: string; bucket: string }> {
+  contentType: string,
+): Promise<UploadResult> {
+  const opts = { contentType, upsert: true as const };
+  const first = await supabase.storage.from(preferredBucket).upload(path, blob, opts);
+  if (!first.error) return { path, bucket: preferredBucket };
+
+  // Retry fallback bucket (souvent student-documents si report-templates refuse xlsx)
+  const second = await supabase.storage.from(fallbackBucket).upload(path, blob, opts);
+  if (!second.error) return { path, bucket: fallbackBucket };
+
+  throw first.error ?? second.error ?? new Error("Upload impossible");
+}
+
+/** Bulletin .xlsx validé — préfère report-templates, sinon student-documents. */
+export async function uploadBulletinWorkbook(path: string, blob: Blob): Promise<UploadResult> {
+  return uploadWithFallback(
+    "report-templates",
+    "student-documents",
+    path,
+    blob,
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  );
+}
+
+/** PDF élève (aperçu / annuel) → student-documents. */
+export async function uploadStudentPdf(path: string, blob: Blob): Promise<UploadResult> {
   const { error } = await supabase.storage.from("student-documents").upload(path, blob, {
     contentType: "application/pdf",
-    upsert: false,
+    upsert: true,
   });
   if (error) throw error;
   return { path, bucket: "student-documents" };
