@@ -25,17 +25,19 @@ export function OfflineSyncIndicator() {
   const qc = useQueryClient();
   const [queue, setQueue] = useState<QueueEntry[]>(() => loadQueue());
   const [open, setOpen] = useState(false);
+  const [flushing, setFlushing] = useState(false);
 
   useEffect(() => {
     const refresh = () => setQueue(loadQueue());
     window.addEventListener(QUEUE_CHANGED_EVENT, refresh);
 
-    const tryFlush = () => flushQueue(qc);
+    const tryFlush = () => {
+      void flushQueue(qc);
+    };
     window.addEventListener("online", tryFlush);
-    // Filet de sécurité : au cas où l'événement "online" du navigateur soit raté.
     const interval = setInterval(() => {
-      if (navigator.onLine) flushQueue(qc);
-    }, 15000);
+      if (navigator.onLine) void flushQueue(qc);
+    }, 20000);
     tryFlush();
 
     return () => {
@@ -49,51 +51,71 @@ export function OfflineSyncIndicator() {
 
   const hasError = queue.some((e) => e.error);
 
+  const retry = async () => {
+    setFlushing(true);
+    try {
+      await flushQueue(qc);
+      setQueue(loadQueue());
+    } finally {
+      setFlushing(false);
+    }
+  };
+
   return (
     <>
       <Button
         variant="ghost"
         size="sm"
-   className="press inline-flex gap-1.5"
+        className="press h-8 gap-1.5 px-2 text-xs sm:px-3"
         onClick={() => setOpen(true)}
+        aria-label={`${queue.length} actions en attente`}
       >
         {hasError ? (
-          <AlertTriangle className="h-3.5 w-3.5 text-destructive" />
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
         ) : (
-          <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+          <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         )}
-        {queue.length} en attente
+        <span className="tabular-nums">{queue.length}</span>
+        <span className="hidden sm:inline">en attente</span>
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-md">
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Actions en attente de synchronisation</DialogTitle>
+            <DialogTitle>Actions en attente</DialogTitle>
             <DialogDescription>
-              Ces actions ont été enregistrées sur l'appareil et seront envoyées automatiquement dès que la
-              connexion sera rétablie.
+              Enregistrées sur cet appareil. Envoi automatique dès que la connexion revient.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-2">
             {queue.map((entry) => (
-              <div key={entry.id} className="rounded-lg border border-border/70 bg-muted/30 px-3 py-2.5 text-sm">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-medium text-foreground">
+              <div
+                key={entry.id}
+                className="rounded-xl border border-border/70 bg-muted/30 px-3 py-2.5 text-sm"
+              >
+                <div className="flex min-w-0 items-center justify-between gap-2">
+                  <span className="min-w-0 truncate font-medium text-foreground">
                     {actionLabel[entry.op]} · {entry.label}
                   </span>
-                  <Badge variant={entry.error ? "destructive" : "outline"} className="text-xs font-normal">
-                    {entry.error ? "Erreur" : "En attente"}
+                  <Badge
+                    variant={entry.error ? "destructive" : "outline"}
+                    className="shrink-0 text-[10px] font-normal"
+                  >
+                    {entry.error ? "Erreur" : "Attente"}
                   </Badge>
                 </div>
-                <p className="mt-0.5 text-xs text-muted-foreground">{formatDateTime(new Date(entry.createdAt).toISOString())}</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
+                  {formatDateTime(new Date(entry.createdAt).toISOString())}
+                </p>
                 {entry.error && <p className="mt-1 text-xs text-destructive">{entry.error}</p>}
               </div>
             ))}
           </div>
 
-          <Button onClick={() => flushQueue(qc)} className="press">
-            <RefreshCw className="mr-2 h-4 w-4" /> Réessayer maintenant
+          <Button onClick={() => void retry()} disabled={flushing} className="press w-full">
+            <RefreshCw className={`mr-2 h-4 w-4 ${flushing ? "animate-spin" : ""}`} />
+            {flushing ? "Synchronisation…" : "Réessayer maintenant"}
           </Button>
         </DialogContent>
       </Dialog>
