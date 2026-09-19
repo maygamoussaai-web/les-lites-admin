@@ -1,1 +1,1 @@
-RESTORE_FROM_LOCAL_FILE_TOO_LARGE_FOR_TOOL_CALL
+export { ClassPage } from "@/components/school/class-page-impl";
