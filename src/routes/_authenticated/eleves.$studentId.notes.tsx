@@ -100,7 +100,6 @@ function Page() {
     return [...ids];
   }, [student?.class_id, data.enrollments, studentId, grades]);
 
-  // Periodes de toutes les classes de l'eleve (charge globalement puis filtre)
   const allPeriodsQuery = useRows<GradePeriod>("grade_periods", {
     order: { column: "period_number", ascending: true },
   });
@@ -169,7 +168,6 @@ function Page() {
       const liveAvg = studentPeriodAverage(mine, studentId);
       const average = validatedAvg ?? liveAvg;
 
-      // Bulletin lie a la periode (document_id du report card ou nom contenant periode)
       let bulletinDoc: StudentDocument | null = null;
       if (card?.document_id) {
         bulletinDoc = documents.find((d) => d.id === card.document_id) ?? null;
@@ -193,7 +191,6 @@ function Page() {
       });
     }
 
-    // Tri periodes decroissant dans chaque classe
     for (const g of byClass.values()) {
       g.periods.sort((a, b) => b.period.period_number - a.period.period_number);
     }
@@ -266,7 +263,7 @@ function Page() {
             <section key={g.classId} className="space-y-2">
               <h2 className="font-display text-sm font-semibold text-foreground">{g.className}</h2>
               <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {g.periods.map(({ period, average, grades: list, validatedAvg, bulletinDoc }) => {
+                {g.periods.map(({ period, average, grades: list, bulletinDoc }) => {
                   const locked = period.ended_at !== null;
                   const active = period.ended_at === null;
                   return (
@@ -389,9 +386,7 @@ function PeriodDetail({
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-wrap gap-2">
-            {validated && (
-              <Badge variant="secondary">Bulletin valide</Badge>
-            )}
+            {validated && <Badge variant="secondary">Bulletin valide</Badge>}
             {bulletinDoc ? (
               <Button size="sm" variant="outline" disabled={busy} onClick={() => void openBulletin()}>
                 <Download className="mr-1.5 h-4 w-4" />
@@ -404,8 +399,8 @@ function PeriodDetail({
               </p>
             )}
             <Button size="sm" variant="ghost" asChild>
-              <Link to="/eleves/$studentId/bibliotheque" params={{ studentId }}>
-                Bibliotheque
+              <Link to="/eleves/$studentId" params={{ studentId }}>
+                Fiche eleve
               </Link>
             </Button>
           </div>
@@ -537,10 +532,8 @@ function GradeRow({ grade, subject, locked }: { grade: Grade; subject: string; l
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Modifier — {subject}</DialogTitle>
-            <DialogDescription>
-              {grade.nature === "composition" ? "Composition" : "Evaluation"}
-            </DialogDescription>
+            <DialogTitle>Modifier la note</DialogTitle>
+            <DialogDescription>{subject}</DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
