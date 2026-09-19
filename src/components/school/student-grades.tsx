@@ -3,7 +3,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { History, AlertTriangle, ChevronDown } from "lucide-react";
+import { BookOpen, AlertTriangle, ChevronDown } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -140,7 +140,7 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
         </CardTitle>
         <Button variant="ghost" size="sm" className="press h-8" asChild>
           <Link to="/eleves/$studentId/notes" params={{ studentId }}>
-            <History className="mr-1 h-3.5 w-3.5" /> Historique
+            <BookOpen className="mr-1 h-3.5 w-3.5" /> Notes de l'eleve
           </Link>
         </Button>
       </CardHeader>
@@ -222,6 +222,12 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
             )}
           </>
         )}
+
+        <Button className="press w-full" variant="outline" asChild>
+          <Link to="/eleves/$studentId/notes" params={{ studentId }}>
+            <BookOpen className="mr-1.5 h-4 w-4" /> Notes de l'eleve
+          </Link>
+        </Button>
       </CardContent>
     </Card>
   );
