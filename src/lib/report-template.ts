@@ -1,19 +1,12 @@
 /**
  * Modele de bulletin actif d'une classe — charge une seule fois, mis en cache.
- * NOTE POUR CLAUDE : point d'entree unique (saisie de notes, verification du
- * bulletin, generation). Evite de dupliquer le telechargement du .xlsx.
  */
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { readTemplate, isSubjectLabel, type TemplateMapping, type TemplateSheet } from "@/lib/xlsx-template";
 
-/** Types de notes saisisables, dérivés des colonnes du modèle Excel. */
 export type GradeNature = "evaluation" | "composition";
 
-/**
- * Lit le mapping du modèle et retourne les natures de notes présentes
- * (colonnes `evaluation` / `composition`). Sans modèle → les deux.
- */
 export function gradeNaturesFromMapping(
   mapping: TemplateMapping | null | undefined,
 ): GradeNature[] {
@@ -21,7 +14,6 @@ export function gradeNaturesFromMapping(
   const roles = Object.values(mapping.columns);
   const hasEval = roles.includes("evaluation");
   const hasComp = roles.includes("composition");
-  // Si aucune colonne note reconnue, on garde les deux pour ne pas bloquer la saisie.
   if (!hasEval && !hasComp) return ["evaluation", "composition"];
   const out: GradeNature[] = [];
   if (hasEval) out.push("evaluation");
@@ -29,7 +21,6 @@ export function gradeNaturesFromMapping(
   return out;
 }
 
-/** Nombre de colonnes d'évaluation dans le modèle (plusieurs interros possibles). */
 export function evaluationSlotCount(mapping: TemplateMapping | null | undefined): number {
   if (!mapping?.columns) return 1;
   return Math.max(1, Object.values(mapping.columns).filter((r) => r === "evaluation").length);
@@ -38,23 +29,14 @@ export function evaluationSlotCount(mapping: TemplateMapping | null | undefined)
 export type ActiveTemplate = {
   name: string;
   scale: number;
-  /**
-   * Contenu du .xlsx en base64 — l'ArrayBuffer ne survit pas à la
-   * sérialisation JSON du cache persisté (localStorage) ; on le reconstruit
-   * à la lecture via `templateBuffer()`.
-   */
   bufferBase64: string;
   sheet: TemplateSheet;
   mapping: TemplateMapping;
-  /** Matieres listees dans le modele actif, dans l'ordre du fichier. */
   subjectLabels: string[];
-  /** Natures de notes prévues par le modèle (colonnes Excel). */
   gradeNatures: GradeNature[];
-  /** Nombre de colonnes d'évaluation dans le modèle. */
   evaluationSlots: number;
 };
 
-/** Reconstruit un ArrayBuffer utilisable depuis le cache (base64). */
 export function templateBuffer(tpl: ActiveTemplate | null | undefined): ArrayBuffer | null {
   if (!tpl?.bufferBase64) return null;
   try {
@@ -106,7 +88,6 @@ export function useActiveReportTemplate(classId: string, enabled = true) {
       const gradeNatures = gradeNaturesFromMapping(mapping);
       const evaluationSlots = evaluationSlotCount(mapping);
 
-      // base64 : survit au persist localStorage (ArrayBuffer serait perdu)
       const bytes = new Uint8Array(buffer);
       let binary = "";
       for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
@@ -140,7 +121,6 @@ export const normalizeSubject = (value: string) =>
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
 
-/** Ne garde que les matieres presentes dans le modele actif (sinon, tout). */
 export function subjectsOfTemplate<T extends { name: string }>(subjects: T[], labels: string[] | undefined): T[] {
   if (!labels || labels.length === 0) return subjects;
   const wanted = new Set(labels.map(normalizeSubject));
