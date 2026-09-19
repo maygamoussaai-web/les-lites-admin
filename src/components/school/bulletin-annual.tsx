@@ -1,5 +1,5 @@
 /**
- * Bulletin annuel + canvas provisoire (sans modele Excel).
+ * Bulletin annuel + rendu canvas PDF provisoire.
  */
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -14,8 +14,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
+import { describeError } from "@/lib/errors";
 import { canvasToPdfBlob } from "@/lib/pdf-export";
-import { writeAudit } from "@/lib/data";
 import {
   subjectAverage,
   studentAverage,
@@ -54,14 +54,14 @@ export function renderBulletinCanvas({
   ctx.font = "bold 34px sans-serif";
   ctx.fillText(establishmentName, 60, 80);
   ctx.font = "bold 44px sans-serif";
-  ctx.fillText(periodNumber === 0 ? "BULLETIN ANNUEL" : `BULLETIN — Periode ${periodNumber}`, 60, 140);
+  ctx.fillText(periodNumber === 0 ? "BULLETIN ANNUEL" : `BULLETIN — Période ${periodNumber}`, 60, 140);
   ctx.fillStyle = "#374151";
   ctx.font = "24px sans-serif";
   ctx.fillText(`Classe : ${className}`, 60, 190);
-  ctx.fillText(`Eleve : ${studentName}`, 60, 230);
+  ctx.fillText(`Élève : ${studentName}`, 60, 230);
   let y = 300;
   ctx.font = "bold 20px sans-serif";
-  ctx.fillText("Matiere", 60, y);
+  ctx.fillText("Matière", 60, y);
   ctx.fillText("Moyenne", 900, y);
   y += 40;
   ctx.font = "20px sans-serif";
@@ -69,11 +69,11 @@ export function renderBulletinCanvas({
     const avg = subjectAverage(bySubject.get(s.id) ?? []);
     ctx.fillText(s.name, 60, y);
     ctx.fillText(avg !== null ? avg.toFixed(2) : "—", 900, y);
-    y += 32;
+    y += 36;
   }
   y += 20;
   ctx.font = "bold 24px sans-serif";
-  ctx.fillText(`Moyenne generale : ${average !== null ? average.toFixed(2) : "—"}`, 60, y);
+  ctx.fillText(`Moyenne générale : ${average !== null ? average.toFixed(2) : "—"} / 20`, 60, y);
   return canvas;
 }
 
@@ -94,17 +94,26 @@ export function AnnualBulletinDialog({
   students: StudentRef[];
   subjects: ClassSubject[];
   periods: GradePeriod[];
-  grades: Grade[];
+  grades?: Grade[];
 }) {
-  const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(0);
+  const qc = useQueryClient();
 
-  const generate = async () => {
+  const generateAll = async () => {
     setBusy(true);
+    setDone(0);
     try {
+      let allGrades = grades ?? [];
+      if (!grades?.length && periods.length) {
+        const periodIds = periods.map((p) => p.id);
+        const { data, error } = await supabase.from("grades").select("*").in("period_id", periodIds);
+        if (error) throw error;
+        allGrades = (data ?? []) as Grade[];
+      }
       for (const s of students) {
-        const bySubject = groupGradesBySubject(grades, s.id);
-        const average = studentAverage(bySubject);
+        const bySubject = groupGradesBySubject(allGrades, s.id);
+        const avg = studentAverage(bySubject);
         const canvas = renderBulletinCanvas({
           establishmentName,
           className: klass.name,
@@ -112,7 +121,7 @@ export function AnnualBulletinDialog({
           periodNumber: 0,
           subjects,
           bySubject,
-          average,
+          average: avg,
         });
         const blob = await canvasToPdfBlob(canvas);
         const path = `${klass.establishment_id}/${s.id}/bulletin-annuel-${Date.now()}.pdf`;
@@ -127,13 +136,13 @@ export function AnnualBulletinDialog({
           file_type: "application/pdf",
           file_size: blob.size,
         });
+        setDone((d) => d + 1);
       }
-      await writeAudit("create", "student_documents" as never, null, { class_id: klass.id, kind: "annual" });
       qc.invalidateQueries({ queryKey: ["student_documents"] });
-      toast.success("Bulletins annuels generes");
+      toast.success("Bulletins annuels générés");
       onClose();
     } catch (e) {
-      toast.error((e as Error).message || "Generation annuelle impossible");
+      toast.error(describeError(e, "Génération annuelle impossible"));
     } finally {
       setBusy(false);
     }
@@ -145,15 +154,21 @@ export function AnnualBulletinDialog({
         <DialogHeader>
           <DialogTitle>Bulletin annuel</DialogTitle>
           <DialogDescription>
-            Combine les periodes de {klass.name} ({periods.length} periode(s), {students.length} eleve(s)).
+            Génère un PDF provisoire par élève à partir de toutes les notes des périodes ({periods.length}{" "}
+            période{periods.length > 1 ? "s" : ""}).
           </DialogDescription>
         </DialogHeader>
+        {busy && (
+          <p className="text-sm text-muted-foreground">
+            {done} / {students.length}…
+          </p>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>
             Annuler
           </Button>
-          <Button onClick={generate} disabled={busy}>
-            {busy ? "Generation…" : "Generer"}
+          <Button onClick={() => void generateAll()} disabled={busy || students.length === 0}>
+            {busy ? "Génération…" : "Générer"}
           </Button>
         </DialogFooter>
       </DialogContent>
