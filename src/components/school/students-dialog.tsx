@@ -16,6 +16,7 @@ import { useArchiveRow, writeAudit } from "@/lib/data";
 import { formatDate, formatNumber, formatFCFA } from "@/lib/format";
 import { annualAverage, lateStatus, sum, type ClassRow, type Installment, type Student } from "@/lib/school";
 import type { SchoolData } from "@/lib/school-data";
+import { describeError } from "@/lib/errors";
 
 export function StudentsDialog({
   klass,
@@ -93,7 +94,7 @@ export function StudentsDialog({
       toast.success("Élève ajouté");
       setOpen(false);
     } catch (e) {
-      toast.error((e as Error).message || "Ajout impossible");
+      toast.error(describeError(e, "Ajout impossible"));
     } finally {
       setSubmitting(false);
     }
