@@ -7,6 +7,34 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { readTemplate, isSubjectLabel, type TemplateMapping, type TemplateSheet } from "@/lib/xlsx-template";
 
+/** Types de notes saisisables, dérivés des colonnes du modèle Excel. */
+export type GradeNature = "evaluation" | "composition";
+
+/**
+ * Lit le mapping du modèle et retourne les natures de notes présentes
+ * (colonnes `evaluation` / `composition`). Sans modèle → les deux.
+ */
+export function gradeNaturesFromMapping(
+  mapping: TemplateMapping | null | undefined,
+): GradeNature[] {
+  if (!mapping?.columns) return ["evaluation", "composition"];
+  const roles = Object.values(mapping.columns);
+  const hasEval = roles.includes("evaluation");
+  const hasComp = roles.includes("composition");
+  // Si aucune colonne note reconnue, on garde les deux pour ne pas bloquer la saisie.
+  if (!hasEval && !hasComp) return ["evaluation", "composition"];
+  const out: GradeNature[] = [];
+  if (hasEval) out.push("evaluation");
+  if (hasComp) out.push("composition");
+  return out;
+}
+
+/** Nombre de colonnes d'évaluation dans le modèle (plusieurs interros possibles). */
+export function evaluationSlotCount(mapping: TemplateMapping | null | undefined): number {
+  if (!mapping?.columns) return 1;
+  return Math.max(1, Object.values(mapping.columns).filter((r) => r === "evaluation").length);
+}
+
 export type ActiveTemplate = {
   name: string;
   scale: number;
@@ -15,6 +43,10 @@ export type ActiveTemplate = {
   mapping: TemplateMapping;
   /** Matieres listees dans le modele actif, dans l'ordre du fichier. */
   subjectLabels: string[];
+  /** Natures de notes prévues par le modèle (colonnes Excel). */
+  gradeNatures: GradeNature[];
+  /** Nombre de colonnes d'évaluation dans le modèle. */
+  evaluationSlots: number;
 };
 
 export function useActiveReportTemplate(classId: string, enabled = true) {
@@ -53,7 +85,19 @@ export function useActiveReportTemplate(classId: string, enabled = true) {
         }
       }
 
-      return { name: tpl.name, scale: Number(tpl.scale) || 20, buffer, sheet, mapping, subjectLabels };
+      const gradeNatures = gradeNaturesFromMapping(mapping);
+      const evaluationSlots = evaluationSlotCount(mapping);
+
+      return {
+        name: tpl.name,
+        scale: Number(tpl.scale) || 20,
+        buffer,
+        sheet,
+        mapping,
+        subjectLabels,
+        gradeNatures,
+        evaluationSlots,
+      };
     },
   });
 
