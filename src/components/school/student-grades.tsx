@@ -125,10 +125,17 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
   const weak = useMemo(() => {
     if (!modelResult) return [];
     return Object.entries(modelResult.subjectAverages)
-      .filter(([, avg]) => avg !== null && avg < PASS_THRESHOLD)
+      .filter(([name, avg]) => {
+        if (avg === null || avg >= PASS_THRESHOLD) return false;
+        const sub = subjects.find((x) => x.name === name);
+        if (!sub) return false;
+        const list = bySubject.get(sub.id) ?? [];
+        // Eval ou composition absente → pas « à travailler »
+        return list.some((g) => g.nature === "evaluation") && list.some((g) => g.nature === "composition");
+      })
       .map(([name, avg]) => ({ id: name, name, average: avg as number }))
       .sort((a, b) => a.average - b.average);
-  }, [modelResult]);
+  }, [modelResult, subjects, bySubject]);
 
   const gradedSubjects = subjects.filter((s) => bySubject.has(s.id));
 
