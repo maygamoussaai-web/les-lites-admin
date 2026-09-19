@@ -38,7 +38,12 @@ export function evaluationSlotCount(mapping: TemplateMapping | null | undefined)
 export type ActiveTemplate = {
   name: string;
   scale: number;
-  buffer: ArrayBuffer;
+  /**
+   * Contenu du .xlsx en base64 — l'ArrayBuffer ne survit pas à la
+   * sérialisation JSON du cache persisté (localStorage) ; on le reconstruit
+   * à la lecture via `templateBuffer()`.
+   */
+  bufferBase64: string;
   sheet: TemplateSheet;
   mapping: TemplateMapping;
   /** Matieres listees dans le modele actif, dans l'ordre du fichier. */
@@ -48,6 +53,19 @@ export type ActiveTemplate = {
   /** Nombre de colonnes d'évaluation dans le modèle. */
   evaluationSlots: number;
 };
+
+/** Reconstruit un ArrayBuffer utilisable depuis le cache (base64). */
+export function templateBuffer(tpl: ActiveTemplate | null | undefined): ArrayBuffer | null {
+  if (!tpl?.bufferBase64) return null;
+  try {
+    const bin = atob(tpl.bufferBase64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  } catch {
+    return null;
+  }
+}
 
 export function useActiveReportTemplate(classId: string, enabled = true) {
   const query = useQuery<ActiveTemplate | null>({
@@ -88,10 +106,16 @@ export function useActiveReportTemplate(classId: string, enabled = true) {
       const gradeNatures = gradeNaturesFromMapping(mapping);
       const evaluationSlots = evaluationSlotCount(mapping);
 
+      // base64 : survit au persist localStorage (ArrayBuffer serait perdu)
+      const bytes = new Uint8Array(buffer);
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+      const bufferBase64 = btoa(binary);
+
       return {
         name: tpl.name,
         scale: Number(tpl.scale) || 20,
-        buffer,
+        bufferBase64,
         sheet,
         mapping,
         subjectLabels,
