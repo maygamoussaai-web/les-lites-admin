@@ -12,25 +12,43 @@ export const EXCELLENT_THRESHOLD = 15;
 export const to20 = (value: number, scale: number) => (value / scale) * 20;
 
 /**
- * Une note d'evaluation ou une note de composition n'EST PAS une moyenne.
- * Sans les deux (eval + composition), l'app n'affiche aucune moyenne matiere.
+ * True si la matiere a au moins une evaluation ET une composition.
+ * Sinon : matiere "sans note" (pas de difficulte, pas de classement fort/faible).
+ */
+export function subjectNotesComplete(
+  grades: Pick<Grade, "value" | "scale" | "nature">[],
+): boolean {
+  const present = grades.filter(
+    (g) =>
+      g.value !== null &&
+      g.value !== undefined &&
+      Number(g.scale) > 0 &&
+      Number.isFinite(Number(g.value)),
+  );
+  if (!present.length) return false;
+  const hasEval = present.some((g) => g.nature === "evaluation");
+  const hasComp = present.some((g) => g.nature === "composition");
+  return hasEval && hasComp;
+}
+
+/**
+ * L'app n'invente jamais de moyenne matiere a partir des notes.
+ * Sans eval + composition completes → null (matiere sans note).
  * La vraie moyenne vient des formules du modele Excel.
  */
 export function subjectAverage(
   grades: Pick<Grade, "value" | "scale" | "nature">[],
 ): number | null {
-  const present = grades.filter(
-    (g) => g.value !== null && g.value !== undefined && Number(g.scale) > 0 && Number.isFinite(Number(g.value)),
-  );
-  if (!present.length) return null;
-  const hasEval = present.some((g) => g.nature === "evaluation");
-  const hasComp = present.some((g) => g.nature === "composition");
-  if (!hasEval || !hasComp) return null;
+  if (!subjectNotesComplete(grades)) return null;
   return null;
 }
 
-export function studentAverage(gradesBySubject: Map<string, Pick<Grade, "value" | "scale" | "nature">[]>): number | null {
-  const averages = [...gradesBySubject.values()].map(subjectAverage).filter((a): a is number => a !== null);
+export function studentAverage(
+  gradesBySubject: Map<string, Pick<Grade, "value" | "scale" | "nature">[]>,
+): number | null {
+  const averages = [...gradesBySubject.values()]
+    .map(subjectAverage)
+    .filter((a): a is number => a !== null);
   if (!averages.length) return null;
   return averages.reduce((a, b) => a + b, 0) / averages.length;
 }
@@ -93,18 +111,28 @@ export function studentPeriodAverage(grades: Grade[], studentId: string): number
   return studentAverage(groupGradesBySubject(grades, studentId));
 }
 
+/**
+ * Matieres en difficulte : uniquement si notes completes (eval + compo)
+ * ET moyenne (issue du modele) fournie et < seuil.
+ */
 export function weakSubjectsFor(
   grades: Grade[],
   studentId: string,
   subjects: ClassSubject[],
+  modelSubjectAverages?: Record<string, number | null>,
 ): { id: string; name: string; average: number }[] {
   const bySubject = groupGradesBySubject(grades, studentId);
   const weak: { id: string; name: string; average: number }[] = [];
   for (const [subjectId, list] of bySubject) {
-    const avg = subjectAverage(list);
-    if (avg === null || avg >= PASS_THRESHOLD) continue;
+    if (!subjectNotesComplete(list)) continue;
     const subject = subjects.find((s) => s.id === subjectId);
-    weak.push({ id: subjectId, name: subject?.name ?? "Matiere", average: avg });
+    const name = subject?.name ?? "Matiere";
+    const avg =
+      modelSubjectAverages && name in modelSubjectAverages
+        ? modelSubjectAverages[name]
+        : null;
+    if (avg === null || avg === undefined || avg >= PASS_THRESHOLD) continue;
+    weak.push({ id: subjectId, name, average: avg });
   }
   return weak.sort((a, b) => a.average - b.average);
 }
@@ -146,7 +174,11 @@ export function computeClassStats(
   const subjectStats: SubjectStat[] = subjects.map((subject) => {
     const list = periodGrades.filter((g) => g.subject_id === subject.id);
     const perStudent = [...new Set(list.map((g) => g.student_id))]
-      .map((sid) => subjectAverage(list.filter((g) => g.student_id === sid)))
+      .map((sid) => {
+        const studentList = list.filter((g) => g.student_id === sid);
+        if (!subjectNotesComplete(studentList)) return null;
+        return subjectAverage(studentList);
+      })
       .filter((a): a is number => a !== null);
     return {
       subject,
@@ -154,6 +186,7 @@ export function computeClassStats(
       count: list.length,
     };
   });
+  // Seulement les matieres avec au moins une moyenne eleve complete
   const ranked = subjectStats.filter((s) => s.average !== null).sort((a, b) => b.average! - a.average!);
 
   return {
