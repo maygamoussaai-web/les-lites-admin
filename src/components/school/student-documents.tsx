@@ -31,6 +31,7 @@ import { compressImage } from "@/lib/image";
 import { imageToPdfBlob, downloadBlob } from "@/lib/pdf-export";
 import { formatDateTime } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
+import { describeError } from "@/lib/errors";
 
 type StudentDocument = Tables<"student_documents">;
 
@@ -92,28 +93,10 @@ export function StudentDocuments({
         toast.error("Le fichier dépasse 8 Mo même après compression.");
         return;
       }
-      const mime = file.type || "";
-      const nameLower = (pendingFile?.name || file.name || "").toLowerCase();
-      let ext = "bin";
-      if (mime === "application/pdf" || nameLower.endsWith(".pdf")) ext = "pdf";
-      else if (
-        mime.includes("spreadsheet") ||
-        mime.includes("excel") ||
-        nameLower.endsWith(".xlsx")
-      )
-        ext = "xlsx";
-      else if (nameLower.endsWith(".xls")) ext = "xls";
-      else if (mime.startsWith("image/")) ext = "jpg";
-      else if (nameLower.includes(".")) ext = nameLower.split(".").pop() || "bin";
-      const contentType =
-        ext === "xlsx"
-          ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          : ext === "xls"
-            ? "application/vnd.ms-excel"
-            : mime || "application/octet-stream";
+      const ext = file.type === "application/pdf" ? "pdf" : "jpg";
       const path = `${establishmentId}/${studentId}/${Date.now()}.${ext}`;
       const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, file, {
-        contentType: contentType,
+        contentType: file.type,
       });
       if (uploadError) throw uploadError;
 
@@ -122,7 +105,7 @@ export function StudentDocuments({
         establishment_id: establishmentId,
         name: docName.trim(),
         file_path: path,
-        file_type: contentType,
+        file_type: file.type,
         file_size: file.size,
       });
       if (insertError) throw insertError;
@@ -131,7 +114,7 @@ export function StudentDocuments({
       invalidate();
       toast.success("Document ajouté");
     } catch (e) {
-      toast.error((e as Error).message || "Envoi impossible");
+      toast.error(describeError(e, "Envoi impossible"));
     } finally {
       setUploading(false);
       setPendingFile(null);
@@ -146,7 +129,7 @@ export function StudentDocuments({
       if (error || !data) throw error ?? new Error("Lien indisponible");
       window.open(data.signedUrl, "_blank", "noopener,noreferrer");
     } catch (e) {
-      toast.error((e as Error).message || "Impossible d'ouvrir le document");
+      toast.error(describeError(e, "Impossible d'ouvrir le document"));
     } finally {
       setBusyId(null);
     }
@@ -158,22 +141,16 @@ export function StudentDocuments({
       const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(doc.file_path, 300);
       if (error || !data) throw error ?? new Error("Lien indisponible");
 
-      const isPdf = doc.file_type === "application/pdf" || doc.file_path?.endsWith(".pdf");
-      const isXlsx =
-        doc.file_type?.includes("spreadsheet") ||
-        doc.file_type?.includes("excel") ||
-        !!doc.file_path?.match(/\.xlsx?$/i);
-      if (isPdf || isXlsx) {
+      if (doc.file_type === "application/pdf") {
         const res = await fetch(data.signedUrl);
         const blob = await res.blob();
-        const ext = isXlsx ? (doc.file_path?.endsWith(".xls") ? "xls" : "xlsx") : "pdf";
-        downloadBlob(blob, `${doc.name}.${ext}`);
+        downloadBlob(blob, `${doc.name}.pdf`);
       } else {
         const blob = await imageToPdfBlob(data.signedUrl);
         downloadBlob(blob, `${doc.name}.pdf`);
       }
     } catch (e) {
-      toast.error((e as Error).message || "Génération du PDF impossible");
+      toast.error(describeError(e, "Génération du PDF impossible"));
     } finally {
       setBusyId(null);
     }
@@ -191,7 +168,7 @@ export function StudentDocuments({
       invalidate();
       toast.success("Document renommé");
     } catch (e) {
-      toast.error((e as Error).message || "Renommage impossible");
+      toast.error(describeError(e, "Renommage impossible"));
     } finally {
       setBusyId(null);
       setRenaming(null);
@@ -208,7 +185,7 @@ export function StudentDocuments({
       invalidate();
       toast.success("Document supprimé");
     } catch (e) {
-      toast.error((e as Error).message || "Suppression impossible");
+      toast.error(describeError(e, "Suppression impossible"));
     } finally {
       setBusyId(null);
     }
@@ -225,7 +202,7 @@ export function StudentDocuments({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*,application/pdf,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+          accept="image/*,application/pdf"
           className="hidden"
           onChange={(e) => {
             onPick(e.target.files?.[0]);
@@ -271,7 +248,7 @@ export function StudentDocuments({
                     className="h-8 w-8"
                     disabled={busyId === doc.id}
                     onClick={() => downloadAsPdf(doc)}
-                    aria-label="Télécharger"
+                    aria-label="Télécharger en PDF"
                   >
                     <Download className="h-4 w-4" />
                   </Button>
