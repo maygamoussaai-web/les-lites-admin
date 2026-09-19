@@ -34,6 +34,7 @@ import { deleteStaffAccount } from "@/lib/admin.functions";
 import { useAdminProfile } from "@/hooks/use-auth";
 import { roleLabel, formatDateTime, initials, auditActionLabel, auditEntityLabel } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
+import { describeError } from "@/lib/errors";
 
 export const Route = createFileRoute("/_authenticated/personnel/$id")({
   head: () => ({
@@ -81,7 +82,7 @@ function Page() {
       toast.success("Compte supprimé");
       navigate({ to: "/personnel" });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(describeError(e, "Opération impossible")),
   });
 
   const addEstablishment = async () => {
@@ -97,7 +98,7 @@ function Page() {
       setAddingId("");
       toast.success("Établissement ajouté");
     } catch (e) {
-      toast.error((e as Error).message || "Ajout impossible");
+      toast.error(describeError(e, "Ajout impossible"));
     } finally {
       setBusy(false);
     }
@@ -113,8 +114,6 @@ function Page() {
         .eq("establishment_id", establishmentId);
       if (error) throw error;
 
-      // Si l'établissement retiré était l'établissement principal de la fiche,
-      // on le remplace par un des établissements restants (ou vide s'il n'y en a plus).
       if (profile?.establishment_id === establishmentId) {
         const remaining = [...assignedIds].filter((eid) => eid !== establishmentId);
         await supabase
@@ -128,7 +127,7 @@ function Page() {
       qc.invalidateQueries({ queryKey: ["admin_profiles"] });
       toast.success("Accès retiré");
     } catch (e) {
-      toast.error((e as Error).message || "Retrait impossible");
+      toast.error(describeError(e, "Retrait impossible"));
     } finally {
       setBusy(false);
     }
