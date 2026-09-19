@@ -28,6 +28,7 @@ import { useRows } from "@/lib/data";
 import { useAdminProfile } from "@/hooks/use-auth";
 import { roleLabel, initials } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
+import { describeError } from "@/lib/errors";
 
 export const Route = createFileRoute("/_authenticated/mon-compte")({
   head: () => ({
@@ -81,7 +82,7 @@ function Page() {
       qc.invalidateQueries({ queryKey: ["admin_profile"] });
       toast.success("Informations mises à jour");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(describeError(e, "Opération impossible")),
   });
 
  const uploadAvatar = async (rawFile: File) => {
@@ -126,7 +127,7 @@ function Page() {
       qc.invalidateQueries({ queryKey: ["admin_profile"] });
       toast.success(value ? "Notifications activées" : "Notifications désactivées");
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(describeError(e, "Opération impossible")),
   });
 
   const changePassword = useMutation({
@@ -135,7 +136,7 @@ function Page() {
       if (error) throw error;
     },
     onSuccess: () => { setPassword(""); toast.success("Mot de passe modifié"); },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(describeError(e, "Opération impossible")),
   });
 
   const signOut = async () => {
