@@ -1,1 +1,164 @@
-export { ClassPage } from "@/components/school/class-page-impl";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { ArrowLeft, Trophy, TrendingDown, Users, GraduationCap, AlertTriangle, Plus, RotateCcw, FileBarChart, FileText } from "lucide-react";
+import { PageHeader } from "@/components/app/page-header";
+import { StatCard } from "@/components/app/stat-card";
+import { EmptyState } from "@/components/app/empty-state";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { StudentsDialog } from "@/components/school/students-dialog";
+import { ReportTemplateManager } from "@/components/school/report-template-manager";
+import { NoteEntryDialog } from "@/components/school/note-entry-dialog";
+import { useActiveReportTemplate } from "@/lib/report-template";
+import { ClassActionsMenu } from "@/components/school/class-actions-menu";
+import { BulletinWalkthroughDialog, AnnualBulletinDialog } from "@/components/school/bulletin-helpers";
+import { StudentGroupCard, ClassReportsSection } from "@/components/school/class-results-helpers";
+import { supabase } from "@/integrations/supabase/client";
+import { useAdminProfile } from "@/hooks/use-auth";
+import { useSchoolData } from "@/lib/school-data";
+import { writeAudit, useRows } from "@/lib/data";
+import { formatDateTime } from "@/lib/format";
+import { PASS_THRESHOLD, EXCELLENT_THRESHOLD, computeClassStats, weakSubjectsFor, type ClassSubject, type GradePeriod, type Grade } from "@/lib/grades";
+import { describeError } from "@/lib/errors";
+
+type AveragedStudent = { student: { id: string; first_name: string; last_name: string }; average: number; weakSubjects: string[] };
+interface ClassStats {
+  withAvg: AveragedStudent[]; passing: AveragedStudent[]; excellent: AveragedStudent[]; struggling: AveragedStudent[];
+  classAverage: number | null; highest: AveragedStudent | null; lowest: AveragedStudent | null;
+  bestSubject: { subject: ClassSubject; avg: number } | null; worstSubject: { subject: ClassSubject; avg: number } | null;
+}
+
+function useSupabaseRows<T extends { id: string }>(table: Parameters<typeof useRows>[0], eq: Record<string, string> | null, orderColumn: string) {
+  const q = useRows<T>(table, { eq: eq ?? {}, enabled: !!eq, order: { column: orderColumn } });
+  return { data: q.data ?? [], isLoading: q.isLoading };
+}
+
+export function ClassPage() {
+  const { classId } = useParams({ from: "/_authenticated/classes/$classId" });
+  const { isDG, establishmentIds, establishmentIdsLoading } = useAdminProfile();
+  const data = useSchoolData();
+  const qc = useQueryClient();
+  const klass = data.classes.find((c) => c.id === classId);
+  const allowed = klass && (isDG || establishmentIds.includes(klass.establishment_id));
+  const establishment = klass ? data.establishments.find((e) => e.id === klass.establishment_id) : null;
+  const classStudents = useMemo(() => data.students.filter((s) => s.class_id === classId).sort((a, b) => `${a.last_name}${a.first_name}`.localeCompare(`${b.last_name}${b.first_name}`)), [data.students, classId]);
+  const [studentsOpen, setStudentsOpen] = useState(false);
+  const [noteEntryOpen, setNoteEntryOpen] = useState(false);
+  const [bulletinsOpen, setBulletinsOpen] = useState(false);
+  const [annualOpen, setAnnualOpen] = useState(false);
+  const [renewOpen, setRenewOpen] = useState(false);
+  const [stats, setStats] = useState<ClassStats | null>(null);
+  const periodsQuery = useSupabaseRows<GradePeriod>("grade_periods", { class_id: classId }, "period_number");
+  const subjectsQuery = useSupabaseRows<ClassSubject>("class_subjects", { class_id: classId }, "name");
+  const { template: activeTemplate } = useActiveReportTemplate(classId);
+  const currentPeriod = periodsQuery.data.find((p) => p.ended_at === null) ?? null;
+  const latestPeriod = currentPeriod ?? [...periodsQuery.data].sort((a, b) => b.period_number - a.period_number)[0] ?? null;
+  const gradesAllQuery = useSupabaseRows<Grade>("grades", { class_id: classId }, "created_at");
+  const gradesForPeriod = useMemo(() => !latestPeriod ? [] : gradesAllQuery.data.filter((g) => g.period_id === latestPeriod.id), [gradesAllQuery.data, latestPeriod]);
+
+  const startNewPeriod = async () => {
+    if (!klass) return;
+    try {
+      if (currentPeriod) {
+        const { error } = await supabase.from("grade_periods").update({ ended_at: new Date().toISOString() }).eq("id", currentPeriod.id);
+        if (error) throw error;
+      }
+      const nextNumber = (periodsQuery.data.reduce((max, p) => Math.max(max, p.period_number), 0) || 0) + 1;
+      const { error } = await supabase.from("grade_periods").insert({ class_id: classId, establishment_id: klass.establishment_id, period_number: nextNumber });
+      if (error) throw error;
+      await writeAudit("create", "grade_periods" as never, null, { class_id: classId, period_number: nextNumber });
+      qc.invalidateQueries({ queryKey: ["grade_periods"] });
+      toast.success(`Période ${nextNumber} démarrée`);
+    } catch (e) { toast.error(describeError(e, "Impossible de démarrer la période")); }
+    finally { setRenewOpen(false); }
+  };
+
+  useEffect(() => {
+    if (!latestPeriod || gradesAllQuery.isLoading) { if (!latestPeriod) setStats(null); return; }
+    const raw = computeClassStats(classStudents, gradesForPeriod, subjectsQuery.data);
+    const withAvg: AveragedStudent[] = raw.graded.map((r) => ({
+      student: classStudents.find((s) => s.id === r.studentId)!,
+      average: r.average,
+      weakSubjects: weakSubjectsFor(gradesForPeriod, r.studentId, subjectsQuery.data).map((w) => w.name),
+    }));
+    setStats({
+      withAvg,
+      passing: withAvg.filter((r) => r.average >= PASS_THRESHOLD),
+      excellent: withAvg.filter((r) => r.average >= EXCELLENT_THRESHOLD),
+      struggling: withAvg.filter((r) => r.average < PASS_THRESHOLD),
+      classAverage: raw.classAverage,
+      highest: raw.best ? { student: classStudents.find((s) => s.id === raw.best!.studentId)!, average: raw.best.average, weakSubjects: [] } : null,
+      lowest: raw.worst ? { student: classStudents.find((s) => s.id === raw.worst!.studentId)!, average: raw.worst.average, weakSubjects: [] } : null,
+      bestSubject: raw.bestSubject?.average != null ? { subject: raw.bestSubject.subject, avg: raw.bestSubject.average } : null,
+      worstSubject: raw.worstSubject?.average != null ? { subject: raw.worstSubject.subject, avg: raw.worstSubject.average } : null,
+    });
+  }, [latestPeriod, gradesForPeriod, gradesAllQuery.isLoading, classStudents, subjectsQuery.data]);
+
+  if (!data.loading && !establishmentIdsLoading && (!klass || !allowed)) {
+    return <EmptyState icon={AlertTriangle} title="Accès refusé" description="Cette classe n'existe pas ou vous n'y avez pas accès." />;
+  }
+  if (!klass) return null;
+
+  return (
+    <>
+      <Button variant="ghost" size="sm" className="-ml-2 w-fit" asChild>
+        <Link to="/etablissements/$id" params={{ id: klass.establishment_id }}><ArrowLeft className="mr-1.5 h-4 w-4" /> Retour à l'établissement</Link>
+      </Button>
+      <PageHeader eyebrow={establishment?.name ?? "Classe"} title={klass.name}
+        description={currentPeriod ? `Période ${currentPeriod.period_number} en cours — démarrée le ${formatDateTime(currentPeriod.started_at)}` : "Aucune période en cours."}
+        actions={<div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" className="press" onClick={() => setStudentsOpen(true)}><Users className="mr-1.5 h-4 w-4" /> Élèves</Button>
+          <Button size="sm" className="press" onClick={() => setNoteEntryOpen(true)}><Plus className="mr-1.5 h-4 w-4" /> Note</Button>
+          <ClassActionsMenu klass={klass} data={data} />
+        </div>}
+      />
+      <ReportTemplateManager classId={classId} establishmentId={klass.establishment_id} className={klass.name} />
+      <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">Moyennes provisoires à partir des notes saisies.</div>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Moyenne de la classe" value={stats?.classAverage != null ? stats.classAverage.toFixed(2) : "—"} icon={Users} />
+        <StatCard label="Ont la moyenne" value={stats ? `${stats.passing.length} / ${stats.withAvg.length}` : "—"} icon={GraduationCap} tone="accent" delay={60} />
+        <StatCard label="Plus haute" value={stats?.highest ? stats.highest.average.toFixed(2) : "—"} icon={Trophy} tone="success" delay={120} />
+        <StatCard label="Plus basse" value={stats?.lowest ? stats.lowest.average.toFixed(2) : "—"} icon={TrendingDown} tone="destructive" delay={180} />
+      </div>
+      {stats && stats.withAvg.length > 0 && (
+        <Card className="animate-rise panel-gradient">
+          <CardHeader><CardTitle className="font-display text-base">Taux de réussite</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">{stats.passing.length} sur {stats.withAvg.length} ont la moyenne</span>
+              <span className="font-semibold">{Math.round((stats.passing.length / stats.withAvg.length) * 100)}%</span>
+            </div>
+            <Progress value={(stats.passing.length / stats.withAvg.length) * 100} className="h-2.5" />
+          </CardContent>
+        </Card>
+      )}
+      {stats && (stats.bestSubject || stats.worstSubject) && (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {stats.bestSubject && <div className="rounded-xl border border-border bg-card p-4"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Matière la plus forte</p><p className="mt-1 font-display text-lg font-semibold">{stats.bestSubject.subject.name}</p><p className="text-sm text-muted-foreground">{stats.bestSubject.avg.toFixed(2)} / 20</p></div>}
+          {stats.worstSubject && <div className="rounded-xl border border-border bg-card p-4"><p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Matière la plus faible</p><p className="mt-1 font-display text-lg font-semibold">{stats.worstSubject.subject.name}</p><p className="text-sm text-muted-foreground">{stats.worstSubject.avg.toFixed(2)} / 20</p></div>}
+        </div>
+      )}
+      {stats && <div className="grid gap-4 sm:grid-cols-2"><StudentGroupCard title="Élèves en difficulté" rows={stats.struggling} tone="destructive" /><StudentGroupCard title="Élèves excellents" rows={stats.excellent} tone="success" /></div>}
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" className="press" onClick={() => setRenewOpen(true)}><RotateCcw className="mr-1.5 h-4 w-4" /> Nouvelle période</Button>
+        <Button variant="outline" className="press" onClick={() => setBulletinsOpen(true)} disabled={!latestPeriod || !classStudents.length}><FileText className="mr-1.5 h-4 w-4" /> Créer les bulletins</Button>
+        <Button variant="outline" className="press" onClick={() => setAnnualOpen(true)} disabled={!periodsQuery.data.length || !classStudents.length}><FileBarChart className="mr-1.5 h-4 w-4" /> Bulletin annuel</Button>
+      </div>
+      <ClassReportsSection classId={classId} establishmentId={klass.establishment_id} establishmentName={establishment?.name ?? "—"} className={klass.name} period={latestPeriod} stats={stats} />
+      <StudentsDialog klass={studentsOpen ? klass : null} data={data} onClose={() => setStudentsOpen(false)} />
+      <NoteEntryDialog open={noteEntryOpen} onClose={() => setNoteEntryOpen(false)} classId={classId} establishmentId={klass.establishment_id} students={classStudents} subjects={subjectsQuery.data} currentPeriod={currentPeriod} subjectLabels={activeTemplate?.subjectLabels} allowedNatures={activeTemplate?.gradeNatures} existingGrades={gradesForPeriod} />
+      {bulletinsOpen && latestPeriod && <BulletinWalkthroughDialog open={bulletinsOpen} onClose={() => setBulletinsOpen(false)} klass={klass} establishmentName={establishment?.name ?? "—"} students={classStudents} subjects={subjectsQuery.data} period={latestPeriod} grades={gradesForPeriod} />}
+      {annualOpen && <AnnualBulletinDialog open={annualOpen} onClose={() => setAnnualOpen(false)} klass={klass} establishmentName={establishment?.name ?? "—"} students={classStudents} subjects={subjectsQuery.data} periods={periodsQuery.data} grades={gradesAllQuery.data} />}
+      <AlertDialog open={renewOpen} onOpenChange={setRenewOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader><AlertDialogTitle>Démarrer une nouvelle période ?</AlertDialogTitle><AlertDialogDescription>La période en cours sera clôturée. Les notes déjà saisies restent accessibles dans l'historique.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel>Annuler</AlertDialogCancel><AlertDialogAction onClick={startNewPeriod}>Confirmer</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
