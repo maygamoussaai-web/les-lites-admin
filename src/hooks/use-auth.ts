@@ -30,6 +30,8 @@ export function useAdminProfile() {
   const query = useQuery({
     queryKey: ["admin_profile", user?.id],
     enabled: !!user?.id,
+    staleTime: 5 * 60_000,
+    networkMode: "offlineFirst",
     queryFn: async () => {
       const { data, error } = await supabase
         .from("admin_profiles")
@@ -41,10 +43,11 @@ export function useAdminProfile() {
     },
   });
 
-  // Établissements auxquels ce compte a accès (peut en avoir plusieurs).
   const establishmentsQuery = useQuery({
     queryKey: ["admin_profile_establishments", user?.id],
     enabled: !!user?.id,
+    staleTime: 5 * 60_000,
+    networkMode: "offlineFirst",
     queryFn: async () => {
       const { data, error } = await supabase
         .from("admin_profile_establishments")
@@ -61,17 +64,15 @@ export function useAdminProfile() {
     profile: query.data ?? null,
     isDG: query.data?.role === "director_general",
     establishmentIds: establishmentsQuery.data ?? [],
-    // isPending (et non isLoading) : reste vrai tant qu'aucune donnée n'est
-    // arrivée, y compris pendant l'instant initial où la requête est encore
-    // désactivée en attendant l'utilisateur — isLoading, lui, vaut faussement
-    // "false" à ce moment précis, ce qui causait l'accès refusé prématuré.
     establishmentIdsLoading: establishmentsQuery.isPending,
     refetch: query.refetch,
   };
 }
 
 export function useOnlineStatus() {
-  const [online, setOnline] = useState(true);
+  const [online, setOnline] = useState(() =>
+    typeof navigator !== "undefined" ? navigator.onLine : true,
+  );
   useEffect(() => {
     const update = () => setOnline(navigator.onLine);
     update();
