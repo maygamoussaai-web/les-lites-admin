@@ -107,19 +107,23 @@ export function FinanceTab({ establishmentId, data }: { establishmentId: string;
       <div className="grid gap-4 sm:grid-cols-2">
         <Card>
           <CardHeader><CardTitle className="text-base">Recettes scolarité</CardTitle></CardHeader>
-          <CardContent className="text-2xl font-semibold">{formatFCFA(stats?.revenue ?? 0)}</CardContent>
+          <CardContent className="text-2xl font-semibold">{formatFCFA(stats?.collected ?? 0)}</CardContent>
         </Card>
         <Card>
-          <CardHeader><CardTitle className="text-base">Retards</CardTitle></CardHeader>
-          <CardContent className="text-2xl font-semibold">{formatFCFA(stats?.overdue ?? 0)}</CardContent>
+          <CardHeader><CardTitle className="text-base">Impayés</CardTitle></CardHeader>
+          <CardContent className="text-2xl font-semibold">{formatFCFA(stats?.outstanding ?? 0)}</CardContent>
         </Card>
       </div>
       <DataTable
         columns={[
-          { key: "student", header: "Élève", cell: (p) => {
-            const s = data.students.find((x) => x.id === p.student_id);
-            return s ? `${s.last_name} ${s.first_name}` : "—";
-          }},
+          {
+            key: "student",
+            header: "Élève",
+            cell: (p) => {
+              const s = data.students.find((x) => x.id === p.student_id);
+              return s ? `${s.last_name} ${s.first_name}` : "—";
+            },
+          },
           { key: "amount", header: "Montant", cell: (p) => formatFCFA(p.amount) },
           { key: "date", header: "Date", cell: (p) => formatDate(p.paid_at) },
         ]}

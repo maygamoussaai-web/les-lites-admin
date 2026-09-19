@@ -50,8 +50,8 @@ export function EstablishmentPage() {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Élèves" value={s?.students ?? 0} icon={Users} loading={data.loading} />
         <StatCard label="Classes" value={s?.classes ?? 0} icon={GraduationCap} tone="accent" loading={data.loading} delay={60} />
-        <StatCard label="Recettes" value={formatFCFA(s?.revenue ?? 0)} icon={Wallet} tone="success" loading={data.loading} delay={120} />
-        <StatCard label="Retards" value={formatFCFA(s?.overdue ?? 0)} icon={Banknote} tone="destructive" loading={data.loading} delay={180} />
+        <StatCard label="Recettes" value={formatFCFA(s?.collected ?? 0)} icon={Wallet} tone="success" loading={data.loading} delay={120} />
+        <StatCard label="Impayés" value={formatFCFA(s?.outstanding ?? 0)} icon={Banknote} tone="destructive" loading={data.loading} delay={180} />
       </div>
 
       <Tabs defaultValue="classes">

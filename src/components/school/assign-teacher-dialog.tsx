@@ -32,7 +32,7 @@ export function AssignTeacherDialog({
   const [teacherId, setTeacherId] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<"hourly" | "fixed_salary">("hourly");
   const [hourlyRate, setHourlyRate] = useState("");
-  const [fixedSalary, setFixedSalary] = useState("");
+  const [salaryAmount, setSalaryAmount] = useState("");
   const [busy, setBusy] = useState(false);
 
   const assignedIds = new Set(
@@ -49,7 +49,7 @@ export function AssignTeacherDialog({
         establishment_id: establishmentId,
         payment_method: paymentMethod,
         hourly_rate: paymentMethod === "hourly" ? Number(hourlyRate) || 0 : null,
-        fixed_salary: paymentMethod === "fixed_salary" ? Number(fixedSalary) || 0 : null,
+        salary_amount: paymentMethod === "fixed_salary" ? Number(salaryAmount) || 0 : null,
       });
       if (error) throw error;
       await writeAudit("create", "teacher_assignments" as never, null, {
@@ -60,7 +60,7 @@ export function AssignTeacherDialog({
       toast.success("Enseignant assigné");
       setTeacherId("");
       setHourlyRate("");
-      setFixedSalary("");
+      setSalaryAmount("");
       onClose();
     } catch (e) {
       toast.error(describeError(e, "Assignation impossible"));
@@ -109,7 +109,7 @@ export function AssignTeacherDialog({
           ) : (
             <div>
               <Label className="mb-1.5 block text-sm">Salaire fixe (FCFA)</Label>
-              <Input type="number" value={fixedSalary} onChange={(e) => setFixedSalary(e.target.value)} />
+              <Input type="number" value={salaryAmount} onChange={(e) => setSalaryAmount(e.target.value)} />
             </div>
           )}
         </div>
