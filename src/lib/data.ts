@@ -22,28 +22,28 @@ type ListOptions = {
   enabled?: boolean;
   limit?: number;
   /**
-   * Duree (ms) pendant laquelle la donnee est fraiche avant revalidation.
-   * Defaut 45s. Tables stables : passer 5 min.
+   * Durée (ms) pendant laquelle la donnée est considérée à jour avant qu'une
+   * revalidation silencieuse en arrière-plan soit tentée au prochain montage.
+   * Par défaut 30s (données qui bougent souvent : paiements, séances...).
+   * Les tables qui changent rarement (établissements, classes, modèles de
+   * scolarité) peuvent passer une valeur plus longue pour réduire le nombre
+   * de requêtes réseau silencieuses, sans jamais affecter l'affichage —
+   * celui-ci reste instantané grâce à placeholderData, quelle que soit cette
+   * valeur.
    */
   staleTime?: number;
 };
 
-function isOnline() {
-  return typeof navigator === "undefined" || navigator.onLine;
-}
-
 export function useRows<T = any>(table: TableName, options: ListOptions = {}) {
-  const { select = "*", order, eq, enabled = true, limit, staleTime = 45_000 } = options;
+  const { select = "*", order, eq, enabled = true, limit, staleTime = 120_000 } = options;
   return useQuery({
     queryKey: [table, select, order, eq, limit],
     enabled,
     staleTime,
-    networkMode: "offlineFirst",
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
     structuralSharing: true,
     placeholderData: keepPreviousData,
-    // Hors ligne : pas de refetch qui echoue et clignote l'UI.
-    refetchOnReconnect: true,
-    retry: (n) => isOnline() && n < 1,
     queryFn: async () => {
       let q = supabase.from(table).select(select);
       if (eq) {
@@ -61,7 +61,11 @@ export function useRows<T = any>(table: TableName, options: ListOptions = {}) {
   });
 }
 
-/** Applique un changement immediatement a toutes les listes en cache pour cette table. */
+function isOnline() {
+  return typeof navigator === "undefined" || navigator.onLine;
+}
+
+/** Applique un changement immédiatement à toutes les listes déjà en cache pour cette table. */
 function applyOptimistic(qc: QueryClient, table: TableName, updater: (rows: any[]) => any[]) {
   const queries = qc.getQueryCache().findAll({ queryKey: [table] });
   for (const query of queries) {
@@ -75,7 +79,6 @@ function applyOptimistic(qc: QueryClient, table: TableName, updater: (rows: any[
 export function useSaveRow(table: TableName, label = "Enregistrement") {
   const qc = useQueryClient();
   return useMutation({
-    networkMode: "offlineFirst",
     mutationFn: async ({ id, values }: { id?: string | null; values: Record<string, unknown> }) => {
       const rowId = id ?? crypto.randomUUID();
       const op: "insert" | "update" = id ? "update" : "insert";
@@ -92,31 +95,33 @@ export function useSaveRow(table: TableName, label = "Enregistrement") {
       return { id: rowId, ...values };
     },
     onSuccess: () => {
-      toast.success(isOnline() ? `${label} enregistre` : `${label} enregistre — en attente de connexion`);
+      toast.success(isOnline() ? `${label} enregistré` : `${label} enregistré — en attente de connexion`);
     },
-    onError: (error: unknown) => toast.error(describeError(error, `Echec de l'enregistrement (${label})`, table)),
+    onError: (error: unknown) => toast.error(describeError(error, `Enregistrement impossible — ${label}`, table)),
   });
 }
 
-export function useDeleteRow(table: TableName, label = "Element") {
+export function useDeleteRow(table: TableName, label = "Élément") {
   const qc = useQueryClient();
   return useMutation({
-    networkMode: "offlineFirst",
     mutationFn: async (rowId: string) => {
       applyOptimistic(qc, table, (rows) => rows.filter((r) => r.id !== rowId));
       enqueue({ id: crypto.randomUUID(), table, op: "delete", rowId, createdAt: Date.now(), label });
       if (isOnline()) await flushQueue(qc);
       return rowId;
     },
-    onSuccess: () => toast.success(isOnline() ? `${label} supprime` : `${label} supprime — en attente de connexion`),
-    onError: (error: unknown) => toast.error(describeError(error, `Suppression impossible (${label})`, table)),
+    onSuccess: () => toast.success(isOnline() ? `${label} supprimé` : `${label} supprimé — en attente de connexion`),
+    onError: (error: unknown) => toast.error(describeError(error, `Suppression impossible — ${label}`, table)),
   });
 }
 
-export function useArchiveRow(table: TableName, label = "Element") {
+/**
+ * Archive une ligne (soft-delete) au lieu de la supprimer définitivement.
+ * Utilisé pour students et teachers.
+ */
+export function useArchiveRow(table: TableName, label = "Élément") {
   const qc = useQueryClient();
   return useMutation({
-    networkMode: "offlineFirst",
     mutationFn: async (rowId: string) => {
       applyOptimistic(qc, table, (rows) =>
         rows.map((r) => (r.id === rowId ? { ...r, archived_at: new Date().toISOString() } : r)),
@@ -125,7 +130,7 @@ export function useArchiveRow(table: TableName, label = "Element") {
       if (isOnline()) await flushQueue(qc);
       return rowId;
     },
-    onSuccess: () => toast.success(isOnline() ? `${label} archive` : `${label} archive — en attente de connexion`),
-    onError: (error: unknown) => toast.error(describeError(error, `Archivage impossible (${label})`, table)),
+    onSuccess: () => toast.success(isOnline() ? `${label} archivé` : `${label} archivé — en attente de connexion`),
+    onError: (error: unknown) => toast.error(describeError(error, `Archivage impossible — ${label}`, table)),
   });
 }
