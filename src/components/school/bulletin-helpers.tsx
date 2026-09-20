@@ -1,5 +1,6 @@
 /**
- * Helpers bulletins : walkthrough + reexport annuel.
+ * Génération des bulletins Excel.
+ * Classement et moyennes = formules du modèle uniquement.
  */
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -16,10 +17,8 @@ import { downloadBlob } from "@/lib/pdf-export";
 import { uploadBulletinWorkbook } from "@/lib/storage-upload";
 import { useActiveReportTemplate, templateBuffer as getTemplateBuffer } from "@/lib/report-template";
 import { writeFilledWorkbook } from "@/lib/xlsx-writeback";
-import { buildModelFillData } from "@/lib/model-averages";
-import {
-  studentPeriodAverage, type ClassSubject, type GradePeriod, type Grade,
-} from "@/lib/grades";
+import { buildModelFillData, computeModelAverages } from "@/lib/model-averages";
+import { type ClassSubject, type GradePeriod, type Grade } from "@/lib/grades";
 import type { ClassRow } from "@/lib/school";
 
 type StudentRef = { id: string; first_name: string; last_name: string };
@@ -41,11 +40,9 @@ export function BulletinWalkthroughDialog({
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(0);
 
-  const ranked = useMemo(() => {
-    return students
-      .map((s) => ({ student: s, avg: studentPeriodAverage(grades, s.id) }))
-      .filter((r): r is { student: StudentRef; avg: number } => r.avg !== null)
-      .sort((a, b) => b.avg - a.avg);
+  const candidates = useMemo(() => {
+    const withNotes = new Set(grades.map((g) => g.student_id));
+    return students.filter((s) => withNotes.has(s.id));
   }, [students, grades]);
 
   const generate = async () => {
@@ -61,9 +58,40 @@ export function BulletinWalkthroughDialog({
     setBusy(true);
     setDone(0);
     try {
+      const ranked: { student: StudentRef; avg: number; general: number | null; subjects: Record<string, number | null> }[] = [];
+      for (const student of candidates) {
+        const fill = buildModelFillData({
+          establishmentName,
+          className: klass.name,
+          studentFirstName: student.first_name,
+          studentLastName: student.last_name,
+          periodNumber: period.period_number,
+          subjects,
+          grades,
+          studentId: student.id,
+          headcount: students.length,
+          scale: activeTemplate.scale,
+          rank: null,
+          firstAverage: null,
+          lastAverage: null,
+        });
+        const result = computeModelAverages(buf, activeTemplate.mapping, fill);
+        if (result.generalAverage === null) continue;
+        ranked.push({
+          student,
+          avg: result.generalAverage,
+          general: result.generalAverage,
+          subjects: result.subjectAverages,
+        });
+      }
+      ranked.sort((a, b) => b.avg - a.avg);
+
+      const firstAvg = ranked[0]?.avg ?? null;
+      const lastAvg = ranked[ranked.length - 1]?.avg ?? null;
+
       let count = 0;
       for (let i = 0; i < ranked.length; i++) {
-        const { student, avg } = ranked[i]!;
+        const { student } = ranked[i]!;
         const fill = buildModelFillData({
           establishmentName,
           className: klass.name,
@@ -76,8 +104,8 @@ export function BulletinWalkthroughDialog({
           headcount: students.length,
           scale: activeTemplate.scale,
           rank: i + 1,
-          firstAverage: ranked[0]?.avg ?? null,
-          lastAverage: ranked[ranked.length - 1]?.avg ?? null,
+          firstAverage: firstAvg,
+          lastAverage: lastAvg,
         });
         const written = writeFilledWorkbook(buf, activeTemplate.mapping, fill);
         const blob = new Blob([written.buffer], {
@@ -89,9 +117,9 @@ export function BulletinWalkthroughDialog({
         try {
           await uploadBulletinWorkbook(storagePath, blob);
         } catch {
-          /* stockage optionnel — téléchargement local déjà fait */
+          /* stockage optionnel */
         }
-        const general = written.computed.generalAverage ?? avg;
+        const general = written.computed.generalAverage ?? ranked[i]!.avg;
         await supabase.from("student_report_cards").upsert(
           {
             student_id: student.id,
@@ -128,8 +156,8 @@ export function BulletinWalkthroughDialog({
         <DialogHeader>
           <DialogTitle className="font-display">Créer les bulletins</DialogTitle>
           <DialogDescription>
-            Génération Excel à partir du modèle actif — période {period.period_number}.
-            {" "}{ranked.length} élève(s) avec notes. Les fichiers .xlsx se téléchargent automatiquement.
+            Génération Excel à partir du modèle actif — période {period.period_number}.{" "}
+            {candidates.length} élève(s) avec notes. Les fichiers .xlsx se téléchargent automatiquement.
           </DialogDescription>
         </DialogHeader>
         {!activeTemplate && (
@@ -139,14 +167,20 @@ export function BulletinWalkthroughDialog({
         )}
         {busy && (
           <p className="text-sm text-muted-foreground">
-            Génération… {done} / {ranked.length}
+            Génération… {done} / {candidates.length}
           </p>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={busy}>Annuler</Button>
-          <Button className="press" onClick={() => void generate()} disabled={busy || !activeTemplate || ranked.length === 0}>
+          <Button variant="outline" onClick={onClose} disabled={busy}>
+            Annuler
+          </Button>
+          <Button
+            className="press"
+            onClick={() => void generate()}
+            disabled={busy || !activeTemplate || candidates.length === 0}
+          >
             <Download className="mr-1.5 h-4 w-4" />
-            {busy ? "Génération…" : `Générer ${ranked.length} bulletin(s)`}
+            {busy ? "Génération…" : `Générer ${candidates.length} bulletin(s)`}
           </Button>
         </DialogFooter>
       </DialogContent>
