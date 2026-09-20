@@ -133,7 +133,7 @@ export function ClassReportsSection({
   const qc = useQueryClient();
   const [generating, setGenerating] = useState(false);
   const reportsQuery = useSupabaseRows<ClassReport>("class_reports", { class_id: classId }, "generated_at", false);
-  const activeReports = reportsQuery.data.filter((r) => !r.archived_at);
+  const activeReports = reportsQuery.data;
 
   const generate = async () => {
     if (!period || !stats) return;
@@ -183,16 +183,13 @@ export function ClassReportsSection({
   };
 
   const remove = async (r: ClassReport) => {
-    const { error } = await supabase
-      .from("class_reports")
-      .update({ archived_at: new Date().toISOString() })
-      .eq("id", r.id);
+    const { error } = await supabase.from("class_reports").delete().eq("id", r.id);
     if (error) {
       toast.error(error.message);
       return;
     }
     qc.invalidateQueries({ queryKey: ["class_reports"] });
-    toast.success("Rapport archivé");
+    toast.success("Rapport supprimé");
   };
 
   return (
@@ -224,7 +221,7 @@ export function ClassReportsSection({
                   <Button variant="ghost" size="sm" aria-label="Télécharger" onClick={() => void download(r)}>
                     <Download className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="sm" aria-label="Archiver" onClick={() => void remove(r)}>
+                  <Button variant="ghost" size="sm" aria-label="Supprimer" onClick={() => void remove(r)}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
