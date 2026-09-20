@@ -1,5 +1,6 @@
 /**
- * Bulletin annuel + rendu canvas PDF provisoire.
+ * Bulletin annuel — moyennes issues des bulletins périodiques (formules modèle).
+ * Aucune moyenne inventée à partir des notes brutes.
  */
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -16,14 +17,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { describeError } from "@/lib/errors";
 import { canvasToPdfBlob } from "@/lib/pdf-export";
-import {
-  subjectAverage,
-  studentAverage,
-  groupGradesBySubject,
-  type ClassSubject,
-  type GradePeriod,
-  type Grade,
-} from "@/lib/grades";
+import type { ClassSubject, GradePeriod, Grade, StudentReportCard } from "@/lib/grades";
 
 type StudentRef = { id: string; first_name: string; last_name: string };
 
@@ -32,16 +26,14 @@ export function renderBulletinCanvas({
   className,
   studentName,
   periodNumber,
-  subjects,
-  bySubject,
+  subjectLines,
   average,
 }: {
   establishmentName: string;
   className: string;
   studentName: string;
   periodNumber: number;
-  subjects: ClassSubject[];
-  bySubject: Map<string, Grade[]>;
+  subjectLines: { name: string; average: number | null }[];
   average: number | null;
 }) {
   const canvas = document.createElement("canvas");
@@ -54,7 +46,11 @@ export function renderBulletinCanvas({
   ctx.font = "bold 34px sans-serif";
   ctx.fillText(establishmentName, 60, 80);
   ctx.font = "bold 44px sans-serif";
-  ctx.fillText(periodNumber === 0 ? "BULLETIN ANNUEL" : `BULLETIN — Période ${periodNumber}`, 60, 140);
+  ctx.fillText(
+    periodNumber === 0 ? "BULLETIN ANNUEL" : `BULLETIN — Période ${periodNumber}`,
+    60,
+    140,
+  );
   ctx.fillStyle = "#374151";
   ctx.font = "24px sans-serif";
   ctx.fillText(`Classe : ${className}`, 60, 190);
@@ -65,15 +61,18 @@ export function renderBulletinCanvas({
   ctx.fillText("Moyenne", 900, y);
   y += 40;
   ctx.font = "20px sans-serif";
-  for (const s of subjects) {
-    const avg = subjectAverage(bySubject.get(s.id) ?? []);
-    ctx.fillText(s.name, 60, y);
-    ctx.fillText(avg !== null ? avg.toFixed(2) : "—", 900, y);
+  for (const line of subjectLines) {
+    ctx.fillText(line.name, 60, y);
+    ctx.fillText(line.average !== null ? line.average.toFixed(2) : "—", 900, y);
     y += 36;
   }
   y += 20;
   ctx.font = "bold 24px sans-serif";
-  ctx.fillText(`Moyenne générale : ${average !== null ? average.toFixed(2) : "—"} / 20`, 60, y);
+  ctx.fillText(
+    `Moyenne générale : ${average !== null ? average.toFixed(2) : "—"} / 20`,
+    60,
+    y,
+  );
   return canvas;
 }
 
@@ -85,7 +84,6 @@ export function AnnualBulletinDialog({
   students,
   subjects,
   periods,
-  grades,
 }: {
   open: boolean;
   onClose: () => void;
@@ -94,34 +92,64 @@ export function AnnualBulletinDialog({
   students: StudentRef[];
   subjects: ClassSubject[];
   periods: GradePeriod[];
+  /** Conservé pour compatibilité d'appel — non utilisé pour calculer des moyennes. */
   grades?: Grade[];
 }) {
+  const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(0);
-  const qc = useQueryClient();
 
   const generateAll = async () => {
     setBusy(true);
     setDone(0);
     try {
-      let allGrades = grades ?? [];
-      if (!grades?.length && periods.length) {
-        const periodIds = periods.map((p) => p.id);
-        const { data, error } = await supabase.from("grades").select("*").in("period_id", periodIds);
-        if (error) throw error;
-        allGrades = (data ?? []) as Grade[];
+      const periodIds = periods.map((p) => p.id);
+      if (!periodIds.length) {
+        toast.error("Aucune période disponible.");
+        return;
       }
+      const { data: cards, error } = await supabase
+        .from("student_report_cards")
+        .select("*")
+        .eq("class_id", klass.id)
+        .in("period_id", periodIds);
+      if (error) throw error;
+      const list = (cards ?? []) as StudentReportCard[];
+
       for (const s of students) {
-        const bySubject = groupGradesBySubject(allGrades, s.id);
-        const avg = studentAverage(bySubject);
+        const studentCards = list.filter((c) => c.student_id === s.id);
+        const periodAvgs = studentCards
+          .map((c) =>
+            c.general_average !== null && c.general_average !== undefined
+              ? Number(c.general_average)
+              : null,
+          )
+          .filter((v): v is number => v !== null && Number.isFinite(v));
+        const annual =
+          periodAvgs.length > 0
+            ? periodAvgs.reduce((a, b) => a + b, 0) / periodAvgs.length
+            : null;
+
+        const subjectLines = subjects.map((sub) => {
+          const vals: number[] = [];
+          for (const c of studentCards) {
+            const sa = c.subject_averages as Record<string, number | null> | null;
+            const v = sa?.[sub.name];
+            if (v !== null && v !== undefined && Number.isFinite(Number(v))) vals.push(Number(v));
+          }
+          return {
+            name: sub.name,
+            average: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null,
+          };
+        });
+
         const canvas = renderBulletinCanvas({
           establishmentName,
           className: klass.name,
           studentName: `${s.last_name} ${s.first_name}`,
           periodNumber: 0,
-          subjects,
-          bySubject,
-          average: avg,
+          subjectLines,
+          average: annual,
         });
         const blob = await canvasToPdfBlob(canvas);
         const path = `${klass.establishment_id}/${s.id}/bulletin-annuel-${Date.now()}.pdf`;
@@ -154,8 +182,8 @@ export function AnnualBulletinDialog({
         <DialogHeader>
           <DialogTitle>Bulletin annuel</DialogTitle>
           <DialogDescription>
-            Génère un PDF provisoire par élève à partir de toutes les notes des périodes ({periods.length}{" "}
-            période{periods.length > 1 ? "s" : ""}).
+            Moyennes annuelles à partir des bulletins périodiques déjà générés (
+            {periods.length} période{periods.length > 1 ? "s" : ""}).
           </DialogDescription>
         </DialogHeader>
         {busy && (
