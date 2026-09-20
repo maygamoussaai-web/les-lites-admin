@@ -28,7 +28,7 @@ import { enqueue } from "@/lib/offline-queue";
 import { flushQueue } from "@/lib/offline-sync";
 import { isSubjectLabel } from "@/lib/xlsx-template";
 import { subjectsOfTemplate, type GradeNature } from "@/lib/report-template";
-import { subjectAverage, type ClassSubject, type GradePeriod, type Grade } from "@/lib/grades";
+import { evaluationColumnAverage, type ClassSubject, type GradePeriod, type Grade } from "@/lib/grades";
 
 type StudentRef = { id: string; first_name: string; last_name: string };
 
@@ -110,14 +110,16 @@ export function NoteEntryDialog({
   const canSubmit =
     !!subjectId && scaleNum > 0 && Object.values(values).some((v) => v !== "") && !submitting;
 
+  /** Aperçu : moyenne des notes d'évaluation uniquement (exception autorisée). */
   const liveAverageFor = (studentId: string, typed: string): number | null => {
+    if (nature !== "evaluation") return null;
     const n = typed === "" ? null : Number(typed);
     const prior = existingGrades.filter(
       (g) =>
         g.student_id === studentId &&
         g.subject_id === subjectId &&
         (!currentPeriod || g.period_id === currentPeriod.id) &&
-        g.nature !== nature,
+        g.nature === "evaluation",
     );
     const synthetic: Pick<Grade, "value" | "scale" | "nature">[] = prior.map((g) => ({
       value: g.value,
@@ -125,9 +127,9 @@ export function NoteEntryDialog({
       nature: g.nature,
     }));
     if (n !== null && Number.isFinite(n) && scaleNum > 0) {
-      synthetic.push({ value: n, scale: scaleNum, nature });
+      synthetic.push({ value: n, scale: scaleNum, nature: "evaluation" });
     }
-    return subjectAverage(synthetic);
+    return evaluationColumnAverage(synthetic);
   };
 
   const submit = async () => {
@@ -268,7 +270,7 @@ export function NoteEntryDialog({
         <DialogHeader>
           <DialogTitle>Enregistrer une note</DialogTitle>
           <DialogDescription>
-            Matières et types de notes issus du modèle Excel. Moyenne live à la saisie. Hors ligne OK.
+            Matières et types de notes issus du modèle Excel. Hors ligne OK.
           </DialogDescription>
         </DialogHeader>
 
