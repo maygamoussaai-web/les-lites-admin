@@ -44,22 +44,13 @@ export function AssignTeacherDialog({
     if (!teacherId) return;
     setBusy(true);
     try {
-      const row =
-        paymentMethod === "hourly"
-          ? {
-              teacher_id: teacherId,
-              establishment_id: establishmentId,
-              payment_method: paymentMethod,
-              hourly_rate: Number(hourlyRate) || 0,
-              salary_amount: 0,
-            }
-          : {
-              teacher_id: teacherId,
-              establishment_id: establishmentId,
-              payment_method: paymentMethod,
-              hourly_rate: 0,
-              salary_amount: Number(salaryAmount) || 0,
-            };
+      const row = {
+        teacher_id: teacherId,
+        establishment_id: establishmentId,
+        payment_method: paymentMethod as string,
+        hourly_rate: paymentMethod === "hourly" ? Number(hourlyRate) || 0 : 0,
+        salary_amount: paymentMethod === "fixed_salary" ? Number(salaryAmount) || 0 : 0,
+      };
       const { error } = await supabase.from("teacher_assignments").insert(row);
       if (error) throw error;
       await writeAudit("create", "teacher_assignments" as never, null, {
