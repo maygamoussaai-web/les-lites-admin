@@ -99,3 +99,75 @@ export function useStudentGrades(studentId: string) {
   });
   return { grades: grades.data ?? [], loading: grades.isPending };
 }
+
+/** @deprecated Compat — préfère evaluationColumnAverage. Ne combine pas avec composition. */
+export function subjectAverage(
+  grades: Pick<Grade, "value" | "scale" | "nature">[],
+): number | null {
+  return evaluationColumnAverage(grades);
+}
+
+/** @deprecated Compat — les moyennes générales viennent du modèle / bulletins. */
+export function studentAverage(
+  _gradesBySubject: Map<string, Pick<Grade, "value" | "scale" | "nature">[]>,
+): number | null {
+  return null;
+}
+
+/** @deprecated Compat */
+export function studentPeriodAverage(_grades: Grade[], _studentId: string): number | null {
+  return null;
+}
+
+/** @deprecated Compat */
+export function weakSubjectsFor(
+  _grades: Grade[],
+  _studentId: string,
+  _subjects: ClassSubject[],
+): { id: string; name: string; average: number }[] {
+  return [];
+}
+
+/** @deprecated Compat — stats classe via bulletins / model-averages uniquement. */
+export function computeClassStats(
+  students: { id: string; first_name: string; last_name: string }[],
+  _periodGrades: Grade[],
+  _subjects: ClassSubject[],
+): {
+  rows: { studentId: string; name: string; average: number | null }[];
+  graded: { studentId: string; name: string; average: number }[];
+  classAverage: number | null;
+  passing: number;
+  failing: number;
+  passRate: number;
+  failRate: number;
+  best: { studentId: string; name: string; average: number } | null;
+  worst: { studentId: string; name: string; average: number } | null;
+  excellent: { studentId: string; name: string; average: number }[];
+  struggling: { studentId: string; name: string; average: number }[];
+  subjectStats: { subject: ClassSubject; average: number | null; count: number }[];
+  bestSubject: { subject: ClassSubject; average: number | null; count: number } | null;
+  worstSubject: { subject: ClassSubject; average: number | null; count: number } | null;
+} {
+  const rows = students.map((s) => ({
+    studentId: s.id,
+    name: `${s.last_name} ${s.first_name}`,
+    average: null as number | null,
+  }));
+  return {
+    rows,
+    graded: [],
+    classAverage: null,
+    passing: 0,
+    failing: 0,
+    passRate: 0,
+    failRate: 0,
+    best: null,
+    worst: null,
+    excellent: [],
+    struggling: [],
+    subjectStats: [],
+    bestSubject: null,
+    worstSubject: null,
+  };
+}
