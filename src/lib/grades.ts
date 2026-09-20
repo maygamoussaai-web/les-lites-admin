@@ -38,7 +38,7 @@ export function subjectAverage(
   return total / present.length;
 }
 
-export function studentAverage(gradesBySubject: Map<string, Pick<Grade, "value" | "scale">[]>): number | null {
+export function studentAverage(gradesBySubject: Map<string, Pick<Grade, "value" | "scale" | "nature">[]>): number | null {
   const averages = [...gradesBySubject.values()].map(subjectAverage).filter((a): a is number => a !== null);
   if (!averages.length) return null;
   return averages.reduce((a, b) => a + b, 0) / averages.length;
