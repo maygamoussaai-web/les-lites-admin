@@ -86,6 +86,7 @@ export function useSchoolData() {
     const allStudents = students.data ?? [];
     const allTeachers = teachers.data ?? [];
     const allEnrollments = enrollments.data ?? [];
+    const allClasses = classes.data ?? [];
 
     const activeEnrollmentByStudent = new Map<string, StudentEnrollment>();
     for (const e of allEnrollments) {
@@ -102,8 +103,10 @@ export function useSchoolData() {
     return {
       loading,
       establishments: establishments.data ?? [],
-      classes: classes.data ?? [],
+      classes: allClasses.filter((c) => c.is_active !== false),
+      archivedClasses: allClasses.filter((c) => c.is_active === false),
       students: allStudents.filter((s) => !s.archived_at),
+      archivedStudents: allStudents.filter((s) => !!s.archived_at),
       feePlans: feePlans.data ?? [],
       installments: installments.data ?? [],
       tuitionPayments: allTuitionPayments,
