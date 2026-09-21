@@ -1,5 +1,6 @@
 /**
  * Champ mot de passe avec icône œil (afficher / masquer).
+ * À utiliser pour TOUS les champs mot de passe de l'app.
  */
 import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
@@ -17,21 +18,27 @@ export function PasswordField({
   required,
   minLength,
   autoComplete = "current-password",
+  autoFocus,
+  disabled,
   className,
+  inputClassName,
 }: {
   id?: string;
-  label?: string;
+  label?: string | null;
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   required?: boolean;
   minLength?: number;
   autoComplete?: string;
+  autoFocus?: boolean;
+  disabled?: boolean;
   className?: string;
+  inputClassName?: string;
 }) {
   const [show, setShow] = useState(false);
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div className={cn(label ? "space-y-1.5" : undefined, className)}>
       {label ? <Label htmlFor={id}>{label}</Label> : null}
       <div className="relative">
         <Input
@@ -43,15 +50,19 @@ export function PasswordField({
           required={required}
           minLength={minLength}
           autoComplete={autoComplete}
-          className="pr-10"
+          autoFocus={autoFocus}
+          disabled={disabled}
+          className={cn("pr-10", inputClassName)}
         />
         <Button
           type="button"
           variant="ghost"
           size="icon"
-          className="absolute right-0.5 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground"
+          tabIndex={-1}
+          className="absolute right-0.5 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground hover:text-foreground"
           onClick={() => setShow((s) => !s)}
           aria-label={show ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+          disabled={disabled}
         >
           {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
         </Button>
