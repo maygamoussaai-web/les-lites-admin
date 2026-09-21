@@ -1,6 +1,11 @@
 /**
  * Génération des bulletins Excel.
  * Classement et moyennes = formules du modèle uniquement.
+ *
+ * Règle de vérité :
+ * - Un bulletin n'est « généré » que s'il est uploadé, enregistré dans
+ *   student_documents (bibliothèque élève) et lié via document_id.
+ * - Jamais de toast de succès sans fichier réellement en bibliothèque.
  */
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -18,10 +23,13 @@ import { uploadBulletinWorkbook } from "@/lib/storage-upload";
 import { useActiveReportTemplate, downloadActiveTemplateBuffer } from "@/lib/report-template";
 import { writeFilledWorkbook } from "@/lib/xlsx-writeback";
 import { buildModelFillData, computeModelAverages } from "@/lib/model-averages";
+import { closeAndStartNextPeriod } from "@/lib/period-lifecycle";
 import { type ClassSubject, type GradePeriod, type Grade } from "@/lib/grades";
 import type { ClassRow } from "@/lib/school";
 
 type StudentRef = { id: string; first_name: string; last_name: string };
+
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 export function BulletinWalkthroughDialog({
   open, onClose, klass, establishmentName, students, subjects, period, grades,
@@ -48,17 +56,23 @@ export function BulletinWalkthroughDialog({
   const generate = async () => {
     setBusy(true);
     setDone(0);
+    let successCount = 0;
+    const failures: string[] = [];
+
     try {
-      // Toujours recharger le fichier depuis Storage (évite cache base64 cassé)
       const downloaded = await downloadActiveTemplateBuffer(klass.id);
       if (!downloaded) {
         toast.error("Aucun modèle Excel actif pour cette classe. Importez un modèle puis réessayez.");
-        setBusy(false);
         return;
       }
       const { buffer: buf, mapping, scale } = downloaded;
 
-      const ranked: { student: StudentRef; avg: number; general: number | null; subjects: Record<string, number | null> }[] = [];
+      const ranked: {
+        student: StudentRef;
+        avg: number;
+        subjects: Record<string, number | null>;
+      }[] = [];
+
       for (const student of candidates) {
         const fill = buildModelFillData({
           establishmentName,
@@ -76,11 +90,13 @@ export function BulletinWalkthroughDialog({
           lastAverage: null,
         });
         const result = computeModelAverages(buf, mapping, fill);
-        if (result.generalAverage === null) continue;
+        if (result.generalAverage === null) {
+          failures.push(`${student.last_name} ${student.first_name} (moyenne modèle nulle)`);
+          continue;
+        }
         ranked.push({
           student,
           avg: result.generalAverage,
-          general: result.generalAverage,
           subjects: result.subjectAverages,
         });
       }
@@ -89,59 +105,126 @@ export function BulletinWalkthroughDialog({
       const firstAvg = ranked[0]?.avg ?? null;
       const lastAvg = ranked[ranked.length - 1]?.avg ?? null;
 
-      let count = 0;
       for (let i = 0; i < ranked.length; i++) {
         const { student } = ranked[i]!;
-        const fill = buildModelFillData({
-          establishmentName,
-          className: klass.name,
-          studentFirstName: student.first_name,
-          studentLastName: student.last_name,
-          periodNumber: period.period_number,
-          subjects,
-          grades,
-          studentId: student.id,
-          headcount: students.length,
-          scale,
-          rank: i + 1,
-          firstAverage: firstAvg,
-          lastAverage: lastAvg,
-        });
-        const written = writeFilledWorkbook(buf, mapping, fill);
-        const blob = new Blob([written.buffer], {
-          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        });
-        const fileName = `Bulletin_${student.last_name}_${student.first_name}_P${period.period_number}.xlsx`;
-        downloadBlob(blob, fileName);
-        const storagePath = `${klass.establishment_id}/${klass.id}/${student.id}/P${period.period_number}/${fileName}`;
         try {
-          await uploadBulletinWorkbook(storagePath, blob);
-        } catch {
-          /* stockage optionnel */
+          const fill = buildModelFillData({
+            establishmentName,
+            className: klass.name,
+            studentFirstName: student.first_name,
+            studentLastName: student.last_name,
+            periodNumber: period.period_number,
+            subjects,
+            grades,
+            studentId: student.id,
+            headcount: students.length,
+            scale,
+            rank: i + 1,
+            firstAverage: firstAvg,
+            lastAverage: lastAvg,
+          });
+          const written = writeFilledWorkbook(buf, mapping, fill);
+          const bytes = new Uint8Array(written.buffer);
+          const blob = new Blob([bytes], { type: XLSX_MIME });
+          const fileName = `Bulletin_${student.last_name}_${student.first_name}_P${period.period_number}.xlsx`;
+          downloadBlob(blob, fileName);
+
+          const storagePath = `${klass.establishment_id}/${student.id}/bulletin-p${period.period_number}-${Date.now()}.xlsx`;
+          const uploaded = await uploadBulletinWorkbook(storagePath, blob);
+          const filePathStored =
+            uploaded.bucket === "report-templates"
+              ? `report-templates:${uploaded.path}`
+              : uploaded.path;
+
+          const docName = `Bulletin période ${period.period_number}`;
+          const { data: doc, error: docErr } = await supabase
+            .from("student_documents")
+            .insert({
+              student_id: student.id,
+              establishment_id: klass.establishment_id,
+              name: docName,
+              file_path: filePathStored,
+              file_type: XLSX_MIME,
+              file_size: blob.size,
+            })
+            .select("id")
+            .single();
+          if (docErr || !doc) throw docErr ?? new Error("Enregistrement bibliothèque impossible");
+
+          const general = written.computed.generalAverage ?? ranked[i]!.avg;
+          const { error: cardErr } = await supabase.from("student_report_cards").upsert(
+            {
+              student_id: student.id,
+              class_id: klass.id,
+              establishment_id: klass.establishment_id,
+              period_id: period.id,
+              general_average: general,
+              subject_averages: written.computed.subjectAverages as never,
+              document_id: doc.id,
+              status: "validated",
+              validated_at: new Date().toISOString(),
+            } as never,
+            { onConflict: "student_id,period_id" },
+          );
+          if (cardErr) throw cardErr;
+
+          successCount++;
+          setDone(successCount);
+        } catch (err) {
+          failures.push(
+            `${student.last_name} ${student.first_name}: ${describeError(err, "échec")}`,
+          );
         }
-        const general = written.computed.generalAverage ?? ranked[i]!.avg;
-        await supabase.from("student_report_cards").upsert(
-          {
-            student_id: student.id,
-            class_id: klass.id,
-            establishment_id: klass.establishment_id,
-            period_id: period.id,
-            general_average: general,
-            subject_averages: written.computed.subjectAverages as never,
-          generated_at: new Date().toISOString(),
-          } as never,
-          { onConflict: "student_id,period_id" },
-        );
-        count++;
-        setDone(count);
       }
+
       await writeAudit("create", "student_report_cards" as never, null, {
         class_id: klass.id,
         period_id: period.id,
-        count,
+        count: successCount,
       });
       qc.invalidateQueries({ queryKey: ["student_report_cards"] });
-      toast.success(`${count} bulletin(s) généré(s) en .xlsx`);
+      qc.invalidateQueries({ queryKey: ["student_documents"] });
+
+      if (successCount === 0) {
+        toast.error(
+          failures.length
+            ? `Aucun bulletin enregistré. ${failures[0]}`
+            : "Aucun bulletin enregistré dans la bibliothèque.",
+        );
+        return;
+      }
+
+      if (failures.length) {
+        toast.warning(
+          `${successCount} bulletin(s) en bibliothèque, ${failures.length} échec(s).`,
+        );
+      } else {
+        toast.success(
+          `${successCount} bulletin(s) enregistré(s) dans la bibliothèque des élèves.`,
+        );
+      }
+
+      const allCovered = candidates.every((s) =>
+        ranked.some((r) => r.student.id === s.id),
+      ) && failures.length === 0 && successCount >= candidates.length;
+
+      if (allCovered && candidates.length > 0) {
+        try {
+          const { closedPeriodNumber, newPeriodNumber } = await closeAndStartNextPeriod(
+            klass.id,
+            klass.establishment_id,
+          );
+          qc.invalidateQueries({ queryKey: ["grade_periods"] });
+          toast.success(
+            closedPeriodNumber != null
+              ? `Période ${closedPeriodNumber} clôturée — période ${newPeriodNumber} ouverte.`
+              : `Période ${newPeriodNumber} ouverte.`,
+          );
+        } catch (e) {
+          toast.error(describeError(e, "Bulletins OK, mais ouverture de période impossible"));
+        }
+      }
+
       onClose();
     } catch (e) {
       toast.error(describeError(e, "Génération des bulletins impossible"));
@@ -157,7 +240,8 @@ export function BulletinWalkthroughDialog({
           <DialogTitle className="font-display">Créer les bulletins</DialogTitle>
           <DialogDescription>
             Génération Excel à partir du modèle actif — période {period.period_number}.{" "}
-            {candidates.length} élève(s) avec notes. Les fichiers .xlsx se téléchargent automatiquement.
+            {candidates.length} élève(s) avec notes. Chaque fichier est placé dans la
+            bibliothèque de l'élève ; la période se clôture quand tous sont générés.
           </DialogDescription>
         </DialogHeader>
         {!activeTemplate && (
