@@ -32,11 +32,22 @@ import { imageToPdfBlob, downloadBlob } from "@/lib/pdf-export";
 import { formatDateTime } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
 import { describeError } from "@/lib/errors";
+import { resolveStoredPath } from "@/lib/storage-upload";
 
 type StudentDocument = Tables<"student_documents">;
 
 const BUCKET = "student-documents";
 const MAX_SIZE = 8 * 1024 * 1024;
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+function isSpreadsheet(doc: StudentDocument) {
+  return (
+    doc.file_type === XLSX_MIME ||
+    doc.file_type.includes("spreadsheet") ||
+    doc.file_path.toLowerCase().endsWith(".xlsx") ||
+    doc.name.toLowerCase().includes("bulletin")
+  );
+}
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} o`;
@@ -125,8 +136,15 @@ export function StudentDocuments({
   const view = async (doc: StudentDocument) => {
     setBusyId(doc.id);
     try {
-      const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(doc.file_path, 300);
+      const { bucket, path } = resolveStoredPath(doc.file_path);
+      const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 300);
       if (error || !data) throw error ?? new Error("Lien indisponible");
+      if (isSpreadsheet(doc)) {
+        const res = await fetch(data.signedUrl);
+        const blob = await res.blob();
+        downloadBlob(blob, `${doc.name}.xlsx`);
+        return;
+      }
       window.open(data.signedUrl, "_blank", "noopener,noreferrer");
     } catch (e) {
       toast.error(describeError(e, "Impossible d'ouvrir le document"));
@@ -138,8 +156,16 @@ export function StudentDocuments({
   const downloadAsPdf = async (doc: StudentDocument) => {
     setBusyId(doc.id);
     try {
-      const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(doc.file_path, 300);
+      const { bucket, path } = resolveStoredPath(doc.file_path);
+      const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 300);
       if (error || !data) throw error ?? new Error("Lien indisponible");
+
+      if (isSpreadsheet(doc)) {
+        const res = await fetch(data.signedUrl);
+        const blob = await res.blob();
+        downloadBlob(blob, `${doc.name}.xlsx`);
+        return;
+      }
 
       if (doc.file_type === "application/pdf") {
         const res = await fetch(data.signedUrl);
@@ -150,7 +176,7 @@ export function StudentDocuments({
         downloadBlob(blob, `${doc.name}.pdf`);
       }
     } catch (e) {
-      toast.error(describeError(e, "Génération du PDF impossible"));
+      toast.error(describeError(e, "Téléchargement impossible"));
     } finally {
       setBusyId(null);
     }
@@ -178,7 +204,8 @@ export function StudentDocuments({
   const remove = async (doc: StudentDocument) => {
     setBusyId(doc.id);
     try {
-      await supabase.storage.from(BUCKET).remove([doc.file_path]);
+      const { bucket, path } = resolveStoredPath(doc.file_path);
+      await supabase.storage.from(bucket).remove([path]);
       const { error } = await supabase.from("student_documents").delete().eq("id", doc.id);
       if (error) throw error;
       await writeAudit("delete", "student_documents" as never, doc.id, { name: doc.name });
@@ -235,11 +262,12 @@ export function StudentDocuments({
                     <p className="truncate font-medium text-foreground">{doc.name}</p>
                     <p className="text-xs text-muted-foreground">
                       {formatSize(doc.file_size)} · {formatDateTime(doc.created_at)}
+                      {isSpreadsheet(doc) ? " · Excel" : ""}
                     </p>
                   </div>
                 </div>
                 <div className="flex shrink-0 gap-1">
-                  <Button variant="ghost" size="icon" className="h-8 w-8" disabled={busyId === doc.id} onClick={() => view(doc)} aria-label="Voir">
+                  <Button variant="ghost" size="icon" className="h-8 w-8" disabled={busyId === doc.id} onClick={() => void view(doc)} aria-label="Voir">
                     <Eye className="h-4 w-4" />
                   </Button>
                   <Button
@@ -247,8 +275,8 @@ export function StudentDocuments({
                     size="icon"
                     className="h-8 w-8"
                     disabled={busyId === doc.id}
-                    onClick={() => downloadAsPdf(doc)}
-                    aria-label="Télécharger en PDF"
+                    onClick={() => void downloadAsPdf(doc)}
+                    aria-label="Télécharger"
                   >
                     <Download className="h-4 w-4" />
                   </Button>
@@ -278,7 +306,7 @@ export function StudentDocuments({
                       </AlertDialogHeader>
                       <AlertDialogFooter>
                         <AlertDialogCancel>Annuler</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => remove(doc)}>Supprimer</AlertDialogAction>
+                        <AlertDialogAction onClick={() => void remove(doc)}>Supprimer</AlertDialogAction>
                       </AlertDialogFooter>
                     </AlertDialogContent>
                   </AlertDialog>
@@ -303,7 +331,7 @@ export function StudentDocuments({
             <Button variant="outline" onClick={() => { setNameOpen(false); setPendingFile(null); }}>
               Annuler
             </Button>
-            <Button onClick={confirmUpload} disabled={!docName.trim()}>
+            <Button onClick={() => void confirmUpload()} disabled={!docName.trim()}>
               Ajouter
             </Button>
           </DialogFooter>
@@ -323,7 +351,7 @@ export function StudentDocuments({
             <Button variant="outline" onClick={() => setRenaming(null)}>
               Annuler
             </Button>
-            <Button onClick={rename} disabled={!renameValue.trim() || busyId === renaming?.id}>
+            <Button onClick={() => void rename()} disabled={!renameValue.trim() || busyId === renaming?.id}>
               Enregistrer
             </Button>
           </DialogFooter>
