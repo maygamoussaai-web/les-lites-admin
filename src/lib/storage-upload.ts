@@ -1,6 +1,6 @@
 /**
  * Uploads storage — bulletins xlsx / PDF élèves.
- * Retente si le bucket principal refuse le type MIME.
+ * Les bulletins vont en priorité dans student-documents (bibliothèque élève).
  */
 import { supabase } from "@/integrations/supabase/client";
 
@@ -17,18 +17,21 @@ async function uploadWithFallback(
   const first = await supabase.storage.from(preferredBucket).upload(path, blob, opts);
   if (!first.error) return { path, bucket: preferredBucket };
 
-  // Retry fallback bucket (souvent student-documents si report-templates refuse xlsx)
   const second = await supabase.storage.from(fallbackBucket).upload(path, blob, opts);
   if (!second.error) return { path, bucket: fallbackBucket };
 
-  throw first.error ?? second.error ?? new Error("Upload impossible");
+  const msg =
+    (first.error as { message?: string } | null)?.message ??
+    (second.error as { message?: string } | null)?.message ??
+    "Upload impossible";
+  throw new Error(msg);
 }
 
-/** Bulletin .xlsx validé — préfère report-templates, sinon student-documents. */
+/** Bulletin .xlsx → student-documents d'abord (visible dans la bibliothèque). */
 export async function uploadBulletinWorkbook(path: string, blob: Blob): Promise<UploadResult> {
   return uploadWithFallback(
-    "report-templates",
     "student-documents",
+    "report-templates",
     path,
     blob,
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -43,4 +46,15 @@ export async function uploadStudentPdf(path: string, blob: Blob): Promise<Upload
   });
   if (error) throw error;
   return { path, bucket: "student-documents" };
+}
+
+/** Résout bucket + chemin stockés (préfixe report-templates:…). */
+export function resolveStoredPath(filePath: string): { bucket: string; path: string } {
+  if (filePath.includes(":") && !filePath.startsWith("http")) {
+    const [b, ...rest] = filePath.split(":");
+    if (b === "report-templates" || b === "student-documents") {
+      return { bucket: b, path: rest.join(":") };
+    }
+  }
+  return { bucket: "student-documents", path: filePath };
 }
