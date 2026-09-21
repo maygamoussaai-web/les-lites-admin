@@ -1,6 +1,7 @@
 /**
- * Page classe — stats issues des bulletins validés (formules modèle Excel).
- * Aucune moyenne inventée dans l'app.
+ * Page classe — stats via formules modèle Excel.
+ * Priorité : bulletins validés (student_report_cards).
+ * Repli : calcul live modèle (même source que la fiche élève) si notes présentes.
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
@@ -23,7 +24,7 @@ import {
 import { StudentsDialog } from "@/components/school/students-dialog";
 import { ReportTemplateManager } from "@/components/school/report-template-manager";
 import { NoteEntryDialog } from "@/components/school/note-entry-dialog";
-import { useActiveReportTemplate } from "@/lib/report-template";
+import { useActiveReportTemplate, downloadActiveTemplateBuffer } from "@/lib/report-template";
 import { ClassActionsMenu } from "@/components/school/class-actions-menu";
 import { BulletinWalkthroughDialog, AnnualBulletinDialog } from "@/components/school/bulletin-helpers";
 import { StudentGroupCard, ClassReportsSection } from "@/components/school/class-results-helpers";
@@ -37,6 +38,7 @@ import {
   type ClassSubject, type GradePeriod, type Grade, type StudentReportCard,
 } from "@/lib/grades";
 import { describeError } from "@/lib/errors";
+import { computeLiveClassStats } from "@/lib/class-model-stats";
 
 type AveragedStudent = {
   student: { id: string; first_name: string; last_name: string };
@@ -54,6 +56,7 @@ interface ClassStats {
   lowest: AveragedStudent | null;
   bestSubject: { subject: ClassSubject; avg: number } | null;
   worstSubject: { subject: ClassSubject; avg: number } | null;
+  source: "bulletin" | "modele_live";
 }
 
 function useSupabaseRows<T extends { id: string }>(
@@ -162,50 +165,115 @@ export function ClassPage() {
   };
 
   useEffect(() => {
-    if (!latestPeriod || periodCards.length === 0) {
+    let cancelled = false;
+
+    const fromCards = (): ClassStats | null => {
+      if (!latestPeriod || periodCards.length === 0) return null;
+      const withAvg: AveragedStudent[] = [];
+      for (const s of classStudents) {
+        const card = periodCards.find((c) => c.student_id === s.id);
+        if (!card || card.general_average === null || card.general_average === undefined) continue;
+        const avg = Number(card.general_average);
+        if (!Number.isFinite(avg)) continue;
+        const sa = (card.subject_averages as Record<string, number | null> | null) ?? {};
+        const weak = Object.entries(sa)
+          .filter(([, v]) => v !== null && (v as number) < PASS_THRESHOLD)
+          .map(([name]) => name);
+        withAvg.push({ student: s, average: avg, weakSubjects: weak });
+      }
+      if (!withAvg.length) return null;
+      withAvg.sort((a, b) => b.average - a.average);
+
+      const ranked: { subject: ClassSubject; avg: number }[] = [];
+      for (const sub of subjectsQuery.data) {
+        const vals: number[] = [];
+        for (const c of periodCards) {
+          const sa = (c.subject_averages as Record<string, number | null> | null) ?? {};
+          const v = sa[sub.name];
+          if (v !== null && v !== undefined && Number.isFinite(Number(v))) vals.push(Number(v));
+        }
+        if (vals.length) ranked.push({ subject: sub, avg: vals.reduce((a, b) => a + b, 0) / vals.length });
+      }
+      ranked.sort((a, b) => b.avg - a.avg);
+
+      return {
+        withAvg,
+        passing: withAvg.filter((r) => r.average >= PASS_THRESHOLD),
+        excellent: withAvg.filter((r) => r.average >= EXCELLENT_THRESHOLD),
+        struggling: withAvg.filter((r) => r.average < PASS_THRESHOLD),
+        classAverage: withAvg.reduce((a, r) => a + r.average, 0) / withAvg.length,
+        highest: withAvg[0] ?? null,
+        lowest: withAvg[withAvg.length - 1] ?? null,
+        bestSubject: ranked[0] ?? null,
+        worstSubject: ranked[ranked.length - 1] ?? null,
+        source: "bulletin",
+      };
+    };
+
+    const bulletinStats = fromCards();
+    if (bulletinStats) {
+      setStats(bulletinStats);
+      return;
+    }
+
+    if (!latestPeriod || gradesForPeriod.length === 0 || !classStudents.length) {
       setStats(null);
       return;
     }
-    const withAvg: AveragedStudent[] = [];
-    for (const s of classStudents) {
-      const card = periodCards.find((c) => c.student_id === s.id);
-      if (!card || card.general_average === null || card.general_average === undefined) continue;
-      const avg = Number(card.general_average);
-      if (!Number.isFinite(avg)) continue;
-      const sa = (card.subject_averages as Record<string, number | null> | null) ?? {};
-      const weak = Object.entries(sa)
-        .filter(([, v]) => v !== null && (v as number) < PASS_THRESHOLD)
-        .map(([name]) => name);
-      withAvg.push({ student: s, average: avg, weakSubjects: weak });
-    }
-    withAvg.sort((a, b) => b.average - a.average);
 
-    const ranked: { subject: ClassSubject; avg: number }[] = [];
-    for (const sub of subjectsQuery.data) {
-      const vals: number[] = [];
-      for (const c of periodCards) {
-        const sa = (c.subject_averages as Record<string, number | null> | null) ?? {};
-        const v = sa[sub.name];
-        if (v !== null && v !== undefined && Number.isFinite(Number(v))) vals.push(Number(v));
+    (async () => {
+      try {
+        const downloaded = await downloadActiveTemplateBuffer(classId);
+        if (cancelled || !downloaded) {
+          if (!cancelled) setStats(null);
+          return;
+        }
+        const live = computeLiveClassStats({
+          students: classStudents,
+          subjects: subjectsQuery.data,
+          grades: gradesForPeriod,
+          periodNumber: latestPeriod.period_number,
+          templateBuffer: downloaded.buffer,
+          mapping: downloaded.mapping,
+          scale: downloaded.scale,
+          establishmentName: establishment?.name ?? "",
+          className: klass?.name ?? "",
+        });
+        if (cancelled) return;
+        if (!live) {
+          setStats(null);
+          return;
+        }
+        setStats({
+          withAvg: live.withAvg,
+          passing: live.passing,
+          excellent: live.excellent,
+          struggling: live.struggling,
+          classAverage: live.classAverage,
+          highest: live.highest,
+          lowest: live.lowest,
+          bestSubject: live.bestSubject,
+          worstSubject: live.worstSubject,
+          source: "modele_live",
+        });
+      } catch {
+        if (!cancelled) setStats(null);
       }
-      if (vals.length) ranked.push({ subject: sub, avg: vals.reduce((a, b) => a + b, 0) / vals.length });
-    }
-    ranked.sort((a, b) => b.avg - a.avg);
+    })();
 
-    setStats({
-      withAvg,
-      passing: withAvg.filter((r) => r.average >= PASS_THRESHOLD),
-      excellent: withAvg.filter((r) => r.average >= EXCELLENT_THRESHOLD),
-      struggling: withAvg.filter((r) => r.average < PASS_THRESHOLD),
-      classAverage: withAvg.length
-        ? withAvg.reduce((a, r) => a + r.average, 0) / withAvg.length
-        : null,
-      highest: withAvg[0] ?? null,
-      lowest: withAvg[withAvg.length - 1] ?? null,
-      bestSubject: ranked[0] ?? null,
-      worstSubject: ranked[ranked.length - 1] ?? null,
-    });
-  }, [latestPeriod, periodCards, classStudents, subjectsQuery.data]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    latestPeriod,
+    periodCards,
+    classStudents,
+    subjectsQuery.data,
+    gradesForPeriod,
+    classId,
+    establishment?.name,
+    klass?.name,
+  ]);
 
   if (!data.loading && !establishmentIdsLoading && (!klass || !allowed)) {
     return (
@@ -252,11 +320,16 @@ export function ClassPage() {
       />
       {!stats ? (
         <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-          Générez les bulletins pour afficher les moyennes (formules du modèle Excel).
+          Ajoutez des notes ou un modèle Excel actif pour afficher les moyennes (formules du modèle).
+        </div>
+      ) : stats.source === "bulletin" ? (
+        <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          Moyennes officielles issues des bulletins générés (formules du modèle).
         </div>
       ) : (
-        <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          Moyennes issues des bulletins générés (formules du modèle).
+        <div className="rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs text-sky-800 dark:text-sky-300">
+          Aperçu live (formules du modèle Excel) — générez les bulletins pour figer les moyennes
+          officielles et remplir la bibliothèque des élèves.
         </div>
       )}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
