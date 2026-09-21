@@ -1,12 +1,11 @@
 /**
  * Bibliothèque documents élève.
- * Affiche :
- *  - les lignes student_documents
- *  - les bulletins validés (student_report_cards) même si la jointure document
- *    est manquante — pour ne jamais masquer un bulletin réellement généré.
+ *
+ * Affiche student_documents + bulletins validés (student_report_cards).
+ * Un bulletin n'est téléchargeable que s'il a un file_path réel.
  */
 import { useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   FileText, Upload, Download, Eye, Pencil, Trash2, Loader2, Paperclip, FileSpreadsheet,
@@ -48,7 +47,6 @@ type LibraryItem = {
   fileType: string;
   filePath: string | null;
   documentId: string | null;
-  periodLabel?: string;
   average?: number | null;
 };
 
@@ -89,47 +87,91 @@ export function StudentDocuments({
 
   const documents = docsQuery.data ?? [];
   const cards = cardsQuery.data ?? [];
+
+  const missingDocIds = useMemo(() => {
+    const known = new Set(documents.map((d) => d.id));
+    return cards
+      .map((c) => c.document_id)
+      .filter((id): id is string => !!id && !known.has(id));
+  }, [documents, cards]);
+
+  const extraDocsQuery = useQuery({
+    queryKey: ["student_documents_by_ids", studentId, missingDocIds],
+    enabled: missingDocIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("student_documents")
+        .select("*")
+        .in("id", missingDocIds);
+      if (error) throw error;
+      return (data ?? []) as StudentDocument[];
+    },
+  });
+
+  const allDocuments = useMemo(() => {
+    const map = new Map<string, StudentDocument>();
+    for (const d of documents) map.set(d.id, d);
+    for (const d of extraDocsQuery.data ?? []) map.set(d.id, d);
+    return [...map.values()];
+  }, [documents, extraDocsQuery.data]);
+
   const isLoading = docsQuery.isLoading || cardsQuery.isLoading;
 
   const items = useMemo((): LibraryItem[] => {
-    const byDocId = new Map(documents.map((d) => [d.id, d]));
+    const byDocId = new Map(allDocuments.map((d) => [d.id, d]));
     const usedDocIds = new Set<string>();
     const out: LibraryItem[] = [];
 
     for (const card of cards) {
-      if (card.status !== "validated" && !card.document_id && card.general_average == null) continue;
+      if (
+        card.status !== "validated" &&
+        !card.document_id &&
+        card.general_average == null
+      ) {
+        continue;
+      }
       const doc = card.document_id ? byDocId.get(card.document_id) : undefined;
       if (doc) usedDocIds.add(doc.id);
+
+      const filePath = doc?.file_path?.trim() || null;
+      const avgLabel =
+        card.general_average != null
+          ? Number(card.general_average).toFixed(2)
+          : "—";
+
       out.push({
         key: `card-${card.id}`,
         kind: "bulletin",
-        name: doc?.name ?? `Bulletin (moyenne ${card.general_average != null ? Number(card.general_average).toFixed(2) : "—"})`,
+        name: doc?.name?.trim() ? doc.name : `Bulletin (moyenne ${avgLabel})`,
         createdAt: card.validated_at ?? card.created_at,
         fileSize: doc?.file_size ?? 0,
         fileType: doc?.file_type ?? XLSX_MIME,
-        filePath: doc?.file_path ?? null,
+        filePath,
         documentId: doc?.id ?? card.document_id,
         average: card.general_average != null ? Number(card.general_average) : null,
       });
     }
 
-    for (const doc of documents) {
+    for (const doc of allDocuments) {
       if (usedDocIds.has(doc.id)) continue;
+      const path = doc.file_path?.trim() || null;
       out.push({
         key: `doc-${doc.id}`,
-        kind: isSpreadsheetType(doc.file_type, doc.file_path, doc.name) ? "bulletin" : "document",
+        kind: isSpreadsheetType(doc.file_type, doc.file_path ?? "", doc.name)
+          ? "bulletin"
+          : "document",
         name: doc.name,
         createdAt: doc.created_at,
         fileSize: doc.file_size,
         fileType: doc.file_type,
-        filePath: doc.file_path,
+        filePath: path,
         documentId: doc.id,
       });
     }
 
     out.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
     return out;
-  }, [documents, cards]);
+  }, [allDocuments, cards]);
 
   const [uploading, setUploading] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -141,6 +183,7 @@ export function StudentDocuments({
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ["student_documents"] });
+    void qc.invalidateQueries({ queryKey: ["student_documents_by_ids"] });
     void qc.invalidateQueries({ queryKey: ["student_report_cards"] });
   };
 
@@ -200,41 +243,54 @@ export function StudentDocuments({
     }
   };
 
+  const deliverFile = async (item: LibraryItem, mode: "view" | "download", signedUrl: string) => {
+    const spreadsheet = isSpreadsheetType(item.fileType, item.filePath ?? "", item.name);
+    if (spreadsheet || mode === "download") {
+      const res = await fetch(signedUrl);
+      if (!res.ok) throw new Error("Téléchargement du fichier impossible");
+      const blob = await res.blob();
+      if (spreadsheet) {
+        downloadBlob(blob, `${item.name}.xlsx`);
+      } else if (item.fileType === "application/pdf") {
+        downloadBlob(blob, `${item.name}.pdf`);
+      } else if (item.fileType.startsWith("image/")) {
+        if (mode === "view") {
+          window.open(signedUrl, "_blank", "noopener,noreferrer");
+        } else {
+          const pdf = await imageToPdfBlob(signedUrl);
+          downloadBlob(pdf, `${item.name}.pdf`);
+        }
+      } else {
+        downloadBlob(blob, `${item.name}.bin`);
+      }
+      return;
+    }
+    window.open(signedUrl, "_blank", "noopener,noreferrer");
+  };
+
   const openItem = async (item: LibraryItem, mode: "view" | "download") => {
     if (!item.filePath) {
       toast.error(
-        "Fichier absent du stockage. Régénérez le bulletin depuis la page classe pour l'enregistrer dans la bibliothèque.",
+        "Fichier absent. Régénérez le bulletin depuis la page de la classe (Créer les bulletins) pour l’enregistrer dans la bibliothèque.",
       );
       return;
     }
     setBusyKey(item.key);
     try {
       const { bucket, path } = resolveStoredPath(item.filePath);
-      const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 300);
-      if (error || !data) throw error ?? new Error("Lien indisponible");
+      if (!path) throw new Error("Chemin de fichier invalide");
 
-      const spreadsheet = isSpreadsheetType(item.fileType, item.filePath, item.name);
-      if (spreadsheet || mode === "download") {
-        const res = await fetch(data.signedUrl);
-        const blob = await res.blob();
-        const ext = spreadsheet ? "xlsx" : item.fileType === "application/pdf" ? "pdf" : "bin";
-        if (spreadsheet) {
-          downloadBlob(blob, `${item.name}.xlsx`);
-        } else if (item.fileType === "application/pdf") {
-          downloadBlob(blob, `${item.name}.pdf`);
-        } else if (item.fileType.startsWith("image/")) {
-          if (mode === "view") {
-            window.open(data.signedUrl, "_blank", "noopener,noreferrer");
-          } else {
-            const pdf = await imageToPdfBlob(data.signedUrl);
-            downloadBlob(pdf, `${item.name}.pdf`);
-          }
-        } else {
-          downloadBlob(blob, `${item.name}.${ext}`);
+      const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 600);
+      if (error || !data?.signedUrl) {
+        const altBucket = bucket === "student-documents" ? "report-templates" : "student-documents";
+        const alt = await supabase.storage.from(altBucket).createSignedUrl(path, 600);
+        if (alt.error || !alt.data?.signedUrl) {
+          throw error ?? alt.error ?? new Error("Lien indisponible");
         }
+        await deliverFile(item, mode, alt.data.signedUrl);
         return;
       }
-      window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+      await deliverFile(item, mode, data.signedUrl);
     } catch (e) {
       toast.error(describeError(e, "Impossible d'ouvrir le document"));
     } finally {
@@ -265,7 +321,7 @@ export function StudentDocuments({
     setBusyKey(`doc-${doc.id}`);
     try {
       const { bucket, path } = resolveStoredPath(doc.file_path);
-      await supabase.storage.from(bucket).remove([path]);
+      if (path) await supabase.storage.from(bucket).remove([path]);
       const { error } = await supabase.from("student_documents").delete().eq("id", doc.id);
       if (error) throw error;
       await writeAudit("delete", "student_documents" as never, doc.id, { name: doc.name });
@@ -284,11 +340,20 @@ export function StudentDocuments({
         <div>
           <CardTitle className="text-base">Documents</CardTitle>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Bulletins générés et pièces jointes de l&apos;élève
+            Bulletins générés et pièces jointes de l'élève
           </p>
         </div>
-        <Button size="sm" className="press" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-          {uploading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Upload className="mr-1.5 h-4 w-4" />}
+        <Button
+          size="sm"
+          className="press"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+        >
+          {uploading ? (
+            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+          ) : (
+            <Upload className="mr-1.5 h-4 w-4" />
+          )}
           Ajouter
         </Button>
         <input
@@ -310,7 +375,7 @@ export function StudentDocuments({
             <Paperclip className="h-7 w-7 text-muted-foreground/70" />
             <p className="text-sm font-medium text-foreground">Aucun document</p>
             <p className="max-w-xs text-xs text-muted-foreground">
-              Les bulletins apparaîtront ici après « Créer les bulletins » sur la page classe.
+              Les bulletins apparaissent ici après « Créer les bulletins » sur la page classe.
               Vous pouvez aussi ajouter un acte, une photo ou un diplôme.
             </p>
           </div>
@@ -318,8 +383,9 @@ export function StudentDocuments({
           <ul className="space-y-2">
             {items.map((item) => {
               const docRow = item.documentId
-                ? documents.find((d) => d.id === item.documentId)
+                ? allDocuments.find((d) => d.id === item.documentId)
                 : null;
+              const hasFile = !!item.filePath;
               return (
                 <li
                   key={item.key}
@@ -347,8 +413,11 @@ export function StudentDocuments({
                             Bulletin
                           </Badge>
                         )}
-                        {!item.filePath && (
-                          <Badge variant="outline" className="text-[10px] text-amber-700 dark:text-amber-400">
+                        {!hasFile && (
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] text-amber-700 dark:text-amber-400"
+                          >
                             Fichier manquant
                           </Badge>
                         )}
@@ -357,6 +426,11 @@ export function StudentDocuments({
                         {formatSize(item.fileSize)} · {formatDateTime(item.createdAt)}
                         {item.average != null ? ` · MG ${item.average.toFixed(2)}` : ""}
                       </p>
+                      {!hasFile && item.kind === "bulletin" && (
+                        <p className="mt-0.5 text-[10px] text-amber-700 dark:text-amber-400">
+                          Régénérez depuis la page classe pour attacher le fichier Excel.
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="flex shrink-0 gap-0.5">
@@ -364,7 +438,7 @@ export function StudentDocuments({
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8"
-                      disabled={busyKey === item.key || !item.filePath}
+                      disabled={busyKey === item.key || !hasFile}
                       onClick={() => void openItem(item, "view")}
                       aria-label="Voir"
                     >
@@ -374,7 +448,7 @@ export function StudentDocuments({
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8"
-                      disabled={busyKey === item.key || !item.filePath}
+                      disabled={busyKey === item.key || !hasFile}
                       onClick={() => void openItem(item, "download")}
                       aria-label="Télécharger"
                     >
@@ -409,8 +483,12 @@ export function StudentDocuments({
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader>
-                              <AlertDialogTitle>Supprimer « {docRow.name} » ?</AlertDialogTitle>
-                              <AlertDialogDescription>Cette action est définitive.</AlertDialogDescription>
+                              <AlertDialogTitle>
+                                Supprimer « {docRow.name} » ?
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Cette action est définitive.
+                              </AlertDialogDescription>
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                               <AlertDialogCancel>Annuler</AlertDialogCancel>
@@ -434,7 +512,9 @@ export function StudentDocuments({
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Nom du document</DialogTitle>
-            <DialogDescription>Ex. : Acte de naissance, Photo, Diplôme…</DialogDescription>
+            <DialogDescription>
+              Ex. : Acte de naissance, Photo, Diplôme…
+            </DialogDescription>
           </DialogHeader>
           <div>
             <Label className="mb-1.5 block text-sm">Nom</Label>
@@ -464,7 +544,11 @@ export function StudentDocuments({
           </DialogHeader>
           <div>
             <Label className="mb-1.5 block text-sm">Nom</Label>
-            <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} autoFocus />
+            <Input
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              autoFocus
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRenaming(null)}>
