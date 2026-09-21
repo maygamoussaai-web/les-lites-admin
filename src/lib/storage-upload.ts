@@ -24,11 +24,16 @@ async function uploadWithFallback(
     (first.error as { message?: string } | null)?.message ??
     (second.error as { message?: string } | null)?.message ??
     "Upload impossible";
-  throw new Error(msg);
+  throw new Error(
+    `${msg} (buckets : ${preferredBucket} → ${fallbackBucket}). Vérifiez les policies Storage.`,
+  );
 }
 
 /** Bulletin .xlsx → student-documents d'abord (visible dans la bibliothèque). */
 export async function uploadBulletinWorkbook(path: string, blob: Blob): Promise<UploadResult> {
+  if (!blob || blob.size === 0) {
+    throw new Error("Fichier bulletin vide — génération Excel a échoué.");
+  }
   return uploadWithFallback(
     "student-documents",
     "report-templates",
@@ -48,13 +53,28 @@ export async function uploadStudentPdf(path: string, blob: Blob): Promise<Upload
   return { path, bucket: "student-documents" };
 }
 
-/** Résout bucket + chemin stockés (préfixe report-templates:…). */
+/**
+ * Résout bucket + chemin stockés.
+ * Formats supportés :
+ *  - "uuid/…/file.xlsx" → student-documents
+ *  - "report-templates:uuid/…/file.xlsx"
+ *  - "student-documents:uuid/…/file.xlsx"
+ */
 export function resolveStoredPath(filePath: string): { bucket: string; path: string } {
-  if (filePath.includes(":") && !filePath.startsWith("http")) {
-    const [b, ...rest] = filePath.split(":");
+  const raw = (filePath || "").trim();
+  if (!raw) return { bucket: "student-documents", path: "" };
+
+  if (raw.startsWith("http://") || raw.startsWith("https://")) {
+    return { bucket: "student-documents", path: raw };
+  }
+
+  if (raw.includes(":")) {
+    const colon = raw.indexOf(":");
+    const b = raw.slice(0, colon);
+    const rest = raw.slice(colon + 1);
     if (b === "report-templates" || b === "student-documents") {
-      return { bucket: b, path: rest.join(":") };
+      return { bucket: b, path: rest };
     }
   }
-  return { bucket: "student-documents", path: filePath };
+  return { bucket: "student-documents", path: raw };
 }
