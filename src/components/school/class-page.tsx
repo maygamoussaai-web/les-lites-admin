@@ -86,6 +86,7 @@ export function ClassPage() {
   const [bulletinsOpen, setBulletinsOpen] = useState(false);
   const [annualOpen, setAnnualOpen] = useState(false);
   const [renewOpen, setRenewOpen] = useState(false);
+  const [pendingForcePeriod, setPendingForcePeriod] = useState(false);
   const [stats, setStats] = useState<ClassStats | null>(null);
 
   const periodsQuery = useSupabaseRows<GradePeriod>("grade_periods", { class_id: classId }, "period_number");
@@ -104,16 +105,33 @@ export function ClassPage() {
   const cardsQuery = useSupabaseRows<StudentReportCard>(
     "student_report_cards",
     latestPeriod ? { class_id: classId } : null,
-    "generated_at",
+    "created_at",
   );
   const periodCards = useMemo(
     () => (latestPeriod ? cardsQuery.data.filter((c) => c.period_id === latestPeriod.id) : []),
     [cardsQuery.data, latestPeriod],
   );
 
-  const startNewPeriod = async () => {
+  const startNewPeriod = async (force = false) => {
     if (!klass) return;
     try {
+      if (currentPeriod && !force) {
+        const studentIdsWithNotes = new Set(gradesForPeriod.map((g) => g.student_id));
+        const withBulletins = new Set(
+          periodCards.filter((c) => c.document_id).map((c) => c.student_id),
+        );
+        let missing = 0;
+        for (const id of studentIdsWithNotes) {
+          if (!withBulletins.has(id)) missing++;
+        }
+        if (missing > 0) {
+          toast.message(
+            `${missing} élève(s) ont des notes sans bulletin. Générez les bulletins, ou confirmez pour clôturer sans bulletins.`,
+          );
+          setPendingForcePeriod(true);
+          return;
+        }
+      }
       if (currentPeriod) {
         const { error } = await supabase
           .from("grade_periods")
@@ -134,15 +152,15 @@ export function ClassPage() {
         period_number: nextNumber,
       });
       qc.invalidateQueries({ queryKey: ["grade_periods"] });
+      qc.invalidateQueries({ queryKey: ["student_report_cards"] });
       toast.success(`Période ${nextNumber} démarrée`);
+      setPendingForcePeriod(false);
+      setRenewOpen(false);
     } catch (e) {
       toast.error(describeError(e, "Impossible de démarrer la période"));
-    } finally {
-      setRenewOpen(false);
     }
   };
 
-  // Stats = bulletins générés uniquement (formules modèle figées en base)
   useEffect(() => {
     if (!latestPeriod || periodCards.length === 0) {
       setStats(null);
@@ -381,18 +399,32 @@ export function ClassPage() {
           grades={gradesAllQuery.data}
         />
       )}
-      <AlertDialog open={renewOpen} onOpenChange={setRenewOpen}>
+      <AlertDialog
+        open={renewOpen}
+        onOpenChange={(v) => {
+          setRenewOpen(v);
+          if (!v) setPendingForcePeriod(false);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Démarrer une nouvelle période ?</AlertDialogTitle>
-            <AlertDialogDescription>
-              La période en cours sera clôturée. Les notes déjà saisies restent accessibles dans
-              l'historique.
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">
+                La période en cours sera clôturée. Les notes restent dans l'historique.
+              </span>
+              {pendingForcePeriod && (
+                <span className="block rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+                  Des notes existent sans bulletin. Générez les bulletins d'abord, ou confirmez pour clôturer quand même.
+                </span>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Annuler</AlertDialogCancel>
-            <AlertDialogAction onClick={startNewPeriod}>Confirmer</AlertDialogAction>
+            <AlertDialogAction onClick={() => void startNewPeriod(pendingForcePeriod)}>
+              {pendingForcePeriod ? "Clôturer sans bulletins" : "Confirmer"}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
