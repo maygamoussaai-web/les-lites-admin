@@ -3,7 +3,7 @@
  */
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { Plus, GraduationCap, Users } from "lucide-react";
+import { Plus, GraduationCap, Users, ArrowRight } from "lucide-react";
 import { EmptyState } from "@/components/app/empty-state";
 import { RecordDialog, type Field } from "@/components/app/record-dialog";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { Progress } from "@/components/ui/progress";
 import { useSaveRow } from "@/lib/data";
 import type { SchoolData } from "@/lib/school-data";
 import { formatFCFA } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 type Data = SchoolData;
 
@@ -20,7 +21,10 @@ export function ClassesTab({ establishmentId, data }: { establishmentId: string;
   const save = useSaveRow("classes", "Classe");
   const [open, setOpen] = useState(false);
 
-  const rows = data.classes.filter((c) => c.establishment_id === establishmentId);
+  const rows = data.classes
+    .filter((c) => c.establishment_id === establishmentId)
+    .slice()
+    .sort((a, b) => a.name.localeCompare(b.name, "fr"));
   const plans = data.feePlans.filter((p) => p.establishment_id === establishmentId);
 
   const fields: Field[] = [
@@ -30,13 +34,22 @@ export function ClassesTab({ establishmentId, data }: { establishmentId: string;
       name: "fee_plan_id",
       label: "Modèle de scolarité",
       type: "select",
-      options: plans.map((p) => ({ value: p.id, label: `${p.name} — ${formatFCFA(p.total_amount)}` })),
+      options: plans.map((p) => ({
+        value: p.id,
+        label: `${p.name} — ${formatFCFA(p.total_amount)}`,
+      })),
     },
   ];
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="font-display text-base font-semibold text-foreground">Classes</h2>
+          <p className="text-xs text-muted-foreground">
+            {rows.length} classe{rows.length > 1 ? "s" : ""} dans cet établissement
+          </p>
+        </div>
         <Button className="press" onClick={() => setOpen(true)}>
           <Plus className="mr-1.5 h-4 w-4" /> Nouvelle classe
         </Button>
@@ -58,32 +71,48 @@ export function ClassesTab({ establishmentId, data }: { establishmentId: string;
             return (
               <Card
                 key={c.id}
-                className="card-lift group cursor-pointer overflow-hidden border-border/60 transition-colors hover:border-primary/35"
+                role="button"
+                tabIndex={0}
+                className="card-lift group cursor-pointer overflow-hidden border-border/60 transition-colors hover:border-primary/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => navigate({ to: "/classes/$classId", params: { classId: c.id } })}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    navigate({ to: "/classes/$classId", params: { classId: c.id } });
+                  }
+                }}
               >
                 <CardContent className="space-y-3 p-4">
                   <div className="flex items-start gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary transition-transform duration-200 group-hover:scale-105">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary transition-transform duration-200 group-hover:scale-105">
                       <Users className="h-4 w-4" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-display text-sm font-semibold text-foreground">{c.name}</p>
+                      <p className="truncate font-display text-sm font-semibold text-foreground">
+                        {c.name}
+                      </p>
                       <p className="mt-0.5 text-[11px] text-muted-foreground">
                         {effectif} élève{effectif > 1 ? "s" : ""}
                         {capacity > 0 ? ` · cap. ${capacity}` : ""}
                       </p>
                     </div>
+                    <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground opacity-0 transition group-hover:translate-x-0.5 group-hover:opacity-100" />
                   </div>
                   <div className="space-y-1.5">
                     <div className="flex items-center justify-between text-[11px]">
                       <span className="text-muted-foreground">Effectif</span>
-                      <span className={full ? "font-medium text-destructive" : "tabular-nums text-foreground"}>
+                      <span
+                        className={cn(
+                          "tabular-nums",
+                          full ? "font-medium text-destructive" : "text-foreground",
+                        )}
+                      >
                         {capacity > 0 ? `${effectif} / ${capacity}` : effectif}
                       </span>
                     </div>
                     <Progress
                       value={capacity > 0 ? ratio : 0}
-                      className={`h-1.5 ${full ? "[&>div]:bg-destructive" : ""}`}
+                      className={cn("h-1.5", full && "[&>div]:bg-destructive")}
                     />
                   </div>
                 </CardContent>
