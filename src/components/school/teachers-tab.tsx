@@ -1,7 +1,10 @@
+/**
+ * Onglet Enseignants d'un établissement.
+ */
 import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { Banknote, UserPlus, Trash2 } from "lucide-react";
+import { Banknote, UserPlus, Trash2, UserCheck } from "lucide-react";
 import { EmptyState } from "@/components/app/empty-state";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -27,7 +30,12 @@ import type { SchoolData } from "@/lib/school-data";
 type Data = SchoolData;
 
 function TeacherPaymentDialog({
-  open, onClose, assignment, teacherName, establishmentId, data,
+  open,
+  onClose,
+  assignment,
+  teacherName,
+  establishmentId,
+  data,
 }: {
   open: boolean;
   onClose: () => void;
@@ -43,11 +51,20 @@ function TeacherPaymentDialog({
 
   const due = assignment ? teacherDue(assignment, data.sessions, data.sessionCompletions) : 0;
   const paidSoFar = assignment
-    ? sum(data.teacherPayments.filter((p) => p.teacher_id === assignment.teacher_id && p.establishment_id === establishmentId).map((p) => Number(p.amount)))
+    ? sum(
+        data.teacherPayments
+          .filter(
+            (p) =>
+              p.teacher_id === assignment.teacher_id && p.establishment_id === establishmentId,
+          )
+          .map((p) => Number(p.amount)),
+      )
     : 0;
   const remaining = Math.max(0, due - paidSoFar);
   const amountNum = Number(amount || 0);
-  const canSubmit = !!assignment && amountNum > 0 && amountNum <= remaining && !savePayment.isPending;
+  const exceeds = amountNum > remaining;
+  const canSubmit =
+    !!assignment && amountNum > 0 && !exceeds && !savePayment.isPending;
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -60,6 +77,11 @@ function TeacherPaymentDialog({
           <div>
             <Label className="mb-1.5 block text-sm">Montant (FCFA)</Label>
             <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            {exceeds ? (
+              <p className="mt-1 text-xs font-medium text-destructive">
+                Dépasse le reste dû ({formatFCFA(remaining)}).
+              </p>
+            ) : null}
           </div>
           <div>
             <Label className="mb-1.5 block text-sm">Date</Label>
@@ -71,7 +93,9 @@ function TeacherPaymentDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Annuler</Button>
+          <Button variant="outline" onClick={onClose}>
+            Annuler
+          </Button>
           <Button
             disabled={!canSubmit}
             onClick={() => {
@@ -106,7 +130,8 @@ function TeacherPaymentDialog({
 }
 
 export function TeachersTab({
-  establishmentId, data, isDG,
+  establishmentId,
+  data,
 }: {
   establishmentId: string;
   data: Data;
@@ -116,7 +141,16 @@ export function TeachersTab({
   const [payFor, setPayFor] = useState<TeacherAssignment | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
-  const assignments = data.assignments.filter((a) => a.establishment_id === establishmentId);
+  const assignments = data.assignments
+    .filter((a) => a.establishment_id === establishmentId)
+    .slice()
+    .sort((a, b) => {
+      const ta = data.teachers.find((t) => t.id === a.teacher_id);
+      const tb = data.teachers.find((t) => t.id === b.teacher_id);
+      const na = ta ? `${ta.last_name} ${ta.first_name}` : "";
+      const nb = tb ? `${tb.last_name} ${tb.first_name}` : "";
+      return na.localeCompare(nb, "fr");
+    });
 
   const remove = async (a: TeacherAssignment) => {
     setBusyId(a.id);
@@ -128,7 +162,9 @@ export function TeachersTab({
       }
       const { error } = await supabase.from("teacher_assignments").delete().eq("id", a.id);
       if (error) throw error;
-      await writeAudit("delete", "teacher_assignments", a.id, { establishment_id: establishmentId });
+      await writeAudit("delete", "teacher_assignments", a.id, {
+        establishment_id: establishmentId,
+      });
       toast.success("Enseignant retiré");
     } catch (e) {
       toast.error(describeError(e, "Retrait impossible"));
@@ -139,13 +175,25 @@ export function TeachersTab({
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h2 className="font-display text-base font-semibold text-foreground">Enseignants</h2>
+          <p className="text-xs text-muted-foreground">
+            {assignments.length} affectation{assignments.length > 1 ? "s" : ""} active
+            {assignments.length > 1 ? "s" : ""}
+          </p>
+        </div>
         <Button className="press" onClick={() => setAssignOpen(true)}>
           <UserPlus className="mr-1.5 h-4 w-4" /> Assigner un enseignant
         </Button>
       </div>
+
       {assignments.length === 0 ? (
-        <EmptyState icon={UserPlus} title="Aucun enseignant" description="Assignez le premier enseignant à cet établissement." />
+        <EmptyState
+          icon={UserCheck}
+          title="Aucun enseignant"
+          description="Assignez le premier enseignant à cet établissement."
+        />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {assignments.map((a) => {
@@ -153,49 +201,95 @@ export function TeachersTab({
             const due = teacherDue(a, data.sessions, data.sessionCompletions);
             const paid = sum(
               data.teacherPayments
-                .filter((p) => p.teacher_id === a.teacher_id && p.establishment_id === establishmentId)
+                .filter(
+                  (p) =>
+                    p.teacher_id === a.teacher_id && p.establishment_id === establishmentId,
+                )
                 .map((p) => Number(p.amount)),
             );
+            const remaining = Math.max(0, due - paid);
             return (
-              <Card key={a.id} className="animate-rise">
+              <Card
+                key={a.id}
+                className="overflow-hidden border-border/70 shadow-sm transition hover:border-primary/25"
+              >
                 <CardContent className="space-y-3 p-4">
                   <div className="flex items-start justify-between gap-2">
-                    <div>
+                    <div className="min-w-0">
                       <Link
                         to="/enseignants/$teacherId"
                         params={{ teacherId: a.teacher_id }}
-                        className="font-display font-semibold hover:underline"
+                        className="font-display text-sm font-semibold text-foreground hover:underline"
                       >
                         {t ? `${t.last_name} ${t.first_name}` : "—"}
                       </Link>
-                      <Badge variant="outline" className="mt-1 block w-fit">
+                      <Badge variant="outline" className="mt-1.5 block w-fit text-[10px]">
                         {a.payment_method === "fixed_salary" ? "Salaire fixe" : "Tarif horaire"}
                       </Badge>
                     </div>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" disabled={busyId === a.id}>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 shrink-0 text-destructive"
+                          disabled={busyId === a.id}
+                          aria-label="Retirer"
+                        >
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </AlertDialogTrigger>
                       <AlertDialogContent>
                         <AlertDialogHeader>
                           <AlertDialogTitle>Retirer cet enseignant ?</AlertDialogTitle>
-                          <AlertDialogDescription>L'affectation sera supprimée. L'historique des paiements reste conservé.</AlertDialogDescription>
+                          <AlertDialogDescription>
+                            L'affectation sera supprimée. L'historique des paiements reste
+                            conservé.
+                          </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                           <AlertDialogCancel>Annuler</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => void remove(a)}>Retirer</AlertDialogAction>
+                          <AlertDialogAction onClick={() => void remove(a)}>
+                            Retirer
+                          </AlertDialogAction>
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
                   </div>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div><p className="text-xs text-muted-foreground">Dû</p><p className="font-medium">{formatFCFA(due)}</p></div>
-                    <div><p className="text-xs text-muted-foreground">Payé</p><p className="font-medium">{formatFCFA(paid)}</p></div>
+                  <div className="grid grid-cols-3 gap-2 rounded-lg bg-muted/40 px-2.5 py-2 text-center text-sm">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        Dû
+                      </p>
+                      <p className="mt-0.5 text-xs font-semibold tabular-nums">
+                        {formatFCFA(due)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        Payé
+                      </p>
+                      <p className="mt-0.5 text-xs font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                        {formatFCFA(paid)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                        Reste
+                      </p>
+                      <p className="mt-0.5 text-xs font-semibold tabular-nums text-amber-700 dark:text-amber-400">
+                        {formatFCFA(remaining)}
+                      </p>
+                    </div>
                   </div>
-                  <Button size="sm" className="press w-full" onClick={() => setPayFor(a)}>
-                    <Banknote className="mr-1.5 h-4 w-4" /> Payer
+                  <Button
+                    size="sm"
+                    className="press w-full"
+                    onClick={() => setPayFor(a)}
+                    disabled={remaining <= 0}
+                  >
+                    <Banknote className="mr-1.5 h-4 w-4" />
+                    {remaining > 0 ? "Payer" : "À jour"}
                   </Button>
                 </CardContent>
               </Card>
@@ -203,15 +297,25 @@ export function TeachersTab({
           })}
         </div>
       )}
-      <AssignTeacherDialog open={assignOpen} onClose={() => setAssignOpen(false)} establishmentId={establishmentId} data={data} />
+
+      <AssignTeacherDialog
+        open={assignOpen}
+        onClose={() => setAssignOpen(false)}
+        establishmentId={establishmentId}
+        data={data}
+      />
       <TeacherPaymentDialog
         open={!!payFor}
         onClose={() => setPayFor(null)}
         assignment={payFor}
-        teacherName={payFor ? (() => {
-          const t = data.teachers.find((x) => x.id === payFor.teacher_id);
-          return t ? `${t.last_name} ${t.first_name}` : "Enseignant";
-        })() : ""}
+        teacherName={
+          payFor
+            ? (() => {
+                const t = data.teachers.find((x) => x.id === payFor.teacher_id);
+                return t ? `${t.last_name} ${t.first_name}` : "Enseignant";
+              })()
+            : ""
+        }
         establishmentId={establishmentId}
         data={data}
       />
