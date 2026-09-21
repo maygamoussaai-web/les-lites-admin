@@ -1,5 +1,5 @@
 /**
- * Menu ⋮ de la page classe : modifier, renouveler, supprimer.
+ * Menu ⋮ de la page classe : modifier, renouveler, archiver (mot de passe).
  */
 import { useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
@@ -24,12 +24,14 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { RecordDialog, type Field } from "@/components/app/record-dialog";
+import { PasswordField, verifyCurrentPassword } from "@/components/app/password-field";
 import { supabase } from "@/integrations/supabase/client";
-import { useSaveRow, useDeleteRow, writeAudit } from "@/lib/data";
+import { useSaveRow, writeAudit } from "@/lib/data";
 import { formatFCFA } from "@/lib/format";
 import type { SchoolData } from "@/lib/school-data";
 import type { ClassRow } from "@/lib/school";
 import { describeError } from "@/lib/errors";
+import { checkOpenPeriodBulletins, closeAndStartNextPeriod } from "@/lib/period-lifecycle";
 
 export function ClassActionsMenu({
   klass,
@@ -41,11 +43,13 @@ export function ClassActionsMenu({
   const navigate = useNavigate();
   const qc = useQueryClient();
   const save = useSaveRow("classes", "Classe");
-  const remove = useDeleteRow("classes", "Classe");
   const [editOpen, setEditOpen] = useState(false);
   const [renewOpen, setRenewOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [renewBusy, setRenewBusy] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [password, setPassword] = useState("");
+  const [warnMissing, setWarnMissing] = useState(false);
 
   const plans = data.feePlans.filter((p) => p.establishment_id === klass.establishment_id);
   const studentIds = data.students.filter((s) => s.class_id === klass.id).map((s) => s.id);
@@ -61,28 +65,109 @@ export function ClassActionsMenu({
     },
   ];
 
-  const renewClass = async () => {
+  const invalidateAll = () => {
+    qc.invalidateQueries({ queryKey: ["students"] });
+    qc.invalidateQueries({ queryKey: ["classes"] });
+    qc.invalidateQueries({ queryKey: ["student_enrollments"] });
+    qc.invalidateQueries({ queryKey: ["grade_periods"] });
+  };
+
+  const renewClass = async (force = false) => {
     setRenewBusy(true);
     try {
+      const check = await checkOpenPeriodBulletins(klass.id);
+      if (check.missingBulletins && !force) {
+        setWarnMissing(true);
+        toast.message("Des notes existent sans bulletin. Générez-les ou confirmez.");
+        return;
+      }
+      if (check.hasOpenPeriod) {
+        await closeAndStartNextPeriod(klass.id, klass.establishment_id);
+      }
+
+      const year = new Date().getFullYear();
+      const archivedName = `${klass.name} · génération ${year}`;
+      const { error: archErr } = await supabase
+        .from("classes")
+        .update({ is_active: false, name: archivedName })
+        .eq("id", klass.id);
+      if (archErr) throw archErr;
+
+      const { data: created, error: creErr } = await supabase
+        .from("classes")
+        .insert({
+          establishment_id: klass.establishment_id,
+          name: klass.name,
+          capacity: klass.capacity,
+          fee_plan_id: klass.fee_plan_id,
+          is_active: true,
+        })
+        .select("id")
+        .single();
+      if (creErr || !created) throw creErr ?? new Error("Création génération impossible");
+
       if (studentIds.length) {
-        const { error: closeError } = await supabase
+        await supabase
           .from("student_enrollments")
           .update({ ended_at: new Date().toISOString() })
           .in("student_id", studentIds)
           .is("ended_at", null);
-        if (closeError) throw closeError;
-        const { error: studError } = await supabase.from("students").update({ class_id: null }).in("id", studentIds);
-        if (studError) throw studError;
+        await supabase.from("students").update({ class_id: null }).in("id", studentIds);
       }
-      await writeAudit("update", "classes", klass.id, { renewed: true, students_removed: studentIds.length });
-      qc.invalidateQueries({ queryKey: ["students"] });
-      qc.invalidateQueries({ queryKey: ["student_enrollments"] });
-      toast.success(`Classe « ${klass.name} » renouvelée`);
+
+      await writeAudit("update", "classes", klass.id, {
+        renewed: true,
+        archived_as: archivedName,
+        new_class_id: created.id,
+      });
+      invalidateAll();
+      toast.success(`Classe renouvelée — « ${archivedName} » archivée`);
       setRenewOpen(false);
+      setWarnMissing(false);
+      navigate({ to: "/classes/$classId", params: { classId: created.id } });
     } catch (e) {
       toast.error(describeError(e, "Renouvellement impossible"));
     } finally {
       setRenewBusy(false);
+    }
+  };
+
+  const deleteClass = async () => {
+    if (!password.trim()) {
+      toast.error("Saisissez votre mot de passe pour confirmer.");
+      return;
+    }
+    setDeleteBusy(true);
+    try {
+      const ok = await verifyCurrentPassword(password);
+      if (!ok) {
+        toast.error("Mot de passe incorrect.");
+        return;
+      }
+      const check = await checkOpenPeriodBulletins(klass.id);
+      if (check.missingBulletins && !warnMissing) {
+        setWarnMissing(true);
+        toast.message("Notes sans bulletin — confirmez une seconde fois pour archiver.");
+        return;
+      }
+      if (check.hasOpenPeriod) {
+        await closeAndStartNextPeriod(klass.id, klass.establishment_id);
+      }
+      if (studentIds.length) {
+        await supabase.from("students").update({ class_id: null }).in("id", studentIds);
+      }
+      const { error } = await supabase.from("classes").update({ is_active: false }).eq("id", klass.id);
+      if (error) throw error;
+      await writeAudit("update", "classes", klass.id, { archived: true });
+      invalidateAll();
+      toast.success(`Classe « ${klass.name} » archivée`);
+      setDeleteOpen(false);
+      setPassword("");
+      navigate({ to: "/etablissements/$id", params: { id: klass.establishment_id } });
+    } catch (e) {
+      toast.error(describeError(e, "Archivage impossible"));
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -102,7 +187,7 @@ export function ClassActionsMenu({
             <RotateCcw className="mr-2 h-4 w-4" /> Renouveler la classe
           </DropdownMenuItem>
           <DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => setDeleteOpen(true)}>
-            <Trash2 className="mr-2 h-4 w-4" /> Supprimer la classe
+            <Trash2 className="mr-2 h-4 w-4" /> Archiver la classe
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -117,47 +202,66 @@ export function ClassActionsMenu({
         onSubmit={(values) => save.mutate({ id: klass.id, values }, { onSuccess: () => setEditOpen(false) })}
       />
 
-      <AlertDialog open={renewOpen} onOpenChange={setRenewOpen}>
+      <AlertDialog
+        open={renewOpen}
+        onOpenChange={(v) => {
+          setRenewOpen(v);
+          if (!v) setWarnMissing(false);
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Renouveler la classe « {klass.name} » ?</AlertDialogTitle>
             <AlertDialogDescription className="space-y-2">
               <span className="block">
-                Les {studentIds.length} élève(s) seront retirés de cette classe. Vous les retrouverez dans l’onglet
-                Élèves (Non assignée) pour les réaffecter. Leur scolarité de l’année est close et conservée.
+                La génération actuelle est archivée. Une nouvelle classe active est créée.
+                Les {studentIds.length} élève(s) passent en non assignés.
               </span>
-              <span className="block rounded-md border border-[oklch(0.75_0.15_80)]/40 bg-[oklch(0.75_0.15_80)]/10 px-3 py-2 text-xs font-medium text-[oklch(0.5_0.13_70)]">
-                ⚠️ Vérifiez les échéances du modèle de scolarité avant de continuer.
-              </span>
+              {warnMissing && (
+                <span className="block rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+                  Notes sans bulletin — générez-les ou confirmez.
+                </span>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={renewBusy}>Annuler</AlertDialogCancel>
-            <AlertDialogAction onClick={renewClass} disabled={renewBusy}>
-              {renewBusy ? "Renouvellement…" : "Renouveler"}
+            <AlertDialogAction onClick={() => void renewClass(warnMissing)} disabled={renewBusy}>
+              {renewBusy ? "Renouvellement…" : warnMissing ? "Renouveler sans bulletins" : "Renouveler"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+      <AlertDialog
+        open={deleteOpen}
+        onOpenChange={(v) => {
+          setDeleteOpen(v);
+          if (!v) {
+            setPassword("");
+            setWarnMissing(false);
+          }
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Supprimer la classe {klass.name} ?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Cette action est définitive. Assurez-vous qu’aucun élève actif n’y est rattaché.
+            <AlertDialogTitle>Archiver la classe {klass.name} ?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3">
+              <span className="block">
+                La classe ira dans Archives → Anciennes classes. Confirmez avec votre mot de passe.
+              </span>
+              <PasswordField value={password} onChange={setPassword} label="Votre mot de passe" />
+              {warnMissing && (
+                <span className="block rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+                  Notes sans bulletin — confirmez une seconde fois.
+                </span>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Annuler</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() =>
-                remove.mutate(klass.id, {
-                  onSuccess: () => navigate({ to: "/etablissements/$id", params: { id: klass.establishment_id } }),
-                })
-              }
-            >
-              Supprimer
+            <AlertDialogCancel disabled={deleteBusy}>Annuler</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void deleteClass()} disabled={deleteBusy}>
+              {deleteBusy ? "Archivage…" : "Archiver"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
