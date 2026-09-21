@@ -3,9 +3,10 @@
  * Classement et moyennes = formules du modèle uniquement.
  *
  * Règle de vérité :
- * - Un bulletin n'est « généré » que s'il est uploadé, enregistré dans
- *   student_documents (bibliothèque élève) et lié via document_id.
- * - Jamais de toast de succès sans fichier réellement en bibliothèque.
+ * - Un bulletin n'est « généré » que s'il est uploadé dans student-documents,
+ *   enregistré dans student_documents (bibliothèque) et lié via document_id.
+ * - Chaque élève avec notes reçoit un fichier en bibliothèque, même si la
+ *   moyenne modèle est temporairement nulle (classement seulement avec MG).
  */
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -30,6 +31,11 @@ import type { ClassRow } from "@/lib/school";
 type StudentRef = { id: string; first_name: string; last_name: string };
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+function toBlob(buffer: ArrayBuffer | Uint8Array): Blob {
+  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  return new Blob([bytes], { type: XLSX_MIME });
+}
 
 export function BulletinWalkthroughDialog({
   open, onClose, klass, establishmentName, students, subjects, period, grades,
@@ -67,12 +73,7 @@ export function BulletinWalkthroughDialog({
       }
       const { buffer: buf, mapping, scale } = downloaded;
 
-      const ranked: {
-        student: StudentRef;
-        avg: number;
-        subjects: Record<string, number | null>;
-      }[] = [];
-
+      const avgByStudent = new Map<string, { avg: number; subjects: Record<string, number | null> }>();
       for (const student of candidates) {
         const fill = buildModelFillData({
           establishmentName,
@@ -90,23 +91,24 @@ export function BulletinWalkthroughDialog({
           lastAverage: null,
         });
         const result = computeModelAverages(buf, mapping, fill);
-        if (result.generalAverage === null) {
-          failures.push(`${student.last_name} ${student.first_name} (moyenne modèle nulle)`);
-          continue;
+        if (result.generalAverage !== null) {
+          avgByStudent.set(student.id, {
+            avg: result.generalAverage,
+            subjects: result.subjectAverages,
+          });
         }
-        ranked.push({
-          student,
-          avg: result.generalAverage,
-          subjects: result.subjectAverages,
-        });
       }
-      ranked.sort((a, b) => b.avg - a.avg);
 
-      const firstAvg = ranked[0]?.avg ?? null;
-      const lastAvg = ranked[ranked.length - 1]?.avg ?? null;
+      const rankedIds = [...avgByStudent.entries()]
+        .sort((a, b) => b[1].avg - a[1].avg)
+        .map(([id]) => id);
+      const rankOf = new Map(rankedIds.map((id, i) => [id, i + 1]));
+      const firstAvg = rankedIds.length ? avgByStudent.get(rankedIds[0]!)!.avg : null;
+      const lastAvg = rankedIds.length
+        ? avgByStudent.get(rankedIds[rankedIds.length - 1]!)!.avg
+        : null;
 
-      for (let i = 0; i < ranked.length; i++) {
-        const { student } = ranked[i]!;
+      for (const student of candidates) {
         try {
           const fill = buildModelFillData({
             establishmentName,
@@ -119,13 +121,12 @@ export function BulletinWalkthroughDialog({
             studentId: student.id,
             headcount: students.length,
             scale,
-            rank: i + 1,
+            rank: rankOf.get(student.id) ?? null,
             firstAverage: firstAvg,
             lastAverage: lastAvg,
           });
           const written = writeFilledWorkbook(buf, mapping, fill);
-          const bytes = new Uint8Array(written.buffer);
-          const blob = new Blob([bytes], { type: XLSX_MIME });
+          const blob = toBlob(written.buffer);
           const fileName = `Bulletin_${student.last_name}_${student.first_name}_P${period.period_number}.xlsx`;
           downloadBlob(blob, fileName);
 
@@ -149,9 +150,15 @@ export function BulletinWalkthroughDialog({
             })
             .select("id")
             .single();
-          if (docErr || !doc) throw docErr ?? new Error("Enregistrement bibliothèque impossible");
+          if (docErr || !doc) {
+            throw docErr ?? new Error("Enregistrement bibliothèque impossible");
+          }
 
-          const general = written.computed.generalAverage ?? ranked[i]!.avg;
+          const pre = avgByStudent.get(student.id);
+          const general = written.computed.generalAverage ?? pre?.avg ?? null;
+          const subjectAverages =
+            written.computed.subjectAverages ?? pre?.subjects ?? {};
+
           const { error: cardErr } = await supabase.from("student_report_cards").upsert(
             {
               student_id: student.id,
@@ -159,14 +166,18 @@ export function BulletinWalkthroughDialog({
               establishment_id: klass.establishment_id,
               period_id: period.id,
               general_average: general,
-              subject_averages: written.computed.subjectAverages as never,
+              subject_averages: subjectAverages as never,
               document_id: doc.id,
               status: "validated",
               validated_at: new Date().toISOString(),
             } as never,
             { onConflict: "student_id,period_id" },
           );
-          if (cardErr) throw cardErr;
+          if (cardErr) {
+            failures.push(
+              `${student.last_name} ${student.first_name}: bulletin OK, fiche moyenne — ${describeError(cardErr, "erreur")}`,
+            );
+          }
 
           successCount++;
           setDone(successCount);
@@ -182,13 +193,13 @@ export function BulletinWalkthroughDialog({
         period_id: period.id,
         count: successCount,
       });
-      qc.invalidateQueries({ queryKey: ["student_report_cards"] });
-      qc.invalidateQueries({ queryKey: ["student_documents"] });
+      await qc.invalidateQueries({ queryKey: ["student_report_cards"] });
+      await qc.invalidateQueries({ queryKey: ["student_documents"] });
 
       if (successCount === 0) {
         toast.error(
           failures.length
-            ? `Aucun bulletin enregistré. ${failures[0]}`
+            ? `Aucun bulletin en bibliothèque. ${failures[0]}`
             : "Aucun bulletin enregistré dans la bibliothèque.",
         );
         return;
@@ -196,32 +207,28 @@ export function BulletinWalkthroughDialog({
 
       if (failures.length) {
         toast.warning(
-          `${successCount} bulletin(s) en bibliothèque, ${failures.length} échec(s).`,
+          `${successCount} bulletin(s) en bibliothèque — ${failures.length} alerte(s) : ${failures[0]}`,
         );
       } else {
         toast.success(
-          `${successCount} bulletin(s) enregistré(s) dans la bibliothèque des élèves.`,
+          `${successCount} bulletin(s) dans la bibliothèque des élèves (Documents).`,
         );
       }
 
-      const allCovered = candidates.every((s) =>
-        ranked.some((r) => r.student.id === s.id),
-      ) && failures.length === 0 && successCount >= candidates.length;
-
-      if (allCovered && candidates.length > 0) {
+      if (successCount >= candidates.length && candidates.length > 0) {
         try {
           const { closedPeriodNumber, newPeriodNumber } = await closeAndStartNextPeriod(
             klass.id,
             klass.establishment_id,
           );
-          qc.invalidateQueries({ queryKey: ["grade_periods"] });
+          await qc.invalidateQueries({ queryKey: ["grade_periods"] });
           toast.success(
             closedPeriodNumber != null
               ? `Période ${closedPeriodNumber} clôturée — période ${newPeriodNumber} ouverte.`
               : `Période ${newPeriodNumber} ouverte.`,
           );
         } catch (e) {
-          toast.error(describeError(e, "Bulletins OK, mais ouverture de période impossible"));
+          toast.error(describeError(e, "Bulletins OK, ouverture de période impossible"));
         }
       }
 
@@ -239,14 +246,13 @@ export function BulletinWalkthroughDialog({
         <DialogHeader>
           <DialogTitle className="font-display">Créer les bulletins</DialogTitle>
           <DialogDescription>
-            Génération Excel à partir du modèle actif — période {period.period_number}.{" "}
-            {candidates.length} élève(s) avec notes. Chaque fichier est placé dans la
-            bibliothèque de l'élève ; la période se clôture quand tous sont générés.
+            Génération Excel — période {period.period_number}. {candidates.length} élève(s) avec
+            notes. Chaque fichier est placé dans Documents de l'élève.
           </DialogDescription>
         </DialogHeader>
         {!activeTemplate && (
           <p className="text-sm text-amber-700 dark:text-amber-400">
-            Aucun modèle Excel actif. Activez un modèle dans la section « Modèle de bulletin ».
+            Aucun modèle Excel actif. Activez un modèle dans « Modèle de bulletin ».
           </p>
         )}
         {busy && (
