@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate, Link, useParams } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, Pencil, ArrowRightLeft, Trash2, ShieldAlert, Receipt, Wallet, IdCard } from "lucide-react";
+import { ArrowLeft, Pencil, ArrowRightLeft, Trash2, ShieldAlert, Receipt, Wallet, IdCard, Library } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { EmptyState } from "@/components/app/empty-state";
 import { RecordDialog, type Field } from "@/components/app/record-dialog";
@@ -13,7 +13,6 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { StudentDocuments } from "@/components/school/student-documents";
 import { StudentPhoto } from "@/components/school/student-photo";
 import { StudentGradesCard } from "@/components/school/student-grades";
 import { supabase } from "@/integrations/supabase/client";
@@ -159,6 +158,11 @@ export function StudentFichePage() {
             <IdCard className="mr-1.5 h-4 w-4" /> Identité
           </Link>
         </Button>
+        <Button variant="outline" size="sm" className="press" asChild>
+          <Link to="/eleves/$studentId/bibliotheque" params={{ studentId: student.id }}>
+            <Library className="mr-1.5 h-4 w-4" /> Bibliothèque
+          </Link>
+        </Button>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
@@ -188,7 +192,23 @@ export function StudentFichePage() {
           </CardContent>
         </Card>
         <StudentGradesCard studentId={student.id} classId={student.class_id} />
-        <StudentDocuments studentId={student.id} establishmentId={student.establishment_id} />
+        <Card className="lg:col-span-2 border-primary/20 bg-gradient-to-br from-card to-primary/5">
+          <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Library className="h-4 w-4 text-primary" /> Bibliothèque de l&apos;élève
+              </CardTitle>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Bulletins générés, actes, photos et autres pièces. Page dédiée pour tout gérer.
+              </p>
+            </div>
+            <Button size="sm" className="press" asChild>
+              <Link to="/eleves/$studentId/bibliotheque" params={{ studentId: student.id }}>
+                Ouvrir la bibliothèque
+              </Link>
+            </Button>
+          </CardHeader>
+        </Card>
       </div>
       <div className="flex flex-wrap gap-2">
         <Button className="press" onClick={() => setEditOpen(true)}><Pencil className="mr-1.5 h-4 w-4" /> Modifier</Button>
