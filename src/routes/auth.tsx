@@ -7,9 +7,8 @@ import { ArrowLeft, Loader2, ShieldCheck, Crown, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { DG_EMAIL, getDirectorGeneralAccount, listStaffAccounts, getStaffEmail } from "@/lib/admin.functions";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PasswordField } from "@/components/app/password-field";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { initials } from "@/lib/format";
 import { ThemeToggle } from "@/components/app/theme-toggle";
@@ -81,9 +80,6 @@ function AuthPage() {
     setPassword("");
   };
 
-// Distingue un vrai échec d'identifiants d'une simple coupure réseau, pour
-  // ne pas dire "mot de passe incorrect" à quelqu'un dont la connexion a
-  // juste flanché.
   const isNetworkFailure = (message: string) =>
     (typeof navigator !== "undefined" && !navigator.onLine) || /fetch|network|timeout/i.test(message);
 
@@ -135,7 +131,6 @@ function AuthPage() {
       <div className="absolute right-4 top-4 z-20">
         <ThemeToggle />
       </div>
-      {/* Panneau de marque */}
       <div className="relative hidden flex-col justify-between overflow-hidden bg-sidebar p-10 text-sidebar-foreground lg:flex">
         <div
           aria-hidden
@@ -172,7 +167,6 @@ function AuthPage() {
         </p>
       </div>
 
-      {/* Panneau de connexion */}
       <div className="flex items-center justify-center p-6">
         <div className="w-full max-w-md space-y-6 duration-300 animate-in fade-in slide-in-from-bottom-2">
           <div className="flex flex-col items-center gap-3 text-center lg:hidden">
@@ -248,19 +242,15 @@ function AuthPage() {
               </CardHeader>
               <CardContent>
                 <form className="space-y-4" onSubmit={signIn}>
-                  <div>
-                    <Label htmlFor="password">Mot de passe</Label>
-                    <Input
-                      id="password"
-                      type="password"
-                      autoComplete="current-password"
-                      autoFocus
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="mt-1.5"
-                    />
-                  </div>
+                  <PasswordField
+                    id="password"
+                    label="Mot de passe"
+                    value={password}
+                    onChange={setPassword}
+                    autoComplete="current-password"
+                    autoFocus
+                    required
+                  />
                   <Button type="submit" className="shine-gold w-full" disabled={signingIn || password.length === 0}>
                     {signingIn ? <Loader2 className="h-4 w-4 animate-spin" /> : "Se connecter"}
                   </Button>
@@ -346,19 +336,15 @@ function AuthPage() {
               </CardHeader>
               <CardContent>
                 <form className="space-y-4" onSubmit={signIn}>
-                  <div>
-                    <Label htmlFor="staff_password">Mot de passe</Label>
-                    <Input
-                      id="staff_password"
-                      type="password"
-                      autoComplete="current-password"
-                      autoFocus
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="mt-1.5"
-                    />
-                  </div>
+                  <PasswordField
+                    id="staff_password"
+                    label="Mot de passe"
+                    value={password}
+                    onChange={setPassword}
+                    autoComplete="current-password"
+                    autoFocus
+                    required
+                  />
                   <Button type="submit" className="shine-gold w-full" disabled={signingIn || password.length === 0}>
                     {signingIn ? <Loader2 className="h-4 w-4 animate-spin" /> : "Se connecter"}
                   </Button>
