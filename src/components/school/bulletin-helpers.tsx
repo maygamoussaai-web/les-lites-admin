@@ -15,7 +15,7 @@ import { writeAudit } from "@/lib/data";
 import { describeError } from "@/lib/errors";
 import { downloadBlob } from "@/lib/pdf-export";
 import { uploadBulletinWorkbook } from "@/lib/storage-upload";
-import { useActiveReportTemplate, templateBuffer as getTemplateBuffer } from "@/lib/report-template";
+import { useActiveReportTemplate, downloadActiveTemplateBuffer } from "@/lib/report-template";
 import { writeFilledWorkbook } from "@/lib/xlsx-writeback";
 import { buildModelFillData, computeModelAverages } from "@/lib/model-averages";
 import { type ClassSubject, type GradePeriod, type Grade } from "@/lib/grades";
@@ -46,18 +46,18 @@ export function BulletinWalkthroughDialog({
   }, [students, grades]);
 
   const generate = async () => {
-    if (!activeTemplate) {
-      toast.error("Aucun modèle Excel actif pour cette classe.");
-      return;
-    }
-    const buf = getTemplateBuffer(activeTemplate);
-    if (!buf || buf.byteLength < 64) {
-      toast.error("Modèle Excel indisponible — rechargez la page.");
-      return;
-    }
     setBusy(true);
     setDone(0);
     try {
+      // Toujours recharger le fichier depuis Storage (évite cache base64 cassé)
+      const downloaded = await downloadActiveTemplateBuffer(klass.id);
+      if (!downloaded) {
+        toast.error("Aucun modèle Excel actif pour cette classe. Importez un modèle puis réessayez.");
+        setBusy(false);
+        return;
+      }
+      const { buffer: buf, mapping, scale } = downloaded;
+
       const ranked: { student: StudentRef; avg: number; general: number | null; subjects: Record<string, number | null> }[] = [];
       for (const student of candidates) {
         const fill = buildModelFillData({
@@ -70,12 +70,12 @@ export function BulletinWalkthroughDialog({
           grades,
           studentId: student.id,
           headcount: students.length,
-          scale: activeTemplate.scale,
+          scale,
           rank: null,
           firstAverage: null,
           lastAverage: null,
         });
-        const result = computeModelAverages(buf, activeTemplate.mapping, fill);
+        const result = computeModelAverages(buf, mapping, fill);
         if (result.generalAverage === null) continue;
         ranked.push({
           student,
@@ -102,12 +102,12 @@ export function BulletinWalkthroughDialog({
           grades,
           studentId: student.id,
           headcount: students.length,
-          scale: activeTemplate.scale,
+          scale,
           rank: i + 1,
           firstAverage: firstAvg,
           lastAverage: lastAvg,
         });
-        const written = writeFilledWorkbook(buf, activeTemplate.mapping, fill);
+        const written = writeFilledWorkbook(buf, mapping, fill);
         const blob = new Blob([written.buffer], {
           type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         });
@@ -128,7 +128,7 @@ export function BulletinWalkthroughDialog({
             period_id: period.id,
             general_average: general,
             subject_averages: written.computed.subjectAverages as never,
-            generated_at: new Date().toISOString(),
+          generated_at: new Date().toISOString(),
           } as never,
           { onConflict: "student_id,period_id" },
         );
@@ -177,7 +177,7 @@ export function BulletinWalkthroughDialog({
           <Button
             className="press"
             onClick={() => void generate()}
-            disabled={busy || !activeTemplate || candidates.length === 0}
+            disabled={busy || candidates.length === 0}
           >
             <Download className="mr-1.5 h-4 w-4" />
             {busy ? "Génération…" : `Générer ${candidates.length} bulletin(s)`}
