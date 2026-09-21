@@ -1,36 +1,33 @@
+/**
+ * Tableau de bord DG — vue consolidée du complexe.
+ * Données inchangées : effectifs, scolarité, dû enseignants, établissements, recouvrement.
+ */
 import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Users, Wallet, Banknote } from "lucide-react";
-import { PageHeader } from "@/components/app/page-header";
+import {
+  Users, Wallet, Banknote, GraduationCap, Sparkles, ArrowRight, Building2,
+} from "lucide-react";
 import { StatCard } from "@/components/app/stat-card";
 import { EstablishmentCard } from "@/components/app/establishment-card";
 import { ProgressRing } from "@/components/app/progress-ring";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
+  Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { useAdminProfile } from "@/hooks/use-auth";
 import { useSchoolData, useEstablishmentStats } from "@/lib/school-data";
 import { useSaveRow } from "@/lib/data";
 import { formatFCFA } from "@/lib/format";
 import { teacherDue, sum } from "@/lib/school";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/tableau-de-bord")({
   head: () => ({
@@ -38,12 +35,14 @@ export const Route = createFileRoute("/_authenticated/tableau-de-bord")({
       { title: "Tableau de bord – Les Élites de Gao" },
       {
         name: "description",
-        content: "Vue d'ensemble du complexe scolaire Les Élites de Gao : effectifs, classes et recouvrement.",
+        content:
+          "Vue d'ensemble du complexe scolaire Les Élites de Gao : effectifs, classes et recouvrement.",
       },
       { property: "og:title", content: "Tableau de bord – Les Élites de Gao" },
       {
         property: "og:description",
-        content: "Pilotage global des établissements du complexe : élèves, classes, scolarité encaissée et retards.",
+        content:
+          "Pilotage global des établissements du complexe : élèves, classes, scolarité encaissée et retards.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -54,11 +53,15 @@ export const Route = createFileRoute("/_authenticated/tableau-de-bord")({
 
 type Data = ReturnType<typeof useSchoolData>;
 
-/* ---------------------------------------------------------------------- */
-/* Widgets rapides                                                         */
-/* ---------------------------------------------------------------------- */
-
-function QuickTuitionPaymentDialog({ open, onClose, data }: { open: boolean; onClose: () => void; data: Data }) {
+function QuickTuitionPaymentDialog({
+  open,
+  onClose,
+  data,
+}: {
+  open: boolean;
+  onClose: () => void;
+  data: Data;
+}) {
   const savePayment = useSaveRow("tuition_payments", "Paiement");
   const [establishmentId, setEstablishmentId] = useState("");
   const [studentId, setStudentId] = useState("");
@@ -87,13 +90,23 @@ function QuickTuitionPaymentDialog({ open, onClose, data }: { open: boolean; onC
   const enrollment = student ? data.activeEnrollmentByStudent.get(student.id) : undefined;
   const expected = enrollment ? Number(enrollment.total_amount) : 0;
   const paidSoFar = enrollment
-    ? sum(data.tuitionPayments.filter((p) => p.enrollment_id === enrollment.id).map((p) => Number(p.amount)))
+    ? sum(
+        data.tuitionPayments
+          .filter((p) => p.enrollment_id === enrollment.id)
+          .map((p) => Number(p.amount)),
+      )
     : 0;
   const remaining = Math.max(0, expected - paidSoFar);
   const hasPlan = expected > 0;
   const amountNum = Number(amount || 0);
   const exceeds = hasPlan && amountNum > remaining;
-  const canSubmit = !!establishmentId && !!studentId && !!enrollment && amountNum > 0 && !exceeds && !savePayment.isPending;
+  const canSubmit =
+    !!establishmentId &&
+    !!studentId &&
+    !!enrollment &&
+    amountNum > 0 &&
+    !exceeds &&
+    !savePayment.isPending;
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -149,7 +162,13 @@ function QuickTuitionPaymentDialog({ open, onClose, data }: { open: boolean; onC
             <Label className="mb-1.5 block text-sm">
               Montant (FCFA)<span className="ml-0.5 text-destructive">*</span>
             </Label>
-            <Input type="number" step="any" value={amount} onChange={(e) => setAmount(e.target.value)} disabled={!enrollment} />
+            <Input
+              type="number"
+              step="any"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              disabled={!enrollment}
+            />
             {exceeds ? (
               <p className="mt-1 text-xs font-medium text-destructive">
                 Le montant dépasse le reste dû ({formatFCFA(remaining)}).
@@ -209,7 +228,15 @@ function QuickTuitionPaymentDialog({ open, onClose, data }: { open: boolean; onC
   );
 }
 
-function QuickTeacherPaymentDialog({ open, onClose, data }: { open: boolean; onClose: () => void; data: Data }) {
+function QuickTeacherPaymentDialog({
+  open,
+  onClose,
+  data,
+}: {
+  open: boolean;
+  onClose: () => void;
+  data: Data;
+}) {
   const savePayment = useSaveRow("teacher_payments", "Paiement");
   const [establishmentId, setEstablishmentId] = useState("");
   const [assignmentId, setAssignmentId] = useState("");
@@ -237,7 +264,10 @@ function QuickTeacherPaymentDialog({ open, onClose, data }: { open: boolean; onC
   const paidSoFar = assignment
     ? sum(
         data.teacherPayments
-          .filter((p) => p.teacher_id === assignment.teacher_id && p.establishment_id === establishmentId)
+          .filter(
+            (p) =>
+              p.teacher_id === assignment.teacher_id && p.establishment_id === establishmentId,
+          )
           .map((p) => Number(p.amount)),
       )
     : 0;
@@ -274,9 +304,15 @@ function QuickTeacherPaymentDialog({ open, onClose, data }: { open: boolean; onC
             <Label className="mb-1.5 block text-sm">
               Enseignant<span className="ml-0.5 text-destructive">*</span>
             </Label>
-            <Select value={assignmentId} onValueChange={setAssignmentId} disabled={!assignments.length}>
+            <Select
+              value={assignmentId}
+              onValueChange={setAssignmentId}
+              disabled={!assignments.length}
+            >
               <SelectTrigger>
-                <SelectValue placeholder={assignments.length ? "Sélectionner" : "Aucun enseignant affecté"} />
+                <SelectValue
+                  placeholder={assignments.length ? "Sélectionner" : "Aucun enseignant affecté"}
+                />
               </SelectTrigger>
               <SelectContent>
                 {assignments.map((a) => {
@@ -290,14 +326,21 @@ function QuickTeacherPaymentDialog({ open, onClose, data }: { open: boolean; onC
               </SelectContent>
             </Select>
             {assignment ? (
-              <p className="mt-1 text-xs text-muted-foreground">Reste dû : {formatFCFA(remaining)}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Reste dû : {formatFCFA(remaining)}
+              </p>
             ) : null}
           </div>
           <div>
             <Label className="mb-1.5 block text-sm">
               Montant (FCFA)<span className="ml-0.5 text-destructive">*</span>
             </Label>
-            <Input type="number" step="any" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <Input
+              type="number"
+              step="any"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
             {exceeds ? (
               <p className="mt-1 text-xs font-medium text-destructive">
                 Le montant dépasse le reste dû ({formatFCFA(remaining)}).
@@ -342,10 +385,8 @@ function QuickTeacherPaymentDialog({ open, onClose, data }: { open: boolean; onC
   );
 }
 
-/* ---------------------------------------------------------------------- */
-
 function Page() {
-  const { isDG, loading: authLoading, establishmentIds, establishmentIdsLoading } = useAdminProfile();
+  const { isDG, loading: authLoading, establishmentIdsLoading } = useAdminProfile();
   const navigate = useNavigate();
   const data = useSchoolData();
   const stats = useEstablishmentStats(data);
@@ -373,23 +414,65 @@ function Page() {
       const due = teacherDue(a, data.sessions, data.sessionCompletions);
       const paid = sum(
         data.teacherPayments
-          .filter((p) => p.teacher_id === a.teacher_id && p.establishment_id === a.establishment_id)
+          .filter(
+            (p) => p.teacher_id === a.teacher_id && p.establishment_id === a.establishment_id,
+          )
           .map((p) => Number(p.amount)),
       );
       return Math.max(0, due - paid);
     }),
   );
 
-  return (
-    <>
-      <PageHeader
-        eyebrow="Complexe scolaire"
-        title="Tableau de bord"
-        description="Situation consolidée des établissements du complexe : effectifs, scolarité et rémunération des enseignants."
-      />
+  const recoveryRatio =
+    totals.expected > 0 ? Math.min(100, Math.round((totals.collected / totals.expected) * 100)) : 0;
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <StatCard label="Élèves inscrits" value={totals.students} icon={Users} loading={data.loading} delay={0} />
+  return (
+    <div className="space-y-6">
+      <div className="relative overflow-hidden rounded-2xl border border-border/70 bg-gradient-to-br from-card via-card to-primary/5 p-5 sm:p-6">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-primary/10 blur-3xl"
+        />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute -bottom-12 -left-10 h-36 w-36 rounded-full bg-accent/10 blur-3xl"
+        />
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">
+              <Sparkles className="h-3.5 w-3.5" />
+              Complexe scolaire
+            </p>
+            <h1 className="mt-1.5 font-display text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+              Tableau de bord
+            </h1>
+            <p className="mt-1.5 max-w-xl text-sm text-muted-foreground">
+              Situation consolidée des établissements : effectifs, scolarité et rémunération des
+              enseignants.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-background/60 px-3 py-1.5">
+              <Building2 className="h-3.5 w-3.5 text-primary" />
+              {data.establishments.length} établissement
+              {data.establishments.length > 1 ? "s" : ""}
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-background/60 px-3 py-1.5">
+              <GraduationCap className="h-3.5 w-3.5 text-primary" />
+              {totals.classes} classe{totals.classes > 1 ? "s" : ""}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <StatCard
+          label="Élèves inscrits"
+          value={totals.students}
+          icon={Users}
+          loading={data.loading}
+          delay={0}
+        />
         <StatCard
           label="Scolarité encaissée"
           value={formatFCFA(totals.collected)}
@@ -397,7 +480,7 @@ function Page() {
           icon={Wallet}
           tone="success"
           loading={data.loading}
-          delay={60}
+          delay={50}
         />
         <StatCard
           label="À payer aux profs"
@@ -406,33 +489,79 @@ function Page() {
           icon={Banknote}
           tone="destructive"
           loading={data.loading}
-          delay={120}
+          delay={100}
         />
       </div>
 
-      <Card className="animate-rise panel-gradient">
-        <CardHeader>
-          <CardTitle className="font-display text-base">Actions rapides</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-2">
-          <Button className="press justify-start" size="lg" onClick={() => setTuitionPayOpen(true)}>
-            <Wallet className="mr-2 h-4 w-4" /> Enregistrer un paiement de scolarité
-          </Button>
-          <Button className="press justify-start" size="lg" variant="outline" onClick={() => setTeacherPayOpen(true)}>
-            <Banknote className="mr-2 h-4 w-4" /> Enregistrer un paiement de prof
-          </Button>
-        </CardContent>
-      </Card>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={() => setTuitionPayOpen(true)}
+          className={cn(
+            "group flex items-center gap-4 rounded-2xl border border-emerald-500/25 bg-emerald-500/5 p-4 text-left transition",
+            "hover:border-emerald-500/40 hover:bg-emerald-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+          )}
+        >
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+            <Wallet className="h-5 w-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="font-medium text-foreground">Paiement de scolarité</p>
+            <p className="text-xs text-muted-foreground">
+              Enregistrer un encaissement élève
+            </p>
+          </div>
+          <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-foreground" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setTeacherPayOpen(true)}
+          className={cn(
+            "group flex items-center gap-4 rounded-2xl border border-border/80 bg-card p-4 text-left transition",
+            "hover:border-primary/30 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+          )}
+        >
+          <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <Banknote className="h-5 w-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="font-medium text-foreground">Paiement de prof</p>
+            <p className="text-xs text-muted-foreground">
+              Régler un dû enseignant
+            </p>
+          </div>
+          <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition group-hover:translate-x-0.5 group-hover:text-foreground" />
+        </button>
+      </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-        <div className="space-y-4">
-          <h2 className="font-display text-lg font-semibold text-foreground">Établissements</h2>
+      <div className="grid gap-5 lg:grid-cols-[1fr_300px] xl:grid-cols-[1fr_320px]">
+        <section className="space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="font-display text-lg font-semibold text-foreground">
+              Établissements
+            </h2>
+            {!data.loading && (
+              <span className="text-xs text-muted-foreground">
+                {data.establishments.length} au total
+              </span>
+            )}
+          </div>
           {data.loading ? (
             <div className="grid gap-4 sm:grid-cols-2">
               {[0, 1, 2].map((i) => (
                 <Skeleton key={i} className="h-64 rounded-2xl" />
               ))}
             </div>
+          ) : data.establishments.length === 0 ? (
+            <Card className="border-dashed">
+              <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
+                <Building2 className="h-8 w-8 text-muted-foreground/50" />
+                <p className="text-sm font-medium text-foreground">Aucun établissement</p>
+                <p className="text-xs text-muted-foreground">
+                  Créez un établissement pour commencer le pilotage.
+                </p>
+              </CardContent>
+            </Card>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2">
               {data.establishments.map((est, index) => {
@@ -445,17 +574,20 @@ function Page() {
                     classes={s?.classes ?? 0}
                     collected={s?.collected ?? 0}
                     expected={s?.expected ?? 0}
-                    delay={index * 80}
+                    delay={index * 70}
                   />
                 );
               })}
             </div>
           )}
-        </div>
+        </section>
 
-        <Card className="animate-rise panel-gradient h-fit">
-          <CardHeader>
+        <Card className="h-fit overflow-hidden border-border/80 shadow-sm">
+          <CardHeader className="pb-2">
             <CardTitle className="font-display text-base">Taux de recouvrement</CardTitle>
+            <CardDescription>
+              {recoveryRatio}% encaissé sur l&apos;ensemble du complexe
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             <ProgressRing
@@ -464,33 +596,48 @@ function Page() {
               label="Encaissé"
               caption={`${formatFCFA(totals.collected)} encaissés sur ${formatFCFA(totals.expected)} attendus`}
             />
-            <div className="hairline" />
-            <div className="space-y-3">
-              {data.establishments.map((est) => {
-                const s = stats.get(est.id);
-                const ratio = s && s.expected > 0 ? Math.round((s.collected / s.expected) * 100) : 0;
-                return (
-                  <div key={est.id}>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="truncate text-muted-foreground">{est.name}</span>
-                      <span className="font-medium text-foreground">{ratio}%</span>
+            <div className="h-px bg-border/60" />
+            <div className="space-y-3.5">
+              {data.establishments.length === 0 ? (
+                <p className="text-center text-xs text-muted-foreground">—</p>
+              ) : (
+                data.establishments.map((est) => {
+                  const s = stats.get(est.id);
+                  const ratio =
+                    s && s.expected > 0 ? Math.round((s.collected / s.expected) * 100) : 0;
+                  return (
+                    <div key={est.id}>
+                      <div className="mb-1 flex items-center justify-between gap-2 text-xs">
+                        <span className="truncate text-muted-foreground">{est.name}</span>
+                        <span className="shrink-0 font-semibold tabular-nums text-foreground">
+                          {ratio}%
+                        </span>
+                      </div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-muted/80">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-primary/80 to-primary transition-[width] duration-700 ease-out"
+                          style={{ width: `${ratio}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full rounded-full bg-primary transition-[width] duration-700"
-                        style={{ width: `${ratio}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </CardContent>
         </Card>
       </div>
 
-      <QuickTuitionPaymentDialog open={tuitionPayOpen} onClose={() => setTuitionPayOpen(false)} data={data} />
-      <QuickTeacherPaymentDialog open={teacherPayOpen} onClose={() => setTeacherPayOpen(false)} data={data} />
-    </>
+      <QuickTuitionPaymentDialog
+        open={tuitionPayOpen}
+        onClose={() => setTuitionPayOpen(false)}
+        data={data}
+      />
+      <QuickTeacherPaymentDialog
+        open={teacherPayOpen}
+        onClose={() => setTeacherPayOpen(false)}
+        data={data}
+      />
+    </div>
   );
 }
