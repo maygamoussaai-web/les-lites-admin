@@ -29,6 +29,7 @@ import { useAdminProfile } from "@/hooks/use-auth";
 import { roleLabel, initials } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
 import { describeError } from "@/lib/errors";
+import { PasswordField } from "@/components/app/password-field";
 
 export const Route = createFileRoute("/_authenticated/mon-compte")({
   head: () => ({
@@ -85,7 +86,7 @@ function Page() {
     onError: (e: Error) => toast.error(describeError(e, "Opération impossible")),
   });
 
- const uploadAvatar = async (rawFile: File) => {
+  const uploadAvatar = async (rawFile: File) => {
     if (!user) return;
     if (rawFile.size > 15 * 1024 * 1024) {
       toast.error("L'image dépasse 15 Mo.");
@@ -222,8 +223,14 @@ function Page() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <Label htmlFor="new_password">Nouveau mot de passe</Label>
-                <Input id="new_password" type="password" autoComplete="new-password" minLength={8} className="mt-1.5" value={password} onChange={(e) => setPassword(e.target.value)} />
+                <PasswordField
+                  id="new_password"
+                  label="Nouveau mot de passe"
+                  value={password}
+                  onChange={setPassword}
+                  autoComplete="new-password"
+                  minLength={8}
+                />
                 <p className="mt-1 text-xs text-muted-foreground">8 caractères minimum.</p>
               </div>
               <Button onClick={() => changePassword.mutate()} disabled={password.length < 8 || changePassword.isPending}>
