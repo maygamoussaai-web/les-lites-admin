@@ -13,6 +13,7 @@ import { Label } from "@/components/ui/label";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { initials } from "@/lib/format";
+import { PasswordField } from "@/components/app/password-field";
 
 export const Route = createFileRoute("/activation")({
   ssr: false,
@@ -119,7 +120,7 @@ function Page() {
         return;
       }
 
-if (avatarFile) {
+      if (avatarFile) {
         try {
           const compressed = await compressImage(avatarFile);
           const path = `${signInData.user.id}/avatar-${Date.now()}.jpg`;
@@ -231,15 +232,25 @@ if (avatarFile) {
               <Label htmlFor="email">Adresse e-mail</Label>
               <Input id="email" type="email" required className="mt-1.5" value={form.email} onChange={(e) => set("email", e.target.value)} />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="password">Mot de passe</Label>
-                <Input id="password" type="password" required minLength={8} className="mt-1.5" value={form.password} onChange={(e) => set("password", e.target.value)} />
-              </div>
-              <div>
-                <Label htmlFor="confirm_password">Confirmer</Label>
-                <Input id="confirm_password" type="password" required minLength={8} className="mt-1.5" value={form.confirm_password} onChange={(e) => set("confirm_password", e.target.value)} />
-              </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <PasswordField
+                id="password"
+                label="Mot de passe"
+                value={form.password}
+                onChange={(v) => set("password", v)}
+                required
+                minLength={8}
+                autoComplete="new-password"
+              />
+              <PasswordField
+                id="confirm_password"
+                label="Confirmer"
+                value={form.confirm_password}
+                onChange={(v) => set("confirm_password", v)}
+                required
+                minLength={8}
+                autoComplete="new-password"
+              />
             </div>
             <p className="text-xs text-muted-foreground">8 caractères minimum. Touchez la photo pour prendre une photo ou choisir dans la galerie.</p>
             <Button type="submit" className="shine-gold w-full" disabled={loading}>
