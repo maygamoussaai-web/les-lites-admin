@@ -49,6 +49,36 @@ export function templateBuffer(tpl: ActiveTemplate | null | undefined): ArrayBuf
   }
 }
 
+/** Télécharge le fichier Excel du modèle actif depuis Storage (source de vérité). */
+export async function downloadActiveTemplateBuffer(
+  classId: string,
+): Promise<{ buffer: ArrayBuffer; mapping: TemplateMapping; scale: number; name: string } | null> {
+  const { data: tpl, error } = await supabase
+    .from("report_templates")
+    .select("name, file_path, mapping, scale")
+    .eq("class_id", classId)
+    .eq("is_active", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error || !tpl?.file_path) return null;
+
+  const { data: file, error: dlError } = await supabase.storage
+    .from("report-templates")
+    .download(tpl.file_path);
+  if (dlError || !file) return null;
+
+  const buffer = await file.arrayBuffer();
+  if (buffer.byteLength < 64) return null;
+
+  return {
+    buffer,
+    mapping: tpl.mapping as unknown as TemplateMapping,
+    scale: Number(tpl.scale) || 20,
+    name: tpl.name,
+  };
+}
+
 export function useActiveReportTemplate(classId: string, enabled = true) {
   const query = useQuery<ActiveTemplate | null>({
     queryKey: ["active_report_template", classId],
@@ -88,10 +118,19 @@ export function useActiveReportTemplate(classId: string, enabled = true) {
       const gradeNatures = gradeNaturesFromMapping(mapping);
       const evaluationSlots = evaluationSlotCount(mapping);
 
+      // Encodage base64 par blocs (évite les plantages sur gros fichiers)
       const bytes = new Uint8Array(buffer);
+      const chunk = 0x8000;
       let binary = "";
-      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
-      const bufferBase64 = btoa(binary);
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + chunk, bytes.length)));
+      }
+      let bufferBase64 = "";
+      try {
+        bufferBase64 = btoa(binary);
+      } catch {
+        bufferBase64 = "";
+      }
 
       return {
         name: tpl.name,
