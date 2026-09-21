@@ -1,12 +1,14 @@
 /**
  * Génération des bulletins Excel.
- * Classement et moyennes = formules du modèle uniquement.
  *
- * Règle de vérité :
- * - Un bulletin n'est « généré » que s'il est uploadé dans student-documents,
- *   enregistré dans student_documents (bibliothèque) et lié via document_id.
- * - Chaque élève avec notes reçoit un fichier en bibliothèque, même si la
- *   moyenne modèle est temporairement nulle (classement seulement avec MG).
+ * Règle de vérité (non négociable) :
+ * 1. Upload storage (student-documents, fallback report-templates)
+ * 2. Ligne student_documents (bibliothèque)
+ * 3. student_report_cards.document_id = id du document
+ * 4. Seulement alors le bulletin est « généré »
+ *
+ * Le téléchargement local optionnel se fait APRÈS l'enregistrement,
+ * pour ne jamais perdre le fichier si le navigateur mobile bloque le download.
  */
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -33,12 +35,19 @@ type StudentRef = { id: string; first_name: string; last_name: string };
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 function toBlob(buffer: ArrayBuffer | Uint8Array): Blob {
-  const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-  return new Blob([bytes], { type: XLSX_MIME });
+  const copy = new Uint8Array(buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer));
+  return new Blob([copy], { type: XLSX_MIME });
 }
 
 export function BulletinWalkthroughDialog({
-  open, onClose, klass, establishmentName, students, subjects, period, grades,
+  open,
+  onClose,
+  klass,
+  establishmentName,
+  students,
+  subjects,
+  period,
+  grades,
 }: {
   open: boolean;
   onClose: () => void;
@@ -64,16 +73,22 @@ export function BulletinWalkthroughDialog({
     setDone(0);
     let successCount = 0;
     const failures: string[] = [];
+    const localDownloads: { blob: Blob; name: string }[] = [];
 
     try {
       const downloaded = await downloadActiveTemplateBuffer(klass.id);
       if (!downloaded) {
-        toast.error("Aucun modèle Excel actif pour cette classe. Importez un modèle puis réessayez.");
+        toast.error(
+          "Aucun modèle Excel actif pour cette classe. Importez un modèle puis réessayez.",
+        );
         return;
       }
       const { buffer: buf, mapping, scale } = downloaded;
 
-      const avgByStudent = new Map<string, { avg: number; subjects: Record<string, number | null> }>();
+      const avgByStudent = new Map<
+        string,
+        { avg: number; subjects: Record<string, number | null> }
+      >();
       for (const student of candidates) {
         const fill = buildModelFillData({
           establishmentName,
@@ -128,14 +143,15 @@ export function BulletinWalkthroughDialog({
           const written = writeFilledWorkbook(buf, mapping, fill);
           const blob = toBlob(written.buffer);
           const fileName = `Bulletin_${student.last_name}_${student.first_name}_P${period.period_number}.xlsx`;
-          downloadBlob(blob, fileName);
 
           const storagePath = `${klass.establishment_id}/${student.id}/bulletin-p${period.period_number}-${Date.now()}.xlsx`;
           const uploaded = await uploadBulletinWorkbook(storagePath, blob);
           const filePathStored =
             uploaded.bucket === "report-templates"
               ? `report-templates:${uploaded.path}`
-              : uploaded.path;
+              : uploaded.bucket === "student-documents"
+                ? uploaded.path
+                : `${uploaded.bucket}:${uploaded.path}`;
 
           const docName = `Bulletin période ${period.period_number}`;
           const { data: doc, error: docErr } = await supabase
@@ -148,10 +164,10 @@ export function BulletinWalkthroughDialog({
               file_type: XLSX_MIME,
               file_size: blob.size,
             })
-            .select("id")
+            .select("id, file_path, name")
             .single();
-          if (docErr || !doc) {
-            throw docErr ?? new Error("Enregistrement bibliothèque impossible");
+          if (docErr || !doc?.id) {
+            throw docErr ?? new Error("Enregistrement bibliothèque impossible (student_documents)");
           }
 
           const pre = avgByStudent.get(student.id);
@@ -175,10 +191,11 @@ export function BulletinWalkthroughDialog({
           );
           if (cardErr) {
             failures.push(
-              `${student.last_name} ${student.first_name}: bulletin OK, fiche moyenne — ${describeError(cardErr, "erreur")}`,
+              `${student.last_name} ${student.first_name}: fichier en bibliothèque, fiche — ${describeError(cardErr, "erreur")}`,
             );
           }
 
+          localDownloads.push({ blob, name: fileName });
           successCount++;
           setDone(successCount);
         } catch (err) {
@@ -205,13 +222,21 @@ export function BulletinWalkthroughDialog({
         return;
       }
 
+      for (const file of localDownloads) {
+        try {
+          downloadBlob(file.blob, file.name);
+        } catch {
+          /* ignore */
+        }
+      }
+
       if (failures.length) {
         toast.warning(
           `${successCount} bulletin(s) en bibliothèque — ${failures.length} alerte(s) : ${failures[0]}`,
         );
       } else {
         toast.success(
-          `${successCount} bulletin(s) dans la bibliothèque des élèves (Documents).`,
+          `${successCount} bulletin(s) enregistrés dans Documents de chaque élève.`,
         );
       }
 
@@ -247,7 +272,7 @@ export function BulletinWalkthroughDialog({
           <DialogTitle className="font-display">Créer les bulletins</DialogTitle>
           <DialogDescription>
             Génération Excel — période {period.period_number}. {candidates.length} élève(s) avec
-            notes. Chaque fichier est placé dans Documents de l'élève.
+            notes. Chaque fichier est placé dans Documents de l&apos;élève avant validation.
           </DialogDescription>
         </DialogHeader>
         {!activeTemplate && (
@@ -267,7 +292,7 @@ export function BulletinWalkthroughDialog({
           <Button
             className="press"
             onClick={() => void generate()}
-            disabled={busy || candidates.length === 0}
+            disabled={busy || candidates.length === 0 || !activeTemplate}
           >
             <Download className="mr-1.5 h-4 w-4" />
             {busy ? "Génération…" : `Générer ${candidates.length} bulletin(s)`}
