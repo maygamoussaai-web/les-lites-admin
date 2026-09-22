@@ -85,9 +85,57 @@ export async function canvasToPdfBlob(canvas: HTMLCanvasElement, quality = 0.92)
   return assemblePdf(jpegBytes, canvas.width, canvas.height);
 }
 
+function isMobileBrowser() {
+  const ua = navigator.userAgent || "";
+  return (
+    /Android|iPhone|iPad|iPod|Mobile/i.test(ua) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+  );
+}
+
 /**
- * Téléchargement forcé d’un Blob (xlsx, pdf, images…).
- * Gère desktop + iOS/Android (où l’attribut download est souvent ignoré).
+ * Téléchargement via URL HTTP (signed URL Storage) — le plus fiable sur mobile.
+ */
+export function downloadFromUrl(url: string, filename?: string): boolean {
+  const name = (filename || "").replace(/[\\/:*?"<>|]+/g, "_").trim();
+
+  const a = document.createElement("a");
+  a.href = url;
+  if (name) a.download = name;
+  a.target = "_blank";
+  a.rel = "noopener noreferrer";
+  a.style.display = "none";
+  document.body.appendChild(a);
+  try {
+    a.click();
+  } catch {
+    a.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+  }
+  a.remove();
+
+  if (isMobileBrowser()) {
+    const w = window.open(url, "_blank");
+    if (!w) {
+      const iframe = document.createElement("iframe");
+      iframe.style.display = "none";
+      iframe.src = url;
+      document.body.appendChild(iframe);
+      setTimeout(() => {
+        try {
+          iframe.remove();
+        } catch {
+          /* ignore */
+        }
+      }, 60_000);
+      return false;
+    }
+    return true;
+  }
+  return true;
+}
+
+/**
+ * Téléchargement forcé d’un Blob. Sur mobile, préférer downloadFromUrl(signedUrl).
  */
 export function downloadBlob(blob: Blob, filename: string) {
   const name = (filename || "document").replace(/[\\/:*?"<>|]+/g, "_").trim() || "document";
@@ -108,7 +156,6 @@ export function downloadBlob(blob: Blob, filename: string) {
   a.target = "_blank";
   a.style.display = "none";
   document.body.appendChild(a);
-
   try {
     a.click();
   } catch {
@@ -116,17 +163,11 @@ export function downloadBlob(blob: Blob, filename: string) {
   }
   a.remove();
 
-  const ua = navigator.userAgent || "";
-  const isIOS =
-    /iPad|iPhone|iPod/.test(ua) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  if (isIOS) {
+  if (isMobileBrowser()) {
     setTimeout(() => {
       const w = window.open(url, "_blank");
-      if (!w) {
-        window.location.assign(url);
-      }
-    }, 120);
+      if (!w) window.location.assign(url);
+    }, 80);
   }
 
   setTimeout(() => URL.revokeObjectURL(url), 90_000);
