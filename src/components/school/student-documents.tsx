@@ -5,9 +5,7 @@
  * - une bibliothèque personnelle par élève
  * - bulletins générés + pièces (acte, photo, diplôme…)
  * - vérité : on n'affiche que des fichiers réellement stockés
- *
- * - Purge auto des fiches « Fichier manquant »
- * - Ouverture via URL signée Storage (fiable sur mobile)
+ * - Œil = visionner | flèche = télécharger (actions séparées)
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -31,13 +29,14 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useRows, writeAudit } from "@/lib/data";
 import { compressImage } from "@/lib/image";
-import { imageToPdfBlob, downloadBlob, downloadFromUrl, openBlobInNewTab } from "@/lib/pdf-export";
+import { downloadBlob, downloadFromUrl, openBlobInNewTab } from "@/lib/pdf-export";
 import { formatDateTime } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
 import { describeError } from "@/lib/errors";
 import { resolveStoredPath } from "@/lib/storage-upload";
 import type { StudentReportCard } from "@/lib/grades";
 import { cn } from "@/lib/utils";
+import * as XLSX from "xlsx";
 
 type StudentDocument = Tables<"student_documents">;
 
@@ -86,7 +85,6 @@ type StorageAccess = {
   blob: Blob | null;
 };
 
-/** Accès Storage : signed URL d'abord (mobile), puis blob. */
 async function getStorageAccess(filePath: string): Promise<StorageAccess> {
   const resolved = resolveStoredPath(filePath);
   let path = (resolved.path || "").replace(/^\/+/, "").trim();
@@ -257,6 +255,12 @@ export function StudentDocuments({
   const [renaming, setRenaming] = useState<StudentDocument | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{
+    title: string;
+    sheetName: string;
+    rows: string[][];
+  } | null>(null);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
   const onPick = (file: File | undefined) => {
     if (!file) return;
@@ -331,59 +335,62 @@ export function StudentDocuments({
       const access = await getStorageAccess(item.filePath);
       const spreadsheet = isSpreadsheet(item.fileType, item.filePath, item.name);
       const safeName = item.name.replace(/[\\/:*?"<>|]+/g, "_").trim() || "document";
+      const fileName = safeName.toLowerCase().endsWith(".xlsx") ? safeName : `${safeName}.xlsx`;
 
-      if (spreadsheet) {
-        const fileName = safeName.toLowerCase().endsWith(".xlsx") ? safeName : `${safeName}.xlsx`;
+      if (mode === "download") {
         if (access.signedUrl) {
-          downloadFromUrl(access.signedUrl, fileName);
-          toast.success(
-            "Fichier lancé. Sur téléphone : regardez Téléchargements ou l'onglet qui s'ouvre (Excel / Sheets).",
-            { duration: 6000 },
-          );
-          return;
-        }
-        if (access.blob) {
-          const typed =
-            access.blob.type && access.blob.type !== "application/octet-stream"
-              ? access.blob
-              : new Blob([await access.blob.arrayBuffer()], { type: XLSX_MIME });
-          downloadBlob(typed, fileName);
-          toast.success("Téléchargement démarré — vérifiez le dossier Téléchargements.", {
-            duration: 5000,
-          });
-          return;
-        }
-        throw new Error("Impossible d'obtenir le fichier Excel");
-      }
-
-      if (item.fileType === "application/pdf" || item.filePath.toLowerCase().endsWith(".pdf")) {
-        const pdfName = safeName.endsWith(".pdf") ? safeName : `${safeName}.pdf`;
-        if (mode === "view" && access.signedUrl) {
-          const w = window.open(access.signedUrl, "_blank", "noopener,noreferrer");
-          if (!w) {
-            downloadFromUrl(access.signedUrl, pdfName);
-            toast.message("Popup bloquée — téléchargement lancé. Autorisez les pop-ups pour prévisualiser.");
-          }
-          return;
-        }
-        if (access.signedUrl) {
-          downloadFromUrl(access.signedUrl, pdfName);
+          downloadFromUrl(access.signedUrl, spreadsheet ? fileName : safeName);
           toast.success("Téléchargement lancé — dossier Téléchargements.", { duration: 5000 });
           return;
         }
         if (access.blob) {
           const typed =
-            access.blob.type === "application/pdf"
-              ? access.blob
-              : new Blob([await access.blob.arrayBuffer()], { type: "application/pdf" });
-          if (mode === "view") {
-            if (!openBlobInNewTab(typed)) {
-              downloadBlob(typed, pdfName);
-              toast.message("Popup bloquée — PDF téléchargé.");
-            }
-          } else {
-            downloadBlob(typed, pdfName);
-            toast.success("Téléchargement démarré.");
+            spreadsheet && (!access.blob.type || access.blob.type === "application/octet-stream")
+              ? new Blob([await access.blob.arrayBuffer()], { type: XLSX_MIME })
+              : access.blob;
+          downloadBlob(typed, spreadsheet ? fileName : safeName);
+          toast.success("Téléchargement démarré.");
+          return;
+        }
+        throw new Error("Fichier inaccessible pour téléchargement");
+      }
+
+      if (spreadsheet) {
+        let blob = access.blob;
+        if (!blob && access.signedUrl) {
+          const res = await fetch(access.signedUrl);
+          if (!res.ok) throw new Error(`Lecture impossible (HTTP ${res.status})`);
+          blob = await res.blob();
+        }
+        if (!blob || blob.size === 0) throw new Error("Fichier Excel vide ou inaccessible");
+
+        const buf = await blob.arrayBuffer();
+        const wb = XLSX.read(buf, { type: "array" });
+        const sheetName = wb.SheetNames[0] ?? "Feuille1";
+        const sheet = wb.Sheets[sheetName];
+        const matrix = sheet
+          ? (XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as unknown[][])
+          : [];
+        const rows = matrix.slice(0, 80).map((row) =>
+          (row as unknown[]).slice(0, 20).map((c) => (c == null || c === "" ? "" : String(c))),
+        );
+        setPreview({ title: item.name, sheetName, rows });
+        return;
+      }
+
+      if (item.fileType === "application/pdf" || item.filePath.toLowerCase().endsWith(".pdf")) {
+        if (access.signedUrl) {
+          const w = window.open(access.signedUrl, "_blank", "noopener,noreferrer");
+          if (!w) {
+            toast.message(
+              "Autorisez les pop-ups pour visionner le PDF. Sinon utilisez l'icône Télécharger.",
+            );
+          }
+          return;
+        }
+        if (access.blob) {
+          if (!openBlobInNewTab(access.blob)) {
+            toast.message("Popup bloquée — utilisez l'icône Télécharger pour obtenir le PDF.");
           }
           return;
         }
@@ -391,48 +398,27 @@ export function StudentDocuments({
       }
 
       if (item.fileType.startsWith("image/") || /\.(jpe?g|png|webp|gif)$/i.test(item.filePath)) {
-        if (mode === "view") {
-          if (access.signedUrl) {
-            const w = window.open(access.signedUrl, "_blank", "noopener,noreferrer");
-            if (!w && access.blob) {
-              openBlobInNewTab(access.blob);
-            } else if (!w) {
-              downloadFromUrl(access.signedUrl, safeName);
-            }
-            return;
-          }
-          if (access.blob && openBlobInNewTab(access.blob)) return;
-        }
         if (access.signedUrl) {
-          downloadFromUrl(access.signedUrl, safeName);
-          toast.success("Téléchargement lancé.");
+          setPreviewImageUrl(access.signedUrl);
           return;
         }
         if (access.blob) {
           const url = URL.createObjectURL(access.blob);
-          try {
-            const pdf = await imageToPdfBlob(url);
-            downloadBlob(pdf, `${safeName}.pdf`);
-          } catch {
-            downloadBlob(access.blob, safeName);
-          } finally {
-            URL.revokeObjectURL(url);
-          }
-          toast.success("Téléchargement démarré.");
+          setPreviewImageUrl(url);
           return;
         }
         throw new Error("Image inaccessible");
       }
 
       if (access.signedUrl) {
-        downloadFromUrl(access.signedUrl, safeName);
-      } else if (access.blob) {
-        downloadBlob(access.blob, safeName);
+        const w = window.open(access.signedUrl, "_blank", "noopener,noreferrer");
+        if (!w) toast.message("Popup bloquée — utilisez Télécharger.");
+        return;
       }
-      toast.success("Téléchargement lancé — vérifiez Téléchargements.");
+      toast.message("Aperçu non disponible pour ce type de fichier. Utilisez Télécharger.");
     } catch (e) {
       console.error("[bibliothèque] openItem", item.filePath, e);
-      toast.error(describeError(e, "Impossible d'ouvrir ou télécharger le document"));
+      toast.error(describeError(e, "Impossible d'ouvrir le document"));
     } finally {
       setBusyKey(null);
     }
@@ -537,8 +523,8 @@ export function StudentDocuments({
                   className="h-9 w-9"
                   disabled={busy}
                   onClick={() => void openItem(item, "view")}
-                  aria-label="Voir / ouvrir"
-                  title="Voir"
+                  aria-label="Visionner"
+                  title="Visionner (aperçu)"
                 >
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
                 </Button>
@@ -550,7 +536,7 @@ export function StudentDocuments({
                   disabled={busy}
                   onClick={() => void openItem(item, "download")}
                   aria-label="Télécharger"
-                  title="Télécharger"
+                  title="Télécharger le fichier"
                 >
                   <Download className="h-4 w-4" />
                 </Button>
@@ -725,6 +711,81 @@ export function StudentDocuments({
             </Button>
             <Button type="button" onClick={() => void rename()} disabled={!renameValue.trim()}>
               Enregistrer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!preview} onOpenChange={(v) => !v && setPreview(null)}>
+        <DialogContent className="flex max-h-[90vh] max-w-[95vw] flex-col gap-3 sm:max-w-4xl">
+          <DialogHeader>
+            <DialogTitle className="pr-6">{preview?.title ?? "Aperçu"}</DialogTitle>
+            <DialogDescription>
+              Feuille « {preview?.sheetName ?? "—"} » — aperçu (pas un téléchargement). Pour
+              enregistrer le fichier, utilisez l'icône Télécharger.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border/60 bg-muted/20">
+            {preview && preview.rows.length > 0 ? (
+              <table className="w-max min-w-full border-collapse text-left text-[11px] sm:text-xs">
+                <tbody>
+                  {preview.rows.map((row, ri) => (
+                    <tr key={ri} className={ri === 0 ? "bg-muted/40 font-medium" : undefined}>
+                      {row.map((cell, ci) => (
+                        <td
+                          key={ci}
+                          className="max-w-[12rem] truncate border border-border/40 px-2 py-1 whitespace-nowrap"
+                          title={cell}
+                        >
+                          {cell || "\u00a0"}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="p-6 text-center text-sm text-muted-foreground">Feuille vide.</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setPreview(null)}>
+              Fermer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!previewImageUrl}
+        onOpenChange={(v) => {
+          if (!v) {
+            if (previewImageUrl?.startsWith("blob:")) URL.revokeObjectURL(previewImageUrl);
+            setPreviewImageUrl(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-[95vw] sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Aperçu</DialogTitle>
+          </DialogHeader>
+          {previewImageUrl && (
+            <img
+              src={previewImageUrl}
+              alt="Aperçu document"
+              className="mx-auto max-h-[70vh] w-auto max-w-full rounded-lg object-contain"
+            />
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                if (previewImageUrl?.startsWith("blob:")) URL.revokeObjectURL(previewImageUrl);
+                setPreviewImageUrl(null);
+              }}
+            >
+              Fermer
             </Button>
           </DialogFooter>
         </DialogContent>
