@@ -86,17 +86,56 @@ export async function canvasToPdfBlob(canvas: HTMLCanvasElement, quality = 0.92)
 }
 
 /**
- * Telechargement force avec le nom de fichier (fonctionne pour .xlsx et .pdf).
- * Preferer <a download> plutot qu'ouvrir un onglet (mobile + Excel).
+ * Téléchargement forcé d’un Blob (xlsx, pdf, images…).
+ * Gère desktop + iOS/Android (où l’attribut download est souvent ignoré).
  */
 export function downloadBlob(blob: Blob, filename: string) {
+  const name = (filename || "document").replace(/[\\/:*?"<>|]+/g, "_").trim() || "document";
+
+  const nav = window.navigator as Navigator & {
+    msSaveOrOpenBlob?: (b: Blob, n: string) => void;
+  };
+  if (typeof nav.msSaveOrOpenBlob === "function") {
+    nav.msSaveOrOpenBlob(blob, name);
+    return;
+  }
+
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = filename;
+  a.download = name;
   a.rel = "noopener";
+  a.target = "_blank";
+  a.style.display = "none";
   document.body.appendChild(a);
-  a.click();
+
+  try {
+    a.click();
+  } catch {
+    a.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+  }
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
+
+  const ua = navigator.userAgent || "";
+  const isIOS =
+    /iPad|iPhone|iPod/.test(ua) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  if (isIOS) {
+    setTimeout(() => {
+      const w = window.open(url, "_blank");
+      if (!w) {
+        window.location.assign(url);
+      }
+    }, 120);
+  }
+
+  setTimeout(() => URL.revokeObjectURL(url), 90_000);
+}
+
+/** Ouvre un Blob dans un nouvel onglet (aperçu PDF / image). */
+export function openBlobInNewTab(blob: Blob): boolean {
+  const url = URL.createObjectURL(blob);
+  const w = window.open(url, "_blank", "noopener,noreferrer");
+  setTimeout(() => URL.revokeObjectURL(url), 120_000);
+  return !!w;
 }
