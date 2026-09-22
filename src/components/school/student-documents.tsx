@@ -7,7 +7,7 @@
  * - vérité : on n'affiche que des fichiers réellement stockés
  *
  * - Purge auto des fiches « Fichier manquant »
- * - Ouverture via storage.download (fiable hors signed URL)
+ * - Ouverture : storage.download puis signed URL (2 buckets)
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -31,7 +31,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { useRows, writeAudit } from "@/lib/data";
 import { compressImage } from "@/lib/image";
-import { imageToPdfBlob, downloadBlob } from "@/lib/pdf-export";
+import { imageToPdfBlob, downloadBlob, openBlobInNewTab } from "@/lib/pdf-export";
 import { formatDateTime } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
 import { describeError } from "@/lib/errors";
@@ -79,19 +79,55 @@ function formatSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
+/**
+ * Récupère le fichier depuis Storage.
+ * 1) storage.download  2) createSignedUrl + fetch
+ * Essaie student-documents et report-templates.
+ */
 async function downloadFromStorage(filePath: string): Promise<{ blob: Blob; bucket: string }> {
-  const { bucket, path } = resolveStoredPath(filePath);
+  const resolved = resolveStoredPath(filePath);
+  let path = (resolved.path || "").replace(/^\/+/, "").trim();
   if (!path) throw new Error("Chemin de fichier invalide");
 
-  const tryBuckets = [bucket, bucket === "student-documents" ? "report-templates" : "student-documents"];
-  let lastError: unknown = null;
+  if (path.startsWith("student-documents/")) path = path.slice("student-documents/".length);
+  if (path.startsWith("report-templates/")) path = path.slice("report-templates/".length);
 
-  for (const b of tryBuckets) {
+  const buckets = Array.from(
+    new Set<string>([resolved.bucket, "student-documents", "report-templates"]),
+  );
+  const errors: string[] = [];
+
+  for (const b of buckets) {
     const { data, error } = await supabase.storage.from(b).download(path);
-    if (!error && data) return { blob: data, bucket: b };
-    lastError = error;
+    if (!error && data && data.size > 0) return { blob: data, bucket: b };
+    if (error) errors.push(`${b}: ${error.message}`);
   }
-  throw lastError ?? new Error("Fichier introuvable dans le stockage");
+
+  for (const b of buckets) {
+    const { data: signed, error } = await supabase.storage.from(b).createSignedUrl(path, 3600);
+    if (error || !signed?.signedUrl) {
+      if (error) errors.push(`${b}/sign: ${error.message}`);
+      continue;
+    }
+    try {
+      const res = await fetch(signed.signedUrl);
+      if (!res.ok) {
+        errors.push(`${b}/http: ${res.status}`);
+        continue;
+      }
+      const blob = await res.blob();
+      if (blob.size > 0) return { blob, bucket: b };
+      errors.push(`${b}/http: fichier vide`);
+    } catch (e) {
+      errors.push(`${b}/fetch: ${e instanceof Error ? e.message : "échec"}`);
+    }
+  }
+
+  throw new Error(
+    errors.length
+      ? `Fichier introuvable (${path}). ${errors.slice(0, 2).join(" · ")}`
+      : `Fichier introuvable (${path})`,
+  );
 }
 
 export function StudentDocuments({
@@ -283,7 +319,16 @@ export function StudentDocuments({
   const openItem = async (item: LibraryItem, mode: "view" | "download") => {
     setBusyKey(item.key);
     try {
+      if (!item.filePath?.trim()) {
+        toast.error("Aucun fichier lié à ce document.");
+        return;
+      }
+
       const { blob } = await downloadFromStorage(item.filePath);
+      if (!blob || blob.size === 0) {
+        throw new Error("Fichier vide ou inaccessible dans le stockage");
+      }
+
       const spreadsheet = isSpreadsheet(item.fileType, item.filePath, item.name);
       const safeName = item.name.replace(/[\\/:*?"<>|]+/g, "_").trim() || "document";
 
@@ -291,46 +336,62 @@ export function StudentDocuments({
         const typed =
           blob.type && blob.type !== "application/octet-stream"
             ? blob
-            : new Blob([blob], { type: XLSX_MIME });
-        downloadBlob(typed, safeName.endsWith(".xlsx") ? safeName : `${safeName}.xlsx`);
-        if (mode === "view") {
-          toast.success("Bulletin téléchargé — ouvrez-le avec Excel ou Sheets.");
-        }
+            : new Blob([await blob.arrayBuffer()], { type: XLSX_MIME });
+        const fileName = safeName.toLowerCase().endsWith(".xlsx") ? safeName : `${safeName}.xlsx`;
+        downloadBlob(typed, fileName);
+        toast.success(
+          mode === "view"
+            ? "Bulletin téléchargé — ouvrez-le avec Excel ou Google Sheets."
+            : "Téléchargement du bulletin démarré.",
+        );
         return;
       }
 
       if (item.fileType === "application/pdf" || item.filePath.toLowerCase().endsWith(".pdf")) {
-        const typed = blob.type === "application/pdf" ? blob : new Blob([blob], { type: "application/pdf" });
+        const typed =
+          blob.type === "application/pdf"
+            ? blob
+            : new Blob([await blob.arrayBuffer()], { type: "application/pdf" });
         if (mode === "view") {
-          const url = URL.createObjectURL(typed);
-          window.open(url, "_blank", "noopener,noreferrer");
-          setTimeout(() => URL.revokeObjectURL(url), 120_000);
+          const ok = openBlobInNewTab(typed);
+          if (!ok) {
+            downloadBlob(typed, safeName.endsWith(".pdf") ? safeName : `${safeName}.pdf`);
+            toast.message("Popup bloquée — fichier téléchargé à la place.");
+          }
         } else {
           downloadBlob(typed, safeName.endsWith(".pdf") ? safeName : `${safeName}.pdf`);
+          toast.success("Téléchargement démarré.");
         }
         return;
       }
 
       if (item.fileType.startsWith("image/") || /\.(jpe?g|png|webp|gif)$/i.test(item.filePath)) {
-        const url = URL.createObjectURL(blob);
         if (mode === "view") {
-          window.open(url, "_blank", "noopener,noreferrer");
-          setTimeout(() => URL.revokeObjectURL(url), 120_000);
+          const ok = openBlobInNewTab(blob);
+          if (!ok) {
+            downloadBlob(blob, safeName);
+            toast.message("Popup bloquée — image téléchargée.");
+          }
         } else {
+          const url = URL.createObjectURL(blob);
           try {
             const pdf = await imageToPdfBlob(url);
             downloadBlob(pdf, `${safeName}.pdf`);
           } catch {
             downloadBlob(blob, safeName);
+          } finally {
+            URL.revokeObjectURL(url);
           }
-          URL.revokeObjectURL(url);
+          toast.success("Téléchargement démarré.");
         }
         return;
       }
 
       downloadBlob(blob, safeName);
+      toast.success("Téléchargement démarré.");
     } catch (e) {
-      toast.error(describeError(e, "Impossible d'ouvrir le document"));
+      console.error("[bibliothèque] openItem", item.filePath, e);
+      toast.error(describeError(e, "Impossible d'ouvrir ou télécharger le document"));
     } finally {
       setBusyKey(null);
     }
@@ -429,6 +490,7 @@ export function StudentDocuments({
               </div>
               <div className="flex shrink-0 items-center gap-0.5">
                 <Button
+                  type="button"
                   variant="ghost"
                   size="icon"
                   className="h-9 w-9"
@@ -440,6 +502,7 @@ export function StudentDocuments({
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
                 </Button>
                 <Button
+                  type="button"
                   variant="ghost"
                   size="icon"
                   className="h-9 w-9"
@@ -453,6 +516,7 @@ export function StudentDocuments({
                 {docRow && (
                   <>
                     <Button
+                      type="button"
                       variant="ghost"
                       size="icon"
                       className="h-9 w-9"
@@ -468,6 +532,7 @@ export function StudentDocuments({
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button
+                          type="button"
                           variant="ghost"
                           size="icon"
                           className="h-9 w-9 text-destructive"
@@ -515,6 +580,7 @@ export function StudentDocuments({
           </div>
         )}
         <Button
+          type="button"
           size="sm"
           className="press"
           onClick={() => fileInputRef.current?.click()}
@@ -594,6 +660,7 @@ export function StudentDocuments({
           </div>
           <DialogFooter>
             <Button
+              type="button"
               variant="outline"
               onClick={() => {
                 setNameOpen(false);
@@ -602,7 +669,7 @@ export function StudentDocuments({
             >
               Annuler
             </Button>
-            <Button onClick={() => void confirmUpload()} disabled={!docName.trim()}>
+            <Button type="button" onClick={() => void confirmUpload()} disabled={!docName.trim()}>
               Ajouter
             </Button>
           </DialogFooter>
@@ -623,10 +690,10 @@ export function StudentDocuments({
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRenaming(null)}>
+            <Button type="button" variant="outline" onClick={() => setRenaming(null)}>
               Annuler
             </Button>
-            <Button onClick={() => void rename()} disabled={!renameValue.trim()}>
+            <Button type="button" onClick={() => void rename()} disabled={!renameValue.trim()}>
               Enregistrer
             </Button>
           </DialogFooter>
