@@ -1,9 +1,13 @@
 /**
  * Bibliothèque de l'élève — page dédiée (demande d'origine).
- * Une page par élève : bulletins générés + pièces jointes, ajout, ouverture, téléchargement.
+ *
+ * Une bibliothèque personnelle par élève :
+ * - bulletins générés (section dédiée)
+ * - pièces jointes (acte, photo, diplôme…)
+ * - visionnage (œil) ≠ téléchargement
  */
 import { Link, createFileRoute, useParams } from "@tanstack/react-router";
-import { ArrowLeft, Library, ShieldAlert, Sparkles } from "lucide-react";
+import { ArrowLeft, Eye, FileSpreadsheet, Library, ShieldAlert, Upload } from "lucide-react";
 import { EmptyState } from "@/components/app/empty-state";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -73,11 +77,11 @@ function BibliothequePage() {
           aria-hidden
           className="pointer-events-none absolute -right-12 -top-16 h-40 w-40 rounded-full bg-primary/10 blur-3xl"
         />
-        <div className="relative flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="relative space-y-4">
           <div className="min-w-0">
             <p className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">
               <Library className="h-3.5 w-3.5" />
-              Bibliothèque
+              Bibliothèque personnelle
             </p>
             <h1 className="mt-1.5 font-display text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
               {resolved.last_name} {resolved.first_name}
@@ -87,10 +91,36 @@ function BibliothequePage() {
               {establishment ? ` · ${establishment.name}` : ""}
             </p>
           </div>
-          <p className="inline-flex max-w-xs items-start gap-2 rounded-xl border border-border/60 bg-background/50 px-3 py-2 text-xs text-muted-foreground">
-            <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
-            Bulletins de classe, actes et pièces — tout au même endroit pour cet élève.
-          </p>
+
+          <div className="grid gap-2 sm:grid-cols-3">
+            <div className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-background/50 px-3 py-2.5">
+              <FileSpreadsheet className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <div>
+                <p className="text-xs font-medium text-foreground">Bulletins</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Générés depuis la page classe
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-background/50 px-3 py-2.5">
+              <Eye className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <div>
+                <p className="text-xs font-medium text-foreground">Œil = visionner</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Aperçu dans l'app (Excel, image, PDF)
+                </p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5 rounded-xl border border-border/60 bg-background/50 px-3 py-2.5">
+              <Upload className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <div>
+                <p className="text-xs font-medium text-foreground">Pièces jointes</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Acte, photo, diplôme…
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
