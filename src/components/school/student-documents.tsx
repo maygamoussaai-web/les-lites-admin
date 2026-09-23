@@ -1,18 +1,17 @@
 /**
- * Bibliothèque de l'élève (page dédiée + embed).
+ * Bibliothèque documents élève.
  *
- * Concept d'origine :
- * - une bibliothèque personnelle par élève
- * - bulletins générés + pièces (acte, photo, diplôme…)
- * - vérité : on n'affiche que des fichiers réellement stockés
- * - Œil = visionner | flèche = télécharger (actions séparées)
+ * - Regroupement par classe (bulletins liés aux fiches report_cards)
+ * - Plus récents en haut
+ * - Horodatage visible
+ * - Actions (œil, télécharger, renommer, supprimer) sous chaque document
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   FileText, Upload, Download, Eye, Pencil, Trash2, Loader2, Paperclip,
-  FileSpreadsheet, FolderOpen,
+  FileSpreadsheet, GraduationCap,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -36,6 +35,7 @@ import { describeError } from "@/lib/errors";
 import { resolveStoredPath } from "@/lib/storage-upload";
 import type { StudentReportCard } from "@/lib/grades";
 import { cn } from "@/lib/utils";
+import { useSchoolData } from "@/lib/school-data";
 import * as XLSX from "xlsx";
 
 type StudentDocument = Tables<"student_documents">;
@@ -43,6 +43,7 @@ type StudentDocument = Tables<"student_documents">;
 const BUCKET = "student-documents";
 const MAX_SIZE = 8 * 1024 * 1024;
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const OTHER_GROUP = "__autres__";
 
 type LibraryItem = {
   key: string;
@@ -55,6 +56,7 @@ type LibraryItem = {
   documentId: string;
   average?: number | null;
   cardId?: string | null;
+  classId: string | null;
 };
 
 function isSpreadsheet(fileType: string, filePath: string, name: string) {
@@ -135,13 +137,16 @@ async function getStorageAccess(filePath: string): Promise<StorageAccess> {
 export function StudentDocuments({
   studentId,
   establishmentId,
+  classId = null,
   compact = false,
 }: {
   studentId: string;
   establishmentId: string;
+  classId?: string | null;
   compact?: boolean;
 }) {
   const qc = useQueryClient();
+  const school = useSchoolData();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const purgedRef = useRef(false);
 
@@ -158,6 +163,12 @@ export function StudentDocuments({
   const cards = cardsQuery.data ?? [];
   const isLoading = docsQuery.isLoading || cardsQuery.isLoading;
 
+  const classNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of school.classes) m.set(c.id, c.name);
+    return m;
+  }, [school.classes]);
+
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ["student_documents"] });
     void qc.invalidateQueries({ queryKey: ["student_report_cards"] });
@@ -166,45 +177,37 @@ export function StudentDocuments({
   useEffect(() => {
     if (isLoading || purgedRef.current) return;
     if (!docsQuery.isFetched || !cardsQuery.isFetched) return;
-
     purgedRef.current = true;
-
     void (async () => {
       try {
         const byId = new Map(documents.map((d) => [d.id, d]));
         const cardIdsToDelete: string[] = [];
         const docIdsToDelete: string[] = [];
-
         for (const d of documents) {
           if (!d.file_path?.trim()) docIdsToDelete.push(d.id);
         }
-
         for (const card of cards) {
           if (!card.document_id) {
             cardIdsToDelete.push(card.id);
             continue;
           }
           const doc = byId.get(card.document_id);
-          if (!doc || !doc.file_path?.trim()) {
-            cardIdsToDelete.push(card.id);
-          }
+          if (!doc || !doc.file_path?.trim()) cardIdsToDelete.push(card.id);
         }
-
         if (cardIdsToDelete.length) {
           await supabase.from("student_report_cards").delete().in("id", cardIdsToDelete);
         }
         if (docIdsToDelete.length) {
           await supabase.from("student_documents").delete().in("id", docIdsToDelete);
         }
-
         if (cardIdsToDelete.length || docIdsToDelete.length) {
           invalidate();
           toast.message(
-            `${cardIdsToDelete.length + docIdsToDelete.length} entrée(s) sans fichier retirée(s) de la bibliothèque.`,
+            `${cardIdsToDelete.length + docIdsToDelete.length} entrée(s) sans fichier retirée(s).`,
           );
         }
       } catch {
-        /* purge best-effort */
+        /* best-effort */
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -215,18 +218,15 @@ export function StudentDocuments({
     for (const c of cards) {
       if (c.document_id) cardByDoc.set(c.document_id, c);
     }
-
     const out: LibraryItem[] = [];
     for (const doc of documents) {
       const path = doc.file_path?.trim();
       if (!path) continue;
-
       const card = cardByDoc.get(doc.id);
       const bulletin =
         isSpreadsheet(doc.file_type, path, doc.name) ||
         !!card ||
         doc.name.toLowerCase().includes("bulletin");
-
       out.push({
         key: `doc-${doc.id}`,
         kind: bulletin ? "bulletin" : "document",
@@ -238,15 +238,31 @@ export function StudentDocuments({
         documentId: doc.id,
         average: card?.general_average != null ? Number(card.general_average) : null,
         cardId: card?.id ?? null,
+        classId: card?.class_id ?? (bulletin ? classId : null),
       });
     }
-
     out.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
     return out;
-  }, [documents, cards]);
+  }, [documents, cards, classId]);
 
-  const bulletins = items.filter((i) => i.kind === "bulletin");
-  const others = items.filter((i) => i.kind === "document");
+  const groups = useMemo(() => {
+    const map = new Map<string, LibraryItem[]>();
+    for (const item of items) {
+      const key = item.classId ?? OTHER_GROUP;
+      const list = map.get(key) ?? [];
+      list.push(item);
+      map.set(key, list);
+    }
+    const entries = [...map.entries()].map(([id, list]) => {
+      const sorted = [...list].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+      const newest = sorted[0]?.createdAt ?? "";
+      const label =
+        id === OTHER_GROUP ? "Documents personnels" : classNameById.get(id) ?? "Classe";
+      return { id, label, items: sorted, newest };
+    });
+    entries.sort((a, b) => (a.newest < b.newest ? 1 : -1));
+    return entries;
+  }, [items, classNameById]);
 
   const [uploading, setUploading] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -255,11 +271,7 @@ export function StudentDocuments({
   const [renaming, setRenaming] = useState<StudentDocument | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
-  const [preview, setPreview] = useState<{
-    title: string;
-    sheetName: string;
-    rows: string[][];
-  } | null>(null);
+  const [preview, setPreview] = useState<{ title: string; sheetName: string; rows: string[][] } | null>(null);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
   const onPick = (file: File | undefined) => {
@@ -287,18 +299,13 @@ export function StudentDocuments({
         return;
       }
       const ext =
-        file.type === "application/pdf"
-          ? "pdf"
-          : file.type.startsWith("image/")
-            ? "jpg"
-            : "bin";
+        file.type === "application/pdf" ? "pdf" : file.type.startsWith("image/") ? "jpg" : "bin";
       const path = `${establishmentId}/${studentId}/${Date.now()}.${ext}`;
       const { error: uploadError } = await supabase.storage.from(BUCKET).upload(path, file, {
         contentType: file.type,
         upsert: true,
       });
       if (uploadError) throw uploadError;
-
       const { error: insertError } = await supabase.from("student_documents").insert({
         student_id: studentId,
         establishment_id: establishmentId,
@@ -308,13 +315,12 @@ export function StudentDocuments({
         file_size: file.size,
       });
       if (insertError) throw insertError;
-
       await writeAudit("create", "student_documents" as never, null, {
         student_id: studentId,
         name: docName.trim(),
       });
       invalidate();
-      toast.success("Document ajouté à la bibliothèque");
+      toast.success("Document ajouté");
     } catch (e) {
       toast.error(describeError(e, "Envoi impossible"));
     } finally {
@@ -331,7 +337,6 @@ export function StudentDocuments({
         toast.error("Aucun fichier lié à ce document.");
         return;
       }
-
       const access = await getStorageAccess(item.filePath);
       const spreadsheet = isSpreadsheet(item.fileType, item.filePath, item.name);
       const safeName = item.name.replace(/[\\/:*?"<>|]+/g, "_").trim() || "document";
@@ -340,7 +345,7 @@ export function StudentDocuments({
       if (mode === "download") {
         if (access.signedUrl) {
           downloadFromUrl(access.signedUrl, spreadsheet ? fileName : safeName);
-          toast.success("Téléchargement lancé — dossier Téléchargements.", { duration: 5000 });
+          toast.success("Téléchargement lancé.", { duration: 4000 });
           return;
         }
         if (access.blob) {
@@ -352,7 +357,7 @@ export function StudentDocuments({
           toast.success("Téléchargement démarré.");
           return;
         }
-        throw new Error("Fichier inaccessible pour téléchargement");
+        throw new Error("Fichier inaccessible");
       }
 
       if (spreadsheet) {
@@ -362,8 +367,7 @@ export function StudentDocuments({
           if (!res.ok) throw new Error(`Lecture impossible (HTTP ${res.status})`);
           blob = await res.blob();
         }
-        if (!blob || blob.size === 0) throw new Error("Fichier Excel vide ou inaccessible");
-
+        if (!blob || blob.size === 0) throw new Error("Fichier Excel vide");
         const buf = await blob.arrayBuffer();
         const wb = XLSX.read(buf, { type: "array" });
         const sheetName = wb.SheetNames[0] ?? "Feuille1";
@@ -381,17 +385,11 @@ export function StudentDocuments({
       if (item.fileType === "application/pdf" || item.filePath.toLowerCase().endsWith(".pdf")) {
         if (access.signedUrl) {
           const w = window.open(access.signedUrl, "_blank", "noopener,noreferrer");
-          if (!w) {
-            toast.message(
-              "Autorisez les pop-ups pour visionner le PDF. Sinon utilisez l'icône Télécharger.",
-            );
-          }
+          if (!w) toast.message("Autorisez les pop-ups pour visionner le PDF.");
           return;
         }
         if (access.blob) {
-          if (!openBlobInNewTab(access.blob)) {
-            toast.message("Popup bloquée — utilisez l'icône Télécharger pour obtenir le PDF.");
-          }
+          if (!openBlobInNewTab(access.blob)) toast.message("Popup bloquée — utilisez Télécharger.");
           return;
         }
         throw new Error("PDF inaccessible");
@@ -403,8 +401,7 @@ export function StudentDocuments({
           return;
         }
         if (access.blob) {
-          const url = URL.createObjectURL(access.blob);
-          setPreviewImageUrl(url);
+          setPreviewImageUrl(URL.createObjectURL(access.blob));
           return;
         }
         throw new Error("Image inaccessible");
@@ -415,7 +412,7 @@ export function StudentDocuments({
         if (!w) toast.message("Popup bloquée — utilisez Télécharger.");
         return;
       }
-      toast.message("Aperçu non disponible pour ce type de fichier. Utilisez Télécharger.");
+      toast.message("Aperçu non disponible. Utilisez Télécharger.");
     } catch (e) {
       console.error("[bibliothèque] openItem", item.filePath, e);
       toast.error(describeError(e, "Impossible d'ouvrir le document"));
@@ -447,13 +444,8 @@ export function StudentDocuments({
     setBusyKey(`doc-${doc.id}`);
     try {
       const { bucket, path } = resolveStoredPath(doc.file_path);
-      if (path) {
-        await supabase.storage.from(bucket).remove([path]).catch(() => undefined);
-      }
-      await supabase
-        .from("student_report_cards")
-        .update({ document_id: null })
-        .eq("document_id", doc.id);
+      if (path) await supabase.storage.from(bucket).remove([path]).catch(() => undefined);
+      await supabase.from("student_report_cards").update({ document_id: null }).eq("document_id", doc.id);
       const { error } = await supabase.from("student_documents").delete().eq("id", doc.id);
       if (error) throw error;
       await writeAudit("delete", "student_documents" as never, doc.id, { name: doc.name });
@@ -466,150 +458,136 @@ export function StudentDocuments({
     }
   };
 
-  const renderList = (list: LibraryItem[], emptyLabel: string) => {
-    if (list.length === 0) {
-      return (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border/70 bg-muted/15 py-8 text-center">
-          <Paperclip className="h-6 w-6 text-muted-foreground/50" />
-          <p className="text-sm text-muted-foreground">{emptyLabel}</p>
-        </div>
-      );
-    }
+  const renderCard = (item: LibraryItem) => {
+    const docRow = documents.find((d) => d.id === item.documentId) ?? null;
+    const busy = busyKey === item.key;
     return (
-      <ul className="space-y-2">
-        {list.map((item) => {
-          const docRow = documents.find((d) => d.id === item.documentId) ?? null;
-          const busy = busyKey === item.key;
-          return (
-            <li
-              key={item.key}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/60 bg-card px-3 py-2.5 text-sm shadow-sm transition hover:border-primary/30"
-            >
-              <div className="flex min-w-0 items-center gap-2.5">
-                <span
-                  className={cn(
-                    "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
-                    item.kind === "bulletin"
-                      ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                      : "bg-primary/10 text-primary",
-                  )}
-                >
-                  {item.kind === "bulletin" ? (
-                    <FileSpreadsheet className="h-4 w-4" />
-                  ) : (
-                    <FileText className="h-4 w-4" />
-                  )}
-                </span>
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <p className="truncate font-medium text-foreground">{item.name}</p>
-                    {item.kind === "bulletin" && (
-                      <Badge variant="secondary" className="text-[10px]">
-                        Bulletin
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-muted-foreground">
-                    {formatSize(item.fileSize)} · {formatDateTime(item.createdAt)}
-                    {item.average != null ? ` · MG ${item.average.toFixed(2)}` : ""}
-                  </p>
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-0.5">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9"
-                  disabled={busy}
-                  onClick={() => void openItem(item, "view")}
-                  aria-label="Visionner"
-                  title="Visionner (aperçu)"
-                >
-                  {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9"
-                  disabled={busy}
-                  onClick={() => void openItem(item, "download")}
-                  aria-label="Télécharger"
-                  title="Télécharger le fichier"
-                >
-                  <Download className="h-4 w-4" />
-                </Button>
-                {docRow && (
-                  <>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="h-9 w-9"
-                      disabled={busy}
-                      onClick={() => {
-                        setRenaming(docRow);
-                        setRenameValue(docRow.name);
-                      }}
-                      aria-label="Renommer"
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-9 w-9 text-destructive"
-                          disabled={busy}
-                          aria-label="Supprimer"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Supprimer « {docRow.name} » ?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Le fichier sera retiré de la bibliothèque. Action définitive.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Annuler</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => void remove(docRow)}>
-                            Supprimer
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+      <article
+        key={item.key}
+        className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm transition hover:border-primary/25 hover:shadow-md"
+      >
+        <div className="flex items-start gap-3">
+          <span
+            className={cn(
+              "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
+              item.kind === "bulletin"
+                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                : "bg-primary/10 text-primary",
+            )}
+          >
+            {item.kind === "bulletin" ? (
+              <FileSpreadsheet className="h-5 w-5" />
+            ) : (
+              <FileText className="h-5 w-5" />
+            )}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <h4 className="truncate font-medium text-foreground">{item.name}</h4>
+              {item.kind === "bulletin" && (
+                <Badge variant="secondary" className="text-[10px]">
+                  Bulletin
+                </Badge>
+              )}
+            </div>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              <time dateTime={item.createdAt}>{formatDateTime(item.createdAt)}</time>
+              <span className="mx-1.5 opacity-40">·</span>
+              {formatSize(item.fileSize)}
+              {item.average != null && (
+                <>
+                  <span className="mx-1.5 opacity-40">·</span>
+                  MG {item.average.toFixed(2)}
+                </>
+              )}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-1 border-t border-border/50 pt-3">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="h-9 gap-1.5 rounded-lg px-3"
+            disabled={busy}
+            onClick={() => void openItem(item, "view")}
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
+            Voir
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="h-9 gap-1.5 rounded-lg px-3"
+            disabled={busy}
+            onClick={() => void openItem(item, "download")}
+          >
+            <Download className="h-4 w-4" />
+            Télécharger
+          </Button>
+          {docRow && (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-9 gap-1.5 rounded-lg px-3"
+                disabled={busy}
+                onClick={() => {
+                  setRenaming(docRow);
+                  setRenameValue(docRow.name);
+                }}
+              >
+                <Pencil className="h-4 w-4" />
+                Renommer
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-9 gap-1.5 rounded-lg px-3 text-destructive hover:text-destructive"
+                    disabled={busy}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Supprimer
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Supprimer « {docRow.name} » ?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Le fichier sera retiré définitivement de la bibliothèque.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Annuler</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => void remove(docRow)}>Supprimer</AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </>
+          )}
+        </div>
+      </article>
     );
   };
 
   return (
-    <div className={cn("space-y-4", compact && "space-y-3")}>
+    <div className={cn("space-y-5", compact && "space-y-3")}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        {!compact && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <FolderOpen className="h-4 w-4 text-primary" />
-            <span>
-              {items.length} document{items.length > 1 ? "s" : ""} · {bulletins.length} bulletin
-              {bulletins.length > 1 ? "s" : ""}
-            </span>
-          </div>
-        )}
+        <p className="text-sm text-muted-foreground">
+          {items.length === 0
+            ? "Aucun document"
+            : `${items.length} document${items.length > 1 ? "s" : ""}`}
+        </p>
         <Button
           type="button"
           size="sm"
-          className="press"
+          className="press rounded-xl"
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
         >
@@ -633,38 +611,30 @@ export function StudentDocuments({
       </div>
 
       {isLoading ? (
-        <p className="text-sm text-muted-foreground">Chargement de la bibliothèque…</p>
+        <p className="py-8 text-center text-sm text-muted-foreground">Chargement…</p>
       ) : items.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-border/80 bg-muted/20 py-12 text-center">
-          <Paperclip className="h-8 w-8 text-muted-foreground/60" />
+        <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-border/80 bg-muted/15 py-14 text-center">
+          <Paperclip className="h-8 w-8 text-muted-foreground/50" />
           <p className="text-sm font-medium text-foreground">Bibliothèque vide</p>
-          <p className="max-w-sm text-xs text-muted-foreground">
-            Les bulletins générés depuis la page classe apparaissent ici automatiquement. Vous
-            pouvez aussi ajouter un acte de naissance, une photo ou un diplôme.
+          <p className="max-w-xs text-xs text-muted-foreground">
+            Les bulletins générés depuis la classe apparaissent ici. Vous pouvez aussi ajouter une
+            pièce (acte, photo…).
           </p>
         </div>
       ) : (
-        <div className="space-y-5">
-          <section className="space-y-2">
-            <div className="flex items-center gap-2">
-              <FileSpreadsheet className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-              <h3 className="font-display text-sm font-semibold text-foreground">Bulletins</h3>
-              <Badge variant="outline" className="text-[10px]">
-                {bulletins.length}
-              </Badge>
-            </div>
-            {renderList(bulletins, "Aucun bulletin. Générez-les depuis la page de la classe.")}
-          </section>
-          <section className="space-y-2">
-            <div className="flex items-center gap-2">
-              <FileText className="h-4 w-4 text-primary" />
-              <h3 className="font-display text-sm font-semibold text-foreground">Autres documents</h3>
-              <Badge variant="outline" className="text-[10px]">
-                {others.length}
-              </Badge>
-            </div>
-            {renderList(others, "Aucune pièce jointe. Utilisez « Ajouter ».")}
-          </section>
+        <div className="space-y-8">
+          {groups.map((g) => (
+            <section key={g.id} className="space-y-3">
+              <div className="flex items-center gap-2">
+                <GraduationCap className="h-4 w-4 text-primary" />
+                <h3 className="font-display text-sm font-semibold text-foreground">{g.label}</h3>
+                <Badge variant="outline" className="text-[10px]">
+                  {g.items.length}
+                </Badge>
+              </div>
+              <div className="grid gap-3">{g.items.map(renderCard)}</div>
+            </section>
+          ))}
         </div>
       )}
 
@@ -679,14 +649,7 @@ export function StudentDocuments({
             <Input value={docName} onChange={(e) => setDocName(e.target.value)} autoFocus />
           </div>
           <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                setNameOpen(false);
-                setPendingFile(null);
-              }}
-            >
+            <Button type="button" variant="outline" onClick={() => { setNameOpen(false); setPendingFile(null); }}>
               Annuler
             </Button>
             <Button type="button" onClick={() => void confirmUpload()} disabled={!docName.trim()}>
@@ -706,12 +669,8 @@ export function StudentDocuments({
             <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} autoFocus />
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setRenaming(null)}>
-              Annuler
-            </Button>
-            <Button type="button" onClick={() => void rename()} disabled={!renameValue.trim()}>
-              Enregistrer
-            </Button>
+            <Button type="button" variant="outline" onClick={() => setRenaming(null)}>Annuler</Button>
+            <Button type="button" onClick={() => void rename()} disabled={!renameValue.trim()}>Enregistrer</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -721,8 +680,8 @@ export function StudentDocuments({
           <DialogHeader>
             <DialogTitle className="pr-6">{preview?.title ?? "Aperçu"}</DialogTitle>
             <DialogDescription>
-              Feuille « {preview?.sheetName ?? "—"} » — aperçu (pas un téléchargement). Pour
-              enregistrer le fichier, utilisez l'icône Télécharger.
+              Feuille « {preview?.sheetName ?? "—"} » — aperçu uniquement. Pour enregistrer, utilisez
+              Télécharger.
             </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border/60 bg-muted/20">
@@ -732,11 +691,7 @@ export function StudentDocuments({
                   {preview.rows.map((row, ri) => (
                     <tr key={ri} className={ri === 0 ? "bg-muted/40 font-medium" : undefined}>
                       {row.map((cell, ci) => (
-                        <td
-                          key={ci}
-                          className="max-w-[12rem] truncate border border-border/40 px-2 py-1 whitespace-nowrap"
-                          title={cell}
-                        >
+                        <td key={ci} className="max-w-[12rem] truncate border border-border/40 px-2 py-1 whitespace-nowrap" title={cell}>
                           {cell || "\u00a0"}
                         </td>
                       ))}
@@ -749,9 +704,7 @@ export function StudentDocuments({
             )}
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setPreview(null)}>
-              Fermer
-            </Button>
+            <Button type="button" variant="outline" onClick={() => setPreview(null)}>Fermer</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -770,11 +723,7 @@ export function StudentDocuments({
             <DialogTitle>Aperçu</DialogTitle>
           </DialogHeader>
           {previewImageUrl && (
-            <img
-              src={previewImageUrl}
-              alt="Aperçu document"
-              className="mx-auto max-h-[70vh] w-auto max-w-full rounded-lg object-contain"
-            />
+            <img src={previewImageUrl} alt="Aperçu" className="mx-auto max-h-[70vh] w-auto max-w-full rounded-lg object-contain" />
           )}
           <DialogFooter>
             <Button
@@ -797,6 +746,7 @@ export function StudentDocuments({
 export function StudentDocumentsCard(props: {
   studentId: string;
   establishmentId: string;
+  classId?: string | null;
 }) {
   return (
     <Card className="border-border/80 shadow-sm">
