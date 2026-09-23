@@ -48,10 +48,10 @@ function BibliothequePage() {
 
   if (!resolved) {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-10 w-40" />
-        <Skeleton className="h-24 w-full rounded-2xl" />
-        <Skeleton className="h-64 w-full rounded-2xl" />
+      <div className="mx-auto max-w-2xl space-y-4">
+        <Skeleton className="h-9 w-36" />
+        <Skeleton className="h-16 w-full rounded-2xl" />
+        <Skeleton className="h-72 w-full rounded-2xl" />
       </div>
     );
   }
@@ -60,24 +60,23 @@ function BibliothequePage() {
   const establishment = data.establishments.find((e) => e.id === resolved.establishment_id);
 
   return (
-    <div className="mx-auto max-w-3xl space-y-5">
-      <Button variant="ghost" size="sm" className="-ml-2 w-fit" asChild>
+    <div className="mx-auto max-w-2xl space-y-6 pb-8">
+      <Button variant="ghost" size="sm" className="-ml-2 w-fit text-muted-foreground" asChild>
         <Link to="/eleves/$studentId" params={{ studentId: resolved.id }}>
-          <ArrowLeft className="mr-1.5 h-4 w-4" /> Retour à la fiche
+          <ArrowLeft className="mr-1.5 h-4 w-4" /> Fiche élève
         </Link>
       </Button>
 
-      <header className="space-y-1">
-        <p className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">
+      <header className="space-y-1.5">
+        <p className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary">
           <Library className="h-3.5 w-3.5" />
           Bibliothèque
         </p>
-        <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+        <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground sm:text-[1.75rem]">
           {resolved.last_name} {resolved.first_name}
         </h1>
         <p className="text-sm text-muted-foreground">
-          {klass?.name ?? "Classe non assignée"}
-          {establishment ? ` · ${establishment.name}` : ""}
+          {[klass?.name, establishment?.name].filter(Boolean).join(" · ") || "—"}
         </p>
       </header>
 
