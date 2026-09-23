@@ -74,49 +74,47 @@ function ArchivesPage() {
   return (
     <>
       <PageHeader
-        eyebrow="Mémoire"
         title="Archives"
-        description="Anciens élèves et générations de classes archivées. Lecture seule — pas de réaffectation."
-        actions={
-          <div className="relative w-full max-w-xs">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="pl-9"
-              placeholder="Rechercher…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-          </div>
-        }
+        description="Anciens élèves et générations de classes archivées. Cliquez pour consulter les données conservées."
       />
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Card className="border-border/70 bg-gradient-to-br from-card to-muted/30">
+      <div className="mb-4 grid gap-3 sm:grid-cols-2">
+        <Card className="border-border/70">
           <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base font-display">
+            <CardTitle className="flex items-center gap-2 text-sm font-medium">
               <Users className="h-4 w-4 text-primary" /> Anciens élèves
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-semibold tabular-nums">{archivedStudents.length}</p>
-            <p className="text-xs text-muted-foreground">Dossiers conservés, classe non assignée</p>
           </CardContent>
         </Card>
-        <Card className="border-border/70 bg-gradient-to-br from-card to-muted/30">
+        <Card className="border-border/70">
           <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base font-display">
+            <CardTitle className="flex items-center gap-2 text-sm font-medium">
               <School className="h-4 w-4 text-primary" /> Anciennes classes
             </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-semibold tabular-nums">{archivedClasses.length}</p>
-            <p className="text-xs text-muted-foreground">Générations et classes archivées</p>
           </CardContent>
         </Card>
       </div>
 
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[12rem] flex-1">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Rechercher…"
+            className="pl-9"
+          />
+        </div>
+      </div>
+
       <Tabs value={tab} onValueChange={(v) => setTab(v as "eleves" | "classes")}>
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+        <TabsList>
           <TabsTrigger value="eleves" className="gap-1.5">
             <UserRound className="h-3.5 w-3.5" /> Anciens élèves
           </TabsTrigger>
@@ -130,7 +128,7 @@ function ArchivesPage() {
             <EmptyState
               icon={Users}
               title="Aucun ancien élève"
-              description="Les élèves archivés apparaîtront ici avec tout leur dossier."
+              description="Les élèves archivés ou retirés apparaissent ici avec toutes leurs données."
             />
           ) : (
             <ul className="space-y-2">
@@ -171,19 +169,25 @@ function ArchivesPage() {
           ) : (
             <ul className="space-y-2">
               {archivedClasses.map((c) => (
-                <li
-                  key={c.id}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-card px-4 py-3"
-                >
-                  <div className="min-w-0">
-                    <p className="truncate font-medium text-foreground">{c.name}</p>
-                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Calendar className="h-3 w-3" />
-                      {estName(c.establishment_id)}
-                      {c.created_at ? ` · créée ${formatDateTime(c.created_at)}` : ""}
-                    </p>
-                  </div>
-                  <Badge variant="outline">Archivée</Badge>
+                <li key={c.id}>
+                  <Link
+                    to="/classes/$classId"
+                    params={{ classId: c.id }}
+                    className="flex items-center justify-between gap-3 rounded-xl border border-border/70 bg-card px-4 py-3 transition hover:border-primary/40 hover:bg-muted/30"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-foreground">{c.name}</p>
+                      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Calendar className="h-3 w-3" />
+                        {estName(c.establishment_id)}
+                        {c.created_at ? ` · créée ${formatDateTime(c.created_at)}` : ""}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge variant="outline">Archivée</Badge>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  </Link>
                 </li>
               ))}
             </ul>
