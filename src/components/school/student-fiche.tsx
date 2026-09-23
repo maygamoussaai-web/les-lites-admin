@@ -38,7 +38,12 @@ export function StudentFichePage() {
   const [transferring, setTransferring] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
 
-  const student = data.students.find((s) => s.id === studentId);
+  const student =
+    data.students.find((s) => s.id === studentId) ??
+    data.archivedStudents.find((s) => s.id === studentId) ??
+    data.studentsById.get(studentId) ??
+    null;
+  const isArchived = !!(student as { archived_at?: string | null } | null)?.archived_at;
   const allowed = student && (isDG || establishmentIds.includes(student.establishment_id));
 
   if (!data.loading && !establishmentIdsLoading && (!student || !allowed)) {
@@ -46,14 +51,16 @@ export function StudentFichePage() {
       <EmptyState
         icon={ShieldAlert}
         title="Élève introuvable"
-        description="Cet élève n'existe pas, a été archivé, ou vous n'y avez pas accès."
+        description="Cet élève n'existe pas ou vous n'y avez pas accès."
       />
     );
   }
   if (!student) return null;
 
   const establishment = data.establishments.find((e) => e.id === student.establishment_id);
-  const klass = data.classes.find((c) => c.id === student.class_id);
+  const klass =
+    data.classes.find((c) => c.id === student.class_id) ??
+    data.archivedClasses.find((c) => c.id === student.class_id);
   const enrollment = data.activeEnrollmentByStudent.get(student.id);
   const installments = (enrollment?.installments_snapshot as unknown as Installment[]) ?? [];
   const paid = enrollment
@@ -142,9 +149,13 @@ export function StudentFichePage() {
         <ArrowLeft className="mr-1.5 h-4 w-4" /> Retour à {establishment?.name ?? "l'établissement"}
       </Button>
       <PageHeader
-        eyebrow={klass?.name ?? "Élève"}
+        eyebrow={isArchived ? "Ancien élève" : (klass?.name ?? "Élève")}
         title={`${student.last_name} ${student.first_name}`}
-        description={`${establishment?.name ?? "—"} · Inscrit le ${formatDate(student.enrolled_at)}`}
+        description={
+          isArchived
+            ? `${establishment?.name ?? "—"} · Archivé${student.archived_at ? ` le ${formatDate(student.archived_at)}` : ""} · lecture des données conservées`
+            : `${establishment?.name ?? "—"} · Inscrit le ${formatDate(student.enrolled_at)}`
+        }
       />
       <div className="flex flex-wrap items-center gap-4 rounded-xl border border-border/70 bg-card p-4">
         <StudentPhoto studentId={student.id} establishmentId={student.establishment_id}
@@ -196,7 +207,7 @@ export function StudentFichePage() {
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2">
             <div>
               <CardTitle className="flex items-center gap-2 text-base">
-                <Library className="h-4 w-4 text-primary" /> Bibliothèque de l&apos;élève
+                <Library className="h-4 w-4 text-primary" /> Bibliothèque de l'élève
               </CardTitle>
               <p className="mt-1 text-xs text-muted-foreground">
                 Bulletins générés, actes, photos et autres pièces. Page dédiée pour tout gérer.
