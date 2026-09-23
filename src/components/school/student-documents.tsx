@@ -256,13 +256,20 @@ export function StudentDocuments({
     const entries = [...map.entries()].map(([id, list]) => {
       const sorted = [...list].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
       const newest = sorted[0]?.createdAt ?? "";
+      const isCurrent = !!classId && id === classId;
       const label =
-        id === OTHER_GROUP ? "Documents personnels" : classNameById.get(id) ?? "Classe";
-      return { id, label, items: sorted, newest };
+        id === OTHER_GROUP
+          ? "Documents personnels"
+          : classNameById.get(id) ?? "Classe";
+      return { id, label, items: sorted, newest, isCurrent };
     });
-    entries.sort((a, b) => (a.newest < b.newest ? 1 : -1));
+    entries.sort((a, b) => {
+      if (a.isCurrent && !b.isCurrent) return -1;
+      if (b.isCurrent && !a.isCurrent) return 1;
+      return a.newest < b.newest ? 1 : -1;
+    });
     return entries;
-  }, [items, classNameById]);
+  }, [items, classNameById, classId]);
 
   const [uploading, setUploading] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -464,14 +471,14 @@ export function StudentDocuments({
     return (
       <article
         key={item.key}
-        className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm transition hover:border-primary/25 hover:shadow-md"
+        className="group overflow-hidden rounded-2xl border border-border/50 bg-card shadow-sm transition-all hover:border-primary/30 hover:shadow-md"
       >
-        <div className="flex items-start gap-3">
+        <div className="flex items-start gap-3 p-4 pb-3">
           <span
             className={cn(
-              "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl",
+              "flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl",
               item.kind === "bulletin"
-                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                ? "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400"
                 : "bg-primary/10 text-primary",
             )}
           >
@@ -481,79 +488,92 @@ export function StudentDocuments({
               <FileText className="h-5 w-5" />
             )}
           </span>
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 pt-0.5">
             <div className="flex flex-wrap items-center gap-1.5">
-              <h4 className="truncate font-medium text-foreground">{item.name}</h4>
+              <h4 className="truncate text-[15px] font-semibold leading-snug text-foreground">
+                {item.name}
+              </h4>
               {item.kind === "bulletin" && (
-                <Badge variant="secondary" className="text-[10px]">
+                <Badge
+                  variant="secondary"
+                  className="rounded-md px-1.5 py-0 text-[10px] font-medium"
+                >
                   Bulletin
                 </Badge>
               )}
             </div>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              <time dateTime={item.createdAt}>{formatDateTime(item.createdAt)}</time>
-              <span className="mx-1.5 opacity-40">·</span>
-              {formatSize(item.fileSize)}
+            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+              <time dateTime={item.createdAt} className="tabular-nums">
+                {formatDateTime(item.createdAt)}
+              </time>
+              <span className="text-border">·</span>
+              <span>{formatSize(item.fileSize)}</span>
               {item.average != null && (
                 <>
-                  <span className="mx-1.5 opacity-40">·</span>
-                  MG {item.average.toFixed(2)}
+                  <span className="text-border">·</span>
+                  <span className="font-medium text-foreground/80">
+                    MG {item.average.toFixed(2)}
+                  </span>
                 </>
               )}
             </p>
           </div>
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-1 border-t border-border/50 pt-3">
+        <div className="flex items-center justify-around gap-0.5 border-t border-border/40 bg-muted/20 px-2 py-1.5 sm:justify-start sm:gap-1 sm:px-3">
           <Button
             type="button"
-            variant="secondary"
+            variant="ghost"
             size="sm"
-            className="h-9 gap-1.5 rounded-lg px-3"
+            className="h-10 flex-1 gap-1.5 rounded-xl text-xs font-medium sm:flex-none sm:px-3"
             disabled={busy}
             onClick={() => void openItem(item, "view")}
+            title="Visionner"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
-            Voir
+            <span>Voir</span>
           </Button>
           <Button
             type="button"
-            variant="secondary"
+            variant="ghost"
             size="sm"
-            className="h-9 gap-1.5 rounded-lg px-3"
+            className="h-10 flex-1 gap-1.5 rounded-xl text-xs font-medium sm:flex-none sm:px-3"
             disabled={busy}
             onClick={() => void openItem(item, "download")}
+            title="Télécharger"
           >
             <Download className="h-4 w-4" />
-            Télécharger
+            <span>Télécharger</span>
           </Button>
           {docRow && (
             <>
               <Button
                 type="button"
                 variant="ghost"
-                size="sm"
-                className="h-9 gap-1.5 rounded-lg px-3"
+                size="icon"
+                className="h-10 w-10 shrink-0 rounded-xl"
                 disabled={busy}
                 onClick={() => {
                   setRenaming(docRow);
                   setRenameValue(docRow.name);
                 }}
+                title="Renommer"
+                aria-label="Renommer"
               >
                 <Pencil className="h-4 w-4" />
-                Renommer
               </Button>
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button
                     type="button"
                     variant="ghost"
-                    size="sm"
-                    className="h-9 gap-1.5 rounded-lg px-3 text-destructive hover:text-destructive"
+                    size="icon"
+                    className="h-10 w-10 shrink-0 rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive"
                     disabled={busy}
+                    title="Supprimer"
+                    aria-label="Supprimer"
                   >
                     <Trash2 className="h-4 w-4" />
-                    Supprimer
                   </Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
@@ -565,7 +585,9 @@ export function StudentDocuments({
                   </AlertDialogHeader>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Annuler</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => void remove(docRow)}>Supprimer</AlertDialogAction>
+                    <AlertDialogAction onClick={() => void remove(docRow)}>
+                      Supprimer
+                    </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
@@ -577,8 +599,8 @@ export function StudentDocuments({
   };
 
   return (
-    <div className={cn("space-y-5", compact && "space-y-3")}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
+    <div className={cn("space-y-6", compact && "space-y-4")}>
+      <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           {items.length === 0
             ? "Aucun document"
@@ -587,7 +609,7 @@ export function StudentDocuments({
         <Button
           type="button"
           size="sm"
-          className="press rounded-xl"
+          className="press rounded-xl shadow-sm"
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
         >
@@ -611,28 +633,58 @@ export function StudentDocuments({
       </div>
 
       {isLoading ? (
-        <p className="py-8 text-center text-sm text-muted-foreground">Chargement…</p>
+        <div className="space-y-3 py-4">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-28 animate-pulse rounded-2xl bg-muted/40" />
+          ))}
+        </div>
       ) : items.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-2xl border border-dashed border-border/80 bg-muted/15 py-14 text-center">
-          <Paperclip className="h-8 w-8 text-muted-foreground/50" />
-          <p className="text-sm font-medium text-foreground">Bibliothèque vide</p>
-          <p className="max-w-xs text-xs text-muted-foreground">
-            Les bulletins générés depuis la classe apparaissent ici. Vous pouvez aussi ajouter une
-            pièce (acte, photo…).
-          </p>
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border/70 bg-muted/10 px-6 py-16 text-center">
+          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/40">
+            <Paperclip className="h-6 w-6 text-muted-foreground/60" />
+          </span>
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-foreground">Bibliothèque vide</p>
+            <p className="max-w-xs text-xs leading-relaxed text-muted-foreground">
+              Les bulletins générés depuis la page classe apparaissent ici automatiquement.
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="mt-1 rounded-xl"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Upload className="mr-1.5 h-4 w-4" />
+            Ajouter un document
+          </Button>
         </div>
       ) : (
-        <div className="space-y-8">
+        <div className="space-y-7">
           {groups.map((g) => (
             <section key={g.id} className="space-y-3">
-              <div className="flex items-center gap-2">
-                <GraduationCap className="h-4 w-4 text-primary" />
-                <h3 className="font-display text-sm font-semibold text-foreground">{g.label}</h3>
-                <Badge variant="outline" className="text-[10px]">
+              <div className="flex items-center gap-2.5">
+                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <GraduationCap className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-display text-sm font-semibold tracking-tight text-foreground">
+                      {g.label}
+                    </h3>
+                    {g.isCurrent && (
+                      <Badge className="rounded-md bg-primary/15 px-1.5 py-0 text-[10px] font-medium text-primary hover:bg-primary/15">
+                        Classe actuelle
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
                   {g.items.length}
-                </Badge>
+                </span>
               </div>
-              <div className="grid gap-3">{g.items.map(renderCard)}</div>
+              <div className="grid gap-3 sm:grid-cols-1">{g.items.map(renderCard)}</div>
             </section>
           ))}
         </div>
