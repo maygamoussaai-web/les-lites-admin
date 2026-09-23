@@ -144,6 +144,10 @@ export function writeFilledWorkbook(
           const idx = evalLetters.indexOf(letter);
           const raw = idx >= 0 ? (match.evaluations[idx] ?? null) : null;
           setInputCell(address, toScale(raw, data.scale));
+        } else if (role === "evaluation_average") {
+          setInputCell(address, toScale(match.evaluationAverage ?? match.average, data.scale));
+        } else if (role === "subject_average") {
+          setInputCell(address, toScale(match.average, data.scale));
         }
       }
     }
@@ -211,7 +215,6 @@ export function writeFilledWorkbook(
     ws[address] = next;
   }
 
-  // Extraire les moyennes UNIQUEMENT depuis les resultats des formules du modele.
   const readNumericNear = (address: string): number | null => {
     const direct = fromScale(values[address] ?? (ws[address] as XLSX.CellObject | undefined)?.v, data.scale);
     if (direct !== null) return direct;
@@ -249,7 +252,6 @@ export function writeFilledWorkbook(
     }
   }
 
-  // Si pas de cellule MG mappee : moyenne des moyennes-matieres issues des formules du modele
   if (generalAverage === null) {
     const vals = Object.values(subjectAverages).filter((v): v is number => v !== null);
     if (vals.length) {
