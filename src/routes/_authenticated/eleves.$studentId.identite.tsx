@@ -31,7 +31,11 @@ function Page() {
   const save = useSaveRow("students", "Élève");
   const [editOpen, setEditOpen] = useState(false);
 
-  const student = data.students.find((s) => s.id === studentId);
+  const student =
+    data.students.find((s) => s.id === studentId) ??
+    data.archivedStudents.find((s) => s.id === studentId) ??
+    data.studentsById.get(studentId) ??
+    null;
   const allowed = student && (isDG || establishmentIds.includes(student.establishment_id));
 
   if (!data.loading && !establishmentIdsLoading && (!student || !allowed)) {
@@ -39,14 +43,16 @@ function Page() {
       <EmptyState
         icon={ShieldAlert}
         title="Élève introuvable"
-        description="Cet élève n'existe pas, a été archivé, ou vous n'y avez pas accès."
+        description="Cet élève n'existe pas ou vous n'y avez pas accès."
       />
     );
   }
   if (!student) return null;
 
   const establishment = data.establishments.find((e) => e.id === student.establishment_id);
-  const klass = data.classes.find((c) => c.id === student.class_id);
+  const klass =
+    data.classes.find((c) => c.id === student.class_id) ??
+    data.archivedClasses.find((c) => c.id === student.class_id);
 
   const editFields: Field[] = [
     { name: "first_name", label: "Prénom", required: true },
