@@ -5,6 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { readTemplate, isSubjectLabel, type TemplateMapping, type TemplateSheet } from "@/lib/xlsx-template";
 
+export type TemplateKind = "period" | "annual";
+
 export type GradeNature = "evaluation" | "composition";
 
 export function gradeNaturesFromMapping(
@@ -49,19 +51,44 @@ export function templateBuffer(tpl: ActiveTemplate | null | undefined): ArrayBuf
   }
 }
 
-/** Télécharge le fichier Excel du modèle actif depuis Storage (source de vérité). */
+/** Télécharge le fichier Excel du modèle actif (période ou annuel) depuis Storage. */
 export async function downloadActiveTemplateBuffer(
   classId: string,
+  kind: TemplateKind = "period",
 ): Promise<{ buffer: ArrayBuffer; mapping: TemplateMapping; scale: number; name: string } | null> {
-  const { data: tpl, error } = await supabase
-    .from("report_templates")
-    .select("name, file_path, mapping, scale")
-    .eq("class_id", classId)
-    .eq("is_active", true)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error || !tpl?.file_path) return null;
+  let rows: { name: string; file_path: string; mapping: unknown; scale: number; kind?: string }[] | null =
+    null;
+
+  {
+    const res = await supabase
+      .from("report_templates")
+      .select("name, file_path, mapping, scale, kind")
+      .eq("class_id", classId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(8);
+    if (res.error && /kind/i.test(res.error.message ?? "")) {
+      const legacy = await supabase
+        .from("report_templates")
+        .select("name, file_path, mapping, scale")
+        .eq("class_id", classId)
+        .eq("is_active", true)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      if (legacy.error || !legacy.data?.length) return null;
+      if (kind !== "period") return null;
+      rows = legacy.data as typeof rows;
+    } else if (res.error || !res.data?.length) {
+      return null;
+    } else {
+      rows = res.data as typeof rows;
+    }
+  }
+
+  const tpl =
+    (rows ?? []).find((r) => (r.kind ?? "period") === kind) ??
+    (kind === "period" ? (rows ?? [])[0] : null);
+  if (!tpl?.file_path) return null;
 
   const { data: file, error: dlError } = await supabase.storage
     .from("report-templates")
@@ -79,21 +106,27 @@ export async function downloadActiveTemplateBuffer(
   };
 }
 
-export function useActiveReportTemplate(classId: string, enabled = true) {
+export function useActiveReportTemplate(
+  classId: string,
+  enabled = true,
+  kind: TemplateKind = "period",
+) {
   const query = useQuery<ActiveTemplate | null>({
-    queryKey: ["active_report_template", classId],
+    queryKey: ["active_report_template", classId, kind],
     enabled: enabled && !!classId,
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
-      const { data: tpl, error } = await supabase
+      const { data: rows, error } = await supabase
         .from("report_templates")
-        .select("name, file_path, mapping, scale")
+        .select("name, file_path, mapping, scale, kind")
         .eq("class_id", classId)
         .eq("is_active", true)
         .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .limit(8);
       if (error) throw error;
+      const tpl =
+        (rows ?? []).find((r) => (r as { kind?: string }).kind === kind) ??
+        (kind === "period" ? (rows ?? [])[0] : null);
       if (!tpl?.file_path) return null;
 
       const { data: file, error: dlError } = await supabase.storage
@@ -118,7 +151,6 @@ export function useActiveReportTemplate(classId: string, enabled = true) {
       const gradeNatures = gradeNaturesFromMapping(mapping);
       const evaluationSlots = evaluationSlotCount(mapping);
 
-      // Encodage base64 par blocs (évite les plantages sur gros fichiers)
       const bytes = new Uint8Array(buffer);
       const chunk = 0x8000;
       let binary = "";
