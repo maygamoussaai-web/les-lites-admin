@@ -4,7 +4,7 @@
  */
 import { writeFilledWorkbook } from "@/lib/xlsx-writeback";
 import type { TemplateMapping, FillData } from "@/lib/xlsx-template";
-import type { ClassSubject, Grade } from "@/lib/grades";
+import type { ClassSubject, Grade, StudentReportCard } from "@/lib/grades";
 import { groupGradesBySubject } from "@/lib/grades";
 
 export type ModelAverages = {
@@ -48,14 +48,18 @@ export function buildModelFillData(opts: {
   lastAverage: number | null;
 }): FillData {
   const bySubject = groupGradesBySubject(opts.grades, opts.studentId);
+  const fillSubjects = opts.subjects.map((sub) => {
+    const gs = bySubject.get(sub.name) ?? bySubject.get(sub.name.trim()) ?? [];
+    return subjectRowFromGrades(sub.name, gs);
+  });
   return {
     establishmentName: opts.establishmentName,
     className: opts.className,
-    periodLabel: `Periode ${opts.periodNumber}`,
-    studentName: `${opts.studentLastName} ${opts.studentFirstName}`,
+    periodLabel: `Période ${opts.periodNumber}`,
+    studentName: `${opts.studentLastName} ${opts.studentFirstName}`.trim(),
     studentFirstName: opts.studentFirstName,
     studentLastName: opts.studentLastName,
-    subjects: opts.subjects.map((s) => subjectRowFromGrades(s.name, bySubject.get(s.id) ?? [])),
+    subjects: fillSubjects,
     generalAverage: null,
     firstAverage: opts.firstAverage,
     lastAverage: opts.lastAverage,
@@ -132,4 +136,101 @@ export function computeClassModelAverages(opts: {
   }
 
   return { perStudent, warnings: [...new Set(allWarnings)] };
+}
+
+/**
+ * FillData pour bulletin annuel — s'adapte à n'importe quel mapping de modèle.
+ *
+ * Stratégie (sans supposer un plan de colonnes fixe) :
+ * - evaluations[] = moyennes de matière de chaque période (ordre chronologique)
+ *   → colonnes "evaluation" multiples (ex. T1, T2, T3) sont remplies dans l'ordre
+ * - composition = moyenne annuelle matière (si le modèle a une colonne composition unique)
+ * - average / evaluationAverage = moyenne annuelle matière
+ *   → colonnes subject_average / evaluation_average (modèle bref type B)
+ * - generalAverage fourni pour lecture ; la MG affichée reste celle des formules Excel
+ */
+export function buildAnnualFillData(opts: {
+  establishmentName: string;
+  className: string;
+  studentFirstName: string;
+  studentLastName: string;
+  schoolYearLabel: string;
+  subjects: ClassSubject[];
+  studentCards: StudentReportCard[];
+  headcount: number;
+  scale: number;
+  rank: number | null;
+  firstAverage: number | null;
+  lastAverage: number | null;
+}): FillData {
+  const {
+    establishmentName,
+    className,
+    studentFirstName,
+    studentLastName,
+    schoolYearLabel,
+    subjects,
+    studentCards,
+    headcount,
+    scale,
+    rank,
+    firstAverage,
+    lastAverage,
+  } = opts;
+
+  const periodGeneral: number[] = [];
+  for (const c of studentCards) {
+    if (c.general_average != null && Number.isFinite(Number(c.general_average))) {
+      periodGeneral.push(Number(c.general_average));
+    }
+  }
+  const annualGeneral =
+    periodGeneral.length > 0
+      ? periodGeneral.reduce((a, b) => a + b, 0) / periodGeneral.length
+      : null;
+
+  const fillSubjects = subjects.map((sub) => {
+    const periodVals: number[] = [];
+    for (const c of studentCards) {
+      const sa = c.subject_averages as Record<string, number | null> | null;
+      if (!sa) continue;
+      let v = sa[sub.name];
+      if (v == null) {
+        const key = Object.keys(sa).find(
+          (k) => k.trim().toLowerCase() === sub.name.trim().toLowerCase(),
+        );
+        if (key) v = sa[key];
+      }
+      if (v != null && Number.isFinite(Number(v))) periodVals.push(Number(v));
+    }
+    const annual =
+      periodVals.length > 0
+        ? periodVals.reduce((a, b) => a + b, 0) / periodVals.length
+        : null;
+    return {
+      name: sub.name,
+      composition: annual,
+      evaluations: periodVals,
+      evaluationAverage: annual,
+      average: annual,
+    };
+  });
+
+  return {
+    establishmentName,
+    className,
+    periodLabel: schoolYearLabel || "Année scolaire",
+    studentName: `${studentLastName} ${studentFirstName}`.trim(),
+    studentFirstName,
+    studentLastName,
+    subjects: fillSubjects,
+    generalAverage: annualGeneral,
+    firstAverage,
+    lastAverage,
+    classAverageEvaluation: null,
+    classAverageComposition: null,
+    headcount,
+    rank,
+    scale,
+  };
 }
