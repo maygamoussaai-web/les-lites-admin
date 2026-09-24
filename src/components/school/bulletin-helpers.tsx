@@ -52,16 +52,17 @@ export function BulletinWalkthroughDialog({
   open: boolean;
   onClose: () => void;
   klass: ClassRow;
-  establishmentName: string;
+  establishmentName?: string;
   students: StudentRef[];
   subjects: ClassSubject[];
-  period: GradePeriod;
+  period: GradePeriod | null;
   grades: Grade[];
 }) {
   const qc = useQueryClient();
   const { template: activeTemplate } = useActiveReportTemplate(klass.id);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(0);
+  const etabName = establishmentName?.trim() || klass.name;
 
   const candidates = useMemo(() => {
     const withNotes = new Set(grades.map((g) => g.student_id));
@@ -69,6 +70,10 @@ export function BulletinWalkthroughDialog({
   }, [students, grades]);
 
   const generate = async () => {
+    if (!period) {
+      toast.error("Aucune période disponible. Démarrez une période d'abord.");
+      return;
+    }
     setBusy(true);
     setDone(0);
     let successCount = 0;
@@ -91,7 +96,7 @@ export function BulletinWalkthroughDialog({
       >();
       for (const student of candidates) {
         const fill = buildModelFillData({
-          establishmentName,
+          establishmentName: etabName,
           className: klass.name,
           studentFirstName: student.first_name,
           studentLastName: student.last_name,
@@ -126,7 +131,7 @@ export function BulletinWalkthroughDialog({
       for (const student of candidates) {
         try {
           const fill = buildModelFillData({
-            establishmentName,
+            establishmentName: etabName,
             className: klass.name,
             studentFirstName: student.first_name,
             studentLastName: student.last_name,
@@ -140,113 +145,85 @@ export function BulletinWalkthroughDialog({
             firstAverage: firstAvg,
             lastAverage: lastAvg,
           });
-          const written = writeFilledWorkbook(buf, mapping, fill);
-          const blob = toBlob(written.buffer);
+          const filled = writeFilledWorkbook(buf, mapping, fill);
+          const blob = toBlob(filled);
           const fileName = `Bulletin_${student.last_name}_${student.first_name}_P${period.period_number}.xlsx`;
-
           const storagePath = `${klass.establishment_id}/${student.id}/bulletin-p${period.period_number}-${Date.now()}.xlsx`;
-          const uploaded = await uploadBulletinWorkbook(storagePath, blob);
-          const filePathStored =
-            uploaded.bucket === "report-templates"
-              ? `report-templates:${uploaded.path}`
-              : uploaded.bucket === "student-documents"
-                ? uploaded.path
-                : `${uploaded.bucket}:${uploaded.path}`;
+
+          const uploaded = await uploadBulletinWorkbook({
+            establishmentId: klass.establishment_id,
+            studentId: student.id,
+            path: storagePath,
+            blob,
+          });
+          if (!uploaded?.path) throw new Error("Upload storage échoué");
 
           const docName = `Bulletin période ${period.period_number}`;
-          const { data: doc, error: docErr } = await supabase
+          const { data: docRow, error: docErr } = await supabase
             .from("student_documents")
             .insert({
               student_id: student.id,
               establishment_id: klass.establishment_id,
               name: docName,
-              file_path: filePathStored,
+              file_path: uploaded.path,
               file_type: XLSX_MIME,
               file_size: blob.size,
             })
-            .select("id, file_path, name")
+            .select("id")
             .single();
-          if (docErr || !doc?.id) {
-            throw docErr ?? new Error("Enregistrement bibliothèque impossible (student_documents)");
-          }
+          if (docErr || !docRow?.id) throw docErr ?? new Error("Document non créé");
 
-          const pre = avgByStudent.get(student.id);
-          const general = written.computed.generalAverage ?? pre?.avg ?? null;
-          const subjectAverages =
-            written.computed.subjectAverages ?? pre?.subjects ?? {};
-
+          const avgInfo = avgByStudent.get(student.id);
           const { error: cardErr } = await supabase.from("student_report_cards").upsert(
             {
               student_id: student.id,
               class_id: klass.id,
               establishment_id: klass.establishment_id,
               period_id: period.id,
-              general_average: general,
-              subject_averages: subjectAverages as never,
-              document_id: doc.id,
-              status: "validated",
-              validated_at: new Date().toISOString(),
+              document_id: docRow.id,
+              general_average: avgInfo?.avg ?? null,
+              subject_averages: avgInfo?.subjects ?? {},
             } as never,
             { onConflict: "student_id,period_id" },
           );
-          if (cardErr) {
-            failures.push(
-              `${student.last_name} ${student.first_name}: fichier en bibliothèque, fiche — ${describeError(cardErr, "erreur")}`,
-            );
-          }
+          if (cardErr) throw cardErr;
+
+          await writeAudit("create", "student_report_cards" as never, null, {
+            student_id: student.id,
+            period_id: period.id,
+            document_id: docRow.id,
+          });
 
           localDownloads.push({ blob, name: fileName });
           successCount++;
-          setDone(successCount);
-        } catch (err) {
+        } catch (e) {
           failures.push(
-            `${student.last_name} ${student.first_name}: ${describeError(err, "échec")}`,
+            `${student.last_name} ${student.first_name}: ${describeError(e, "échec")}`,
           );
         }
+        setDone((d) => d + 1);
       }
 
-      await writeAudit("create", "student_report_cards" as never, null, {
-        class_id: klass.id,
-        period_id: period.id,
-        count: successCount,
-      });
-      await qc.invalidateQueries({ queryKey: ["student_report_cards"] });
-      await qc.invalidateQueries({ queryKey: ["student_documents"] });
+      qc.invalidateQueries({ queryKey: ["student_documents"] });
+      qc.invalidateQueries({ queryKey: ["student_report_cards"] });
+      qc.invalidateQueries({ queryKey: ["grades"] });
 
-      if (successCount === 0) {
-        toast.error(
-          failures.length
-            ? `Aucun bulletin en bibliothèque. ${failures[0]}`
-            : "Aucun bulletin enregistré dans la bibliothèque.",
-        );
-        return;
-      }
-
-      for (const file of localDownloads) {
-        try {
-          downloadBlob(file.blob, file.name);
-        } catch {
-          /* ignore */
+      if (successCount > 0) {
+        toast.success(`${successCount} bulletin(s) généré(s) et placé(s) en bibliothèque.`);
+        for (const f of localDownloads) {
+          try {
+            downloadBlob(f.blob, f.name);
+          } catch {
+            /* mobile may block */
+          }
         }
-      }
-
-      if (failures.length) {
-        toast.warning(
-          `${successCount} bulletin(s) en bibliothèque — ${failures.length} alerte(s) : ${failures[0]}`,
-        );
-      } else {
-        toast.success(
-          `${successCount} bulletin(s) enregistrés dans Documents de chaque élève.`,
-        );
-      }
-
-      if (successCount >= candidates.length && candidates.length > 0) {
         try {
-          const { closedPeriodNumber, newPeriodNumber } = await closeAndStartNextPeriod(
-            klass.id,
-            klass.establishment_id,
-          );
-          await qc.invalidateQueries({ queryKey: ["grade_periods"] });
+          const { closedPeriodNumber, newPeriodNumber } = await closeAndStartNextPeriod({
+            classId: klass.id,
+            establishmentId: klass.establishment_id,
+            currentPeriodId: period.id,
+          });
+          qc.invalidateQueries({ queryKey: ["grade_periods"] });
           toast.success(
             closedPeriodNumber != null
               ? `Période ${closedPeriodNumber} clôturée — période ${newPeriodNumber} ouverte.`
@@ -255,6 +232,12 @@ export function BulletinWalkthroughDialog({
         } catch (e) {
           toast.error(describeError(e, "Bulletins OK, ouverture de période impossible"));
         }
+      }
+      if (failures.length) {
+        toast.error(`${failures.length} échec(s) : ${failures.slice(0, 2).join(" · ")}`);
+      }
+      if (successCount === 0 && failures.length === 0) {
+        toast.message("Aucun élève avec notes à traiter.");
       }
 
       onClose();
@@ -271,13 +254,14 @@ export function BulletinWalkthroughDialog({
         <DialogHeader>
           <DialogTitle className="font-display">Créer les bulletins</DialogTitle>
           <DialogDescription>
-            Génération Excel — période {period.period_number}. {candidates.length} élève(s) avec
-            notes. Chaque fichier est placé dans Documents de l&apos;élève avant validation.
+            {period
+              ? `Génération Excel — période ${period.period_number}. ${candidates.length} élève(s) avec notes. Chaque fichier est placé dans Documents de l'élève avant validation.`
+              : "Aucune période en cours. Démarrez une période (Nouvelle période) avant de générer les bulletins."}
           </DialogDescription>
         </DialogHeader>
         {!activeTemplate && (
           <p className="text-sm text-amber-700 dark:text-amber-400">
-            Aucun modèle Excel actif. Activez un modèle dans « Modèle de bulletin ».
+            Aucun modèle Excel actif. Ajoutez-en un dans « Modèle de bulletin ».
           </p>
         )}
         {busy && (
@@ -291,8 +275,8 @@ export function BulletinWalkthroughDialog({
           </Button>
           <Button
             className="press"
+            disabled={busy || !period || !activeTemplate || candidates.length === 0}
             onClick={() => void generate()}
-            disabled={busy || candidates.length === 0 || !activeTemplate}
           >
             <Download className="mr-1.5 h-4 w-4" />
             {busy ? "Génération…" : `Générer ${candidates.length} bulletin(s)`}
@@ -303,4 +287,4 @@ export function BulletinWalkthroughDialog({
   );
 }
 
-export { AnnualBulletinDialog, renderBulletinCanvas } from "@/components/school/bulletin-annual";
+export { AnnualBulletinDialog } from "./bulletin-annual";
