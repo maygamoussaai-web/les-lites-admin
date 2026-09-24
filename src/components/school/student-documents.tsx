@@ -36,7 +36,6 @@ import { resolveStoredPath } from "@/lib/storage-upload";
 import type { StudentReportCard } from "@/lib/grades";
 import { cn } from "@/lib/utils";
 import { useSchoolData } from "@/lib/school-data";
-import * as XLSX from "xlsx";
 
 type StudentDocument = Tables<"student_documents">;
 
@@ -376,6 +375,8 @@ export function StudentDocuments({
         }
         if (!blob || blob.size === 0) throw new Error("Fichier Excel vide");
         const buf = await blob.arrayBuffer();
+        // Import différé : xlsx chargé seulement à la prévisualisation (pas au démarrage)
+        const XLSX = await import("xlsx");
         const wb = XLSX.read(buf, { type: "array" });
         const sheetName = wb.SheetNames[0] ?? "Feuille1";
         const sheet = wb.Sheets[sheetName];
@@ -506,86 +507,82 @@ export function StudentDocuments({
               <time dateTime={item.createdAt} className="tabular-nums">
                 {formatDateTime(item.createdAt)}
               </time>
-              <span className="text-border">·</span>
+              <span>·</span>
               <span>{formatSize(item.fileSize)}</span>
-              {item.average != null && (
+              {item.average != null && Number.isFinite(item.average) && (
                 <>
-                  <span className="text-border">·</span>
-                  <span className="font-medium text-foreground/80">
-                    MG {item.average.toFixed(2)}
-                  </span>
+                  <span>·</span>
+                  <span className="font-medium text-foreground">MG {item.average.toFixed(2)}</span>
                 </>
               )}
             </p>
           </div>
         </div>
-
-        <div className="flex items-center justify-around gap-0.5 border-t border-border/40 bg-muted/20 px-2 py-1.5 sm:justify-start sm:gap-1 sm:px-3">
+        <div className="flex flex-wrap items-center gap-1 border-t border-border/40 bg-muted/20 px-3 py-2">
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="h-10 flex-1 gap-1.5 rounded-xl text-xs font-medium sm:flex-none sm:px-3"
+            className="h-8 gap-1.5 px-2 text-xs"
             disabled={busy}
             onClick={() => void openItem(item, "view")}
-            title="Visionner"
           >
-            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
-            <span>Voir</span>
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
+            Voir
           </Button>
           <Button
             type="button"
             variant="ghost"
             size="sm"
-            className="h-10 flex-1 gap-1.5 rounded-xl text-xs font-medium sm:flex-none sm:px-3"
+            className="h-8 gap-1.5 px-2 text-xs"
             disabled={busy}
             onClick={() => void openItem(item, "download")}
-            title="Télécharger"
           >
-            <Download className="h-4 w-4" />
-            <span>Télécharger</span>
+            <Download className="h-3.5 w-3.5" />
+            Télécharger
           </Button>
           {docRow && (
             <>
               <Button
                 type="button"
                 variant="ghost"
-                size="icon"
-                className="h-10 w-10 shrink-0 rounded-xl"
+                size="sm"
+                className="h-8 gap-1.5 px-2 text-xs"
                 disabled={busy}
                 onClick={() => {
                   setRenaming(docRow);
                   setRenameValue(docRow.name);
                 }}
-                title="Renommer"
-                aria-label="Renommer"
               >
-                <Pencil className="h-4 w-4" />
+                <Pencil className="h-3.5 w-3.5" />
+                Renommer
               </Button>
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button
                     type="button"
                     variant="ghost"
-                    size="icon"
-                    className="h-10 w-10 shrink-0 rounded-xl text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    size="sm"
+                    className="h-8 gap-1.5 px-2 text-xs text-destructive hover:text-destructive"
                     disabled={busy}
-                    title="Supprimer"
-                    aria-label="Supprimer"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Supprimer
                   </Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
-                    <AlertDialogTitle>Supprimer « {docRow.name} » ?</AlertDialogTitle>
+                    <AlertDialogTitle>Supprimer ce document ?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      Le fichier sera retiré définitivement de la bibliothèque.
+                      « {item.name} » sera retiré définitivement de la bibliothèque et du stockage.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
                     <AlertDialogCancel>Annuler</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => void remove(docRow)}>
+                    <AlertDialogAction
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      onClick={() => void remove(docRow)}
+                    >
                       Supprimer
                     </AlertDialogAction>
                   </AlertDialogFooter>
@@ -600,195 +597,172 @@ export function StudentDocuments({
 
   return (
     <div className={cn("space-y-6", compact && "space-y-4")}>
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          {items.length === 0
-            ? "Aucun document"
-            : `${items.length} document${items.length > 1 ? "s" : ""}`}
-        </p>
-        <Button
-          type="button"
-          size="sm"
-          className="press rounded-xl shadow-sm"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-        >
-          {uploading ? (
-            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-          ) : (
-            <Upload className="mr-1.5 h-4 w-4" />
-          )}
-          Ajouter
-        </Button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*,application/pdf"
-          className="hidden"
-          onChange={(e) => {
-            onPick(e.target.files?.[0]);
-            e.target.value = "";
-          }}
-        />
-      </div>
-
-      {isLoading ? (
-        <div className="space-y-3 py-4">
-          {[1, 2, 3].map((i) => (
-            <div key={i} className="h-28 animate-pulse rounded-2xl bg-muted/40" />
-          ))}
-        </div>
-      ) : items.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border/70 bg-muted/10 px-6 py-16 text-center">
-          <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/40">
-            <Paperclip className="h-6 w-6 text-muted-foreground/60" />
-          </span>
-          <div className="space-y-1">
-            <p className="text-sm font-semibold text-foreground">Bibliothèque vide</p>
-            <p className="max-w-xs text-xs leading-relaxed text-muted-foreground">
-              Les bulletins générés depuis la page classe apparaissent ici automatiquement.
+      {!compact && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-display text-lg font-semibold tracking-tight">Bibliothèque</h3>
+            <p className="text-sm text-muted-foreground">
+              Bulletins et documents, classés par classe — les plus récents en premier.
             </p>
           </div>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="mt-1 rounded-xl"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Upload className="mr-1.5 h-4 w-4" />
-            Ajouter un document
-          </Button>
-        </div>
-      ) : (
-        <div className="space-y-7">
-          {groups.map((g) => (
-            <section key={g.id} className="space-y-3">
-              <div className="flex items-center gap-2.5">
-                <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <GraduationCap className="h-4 w-4" />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-display text-sm font-semibold tracking-tight text-foreground">
-                      {g.label}
-                    </h3>
-                    {g.isCurrent && (
-                      <Badge className="rounded-md bg-primary/15 px-1.5 py-0 text-[10px] font-medium text-primary hover:bg-primary/15">
-                        Classe actuelle
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-                <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
-                  {g.items.length}
-                </span>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-1">{g.items.map(renderCard)}</div>
-            </section>
-          ))}
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              accept="image/*,application/pdf,.xlsx,.xls,.doc,.docx"
+              onChange={(e) => {
+                onPick(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+            <Button
+              type="button"
+              size="sm"
+              className="press gap-1.5"
+              disabled={uploading}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              Ajouter
+            </Button>
+          </div>
         </div>
       )}
 
-      <Dialog open={nameOpen} onOpenChange={(v) => !v && setNameOpen(false)}>
-        <DialogContent className="sm:max-w-sm">
+      {compact && (
+        <div className="flex justify-end">
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            accept="image/*,application/pdf,.xlsx,.xls,.doc,.docx"
+            onChange={(e) => {
+              onPick(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="gap-1.5"
+            disabled={uploading}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+            Joindre
+          </Button>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" /> Chargement…
+        </div>
+      ) : items.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-6 py-12 text-center">
+          <FileText className="mx-auto h-10 w-10 text-muted-foreground/50" />
+          <p className="mt-3 text-sm font-medium text-foreground">Aucun document</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Les bulletins générés et les fichiers ajoutés apparaîtront ici.
+          </p>
+        </div>
+      ) : (
+        groups.map((g) => (
+          <section key={g.id} className="space-y-3">
+            <div className="flex items-center gap-2">
+              <GraduationCap className="h-4 w-4 text-muted-foreground" />
+              <h4 className="text-sm font-semibold text-foreground">
+                {g.label}
+                {g.isCurrent && (
+                  <Badge variant="secondary" className="ml-2 text-[10px]">
+                    Classe actuelle
+                  </Badge>
+                )}
+              </h4>
+              <span className="text-xs text-muted-foreground">({g.items.length})</span>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">{g.items.map(renderCard)}</div>
+          </section>
+        ))
+      )}
+
+      <Dialog open={nameOpen} onOpenChange={setNameOpen}>
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Nom du document</DialogTitle>
-            <DialogDescription>Ex. : Acte de naissance, Photo, Diplôme…</DialogDescription>
+            <DialogDescription>Choisissez un nom clair pour le retrouver facilement.</DialogDescription>
           </DialogHeader>
-          <div>
-            <Label className="mb-1.5 block text-sm">Nom</Label>
-            <Input value={docName} onChange={(e) => setDocName(e.target.value)} autoFocus />
+          <div className="space-y-2">
+            <Label htmlFor="doc-name">Nom</Label>
+            <Input
+              id="doc-name"
+              value={docName}
+              onChange={(e) => setDocName(e.target.value)}
+              placeholder="Ex. Certificat médical"
+            />
           </div>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => { setNameOpen(false); setPendingFile(null); }}>
+            <Button type="button" variant="outline" onClick={() => setNameOpen(false)}>
               Annuler
             </Button>
             <Button type="button" onClick={() => void confirmUpload()} disabled={!docName.trim()}>
-              Ajouter
+              Enregistrer
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!renaming} onOpenChange={(v) => !v && setRenaming(null)}>
-        <DialogContent className="sm:max-w-sm">
+      <Dialog open={!!renaming} onOpenChange={(o) => !o && setRenaming(null)}>
+        <DialogContent>
           <DialogHeader>
             <DialogTitle>Renommer</DialogTitle>
           </DialogHeader>
-          <div>
-            <Label className="mb-1.5 block text-sm">Nom</Label>
-            <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} autoFocus />
-          </div>
+          <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} />
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setRenaming(null)}>Annuler</Button>
-            <Button type="button" onClick={() => void rename()} disabled={!renameValue.trim()}>Enregistrer</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!preview} onOpenChange={(v) => !v && setPreview(null)}>
-        <DialogContent className="flex max-h-[90vh] max-w-[95vw] flex-col gap-3 sm:max-w-4xl">
-          <DialogHeader>
-            <DialogTitle className="pr-6">{preview?.title ?? "Aperçu"}</DialogTitle>
-            <DialogDescription>
-              Feuille « {preview?.sheetName ?? "—"} » — aperçu uniquement. Pour enregistrer, utilisez
-              Télécharger.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border/60 bg-muted/20">
-            {preview && preview.rows.length > 0 ? (
-              <table className="w-max min-w-full border-collapse text-left text-[11px] sm:text-xs">
-                <tbody>
-                  {preview.rows.map((row, ri) => (
-                    <tr key={ri} className={ri === 0 ? "bg-muted/40 font-medium" : undefined}>
-                      {row.map((cell, ci) => (
-                        <td key={ci} className="max-w-[12rem] truncate border border-border/40 px-2 py-1 whitespace-nowrap" title={cell}>
-                          {cell || "\u00a0"}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            ) : (
-              <p className="p-6 text-center text-sm text-muted-foreground">Feuille vide.</p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setPreview(null)}>Fermer</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={!!previewImageUrl}
-        onOpenChange={(v) => {
-          if (!v) {
-            if (previewImageUrl?.startsWith("blob:")) URL.revokeObjectURL(previewImageUrl);
-            setPreviewImageUrl(null);
-          }
-        }}
-      >
-        <DialogContent className="max-w-[95vw] sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Aperçu</DialogTitle>
-          </DialogHeader>
-          {previewImageUrl && (
-            <img src={previewImageUrl} alt="Aperçu" className="mx-auto max-h-[70vh] w-auto max-w-full rounded-lg object-contain" />
-          )}
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                if (previewImageUrl?.startsWith("blob:")) URL.revokeObjectURL(previewImageUrl);
-                setPreviewImageUrl(null);
-              }}
-            >
-              Fermer
+            <Button type="button" variant="outline" onClick={() => setRenaming(null)}>
+              Annuler
+            </Button>
+            <Button type="button" onClick={() => void rename()} disabled={!renameValue.trim()}>
+              Enregistrer
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!preview} onOpenChange={(o) => !o && setPreview(null)}>
+        <DialogContent className="max-h-[90vh] max-w-4xl overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>{preview?.title}</DialogTitle>
+            <DialogDescription>Aperçu — feuille « {preview?.sheetName} »</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-auto rounded-md border">
+            <table className="w-full border-collapse text-xs">
+              <tbody>
+                {preview?.rows.map((row, i) => (
+                  <tr key={i} className="border-b border-border/40">
+                    {row.map((cell, j) => (
+                      <td key={j} className="whitespace-nowrap border-r border-border/30 px-2 py-1">
+                        {cell}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!previewImageUrl} onOpenChange={(o) => !o && setPreviewImageUrl(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Aperçu image</DialogTitle>
+          </DialogHeader>
+          {previewImageUrl && (
+            <img src={previewImageUrl} alt="Aperçu" className="max-h-[70vh] w-full object-contain" />
+          )}
         </DialogContent>
       </Dialog>
     </div>
@@ -801,8 +775,8 @@ export function StudentDocumentsCard(props: {
   classId?: string | null;
 }) {
   return (
-    <Card className="border-border/80 shadow-sm">
-      <CardHeader className="pb-2">
+    <Card>
+      <CardHeader>
         <CardTitle className="text-base">Documents</CardTitle>
       </CardHeader>
       <CardContent>
