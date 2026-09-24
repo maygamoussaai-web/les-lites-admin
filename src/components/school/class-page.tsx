@@ -316,7 +316,18 @@ export function ClassPage() {
             <Button size="sm" className="press" onClick={() => setNoteEntryOpen(true)}>
               <Plus className="mr-1.5 h-4 w-4" /> Note
             </Button>
-            <Button variant="outline" size="sm" className="press" onClick={() => setBulletinsOpen(true)}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="press"
+              onClick={() => {
+                if (!(currentPeriod ?? latestPeriod)) {
+                  toast.message("Démarrez une période avant de générer les bulletins.");
+                  return;
+                }
+                setBulletinsOpen(true);
+              }}
+            >
               <FileBarChart className="mr-1.5 h-4 w-4" /> Bulletins
             </Button>
             <Button variant="outline" size="sm" className="press" onClick={() => setAnnualOpen(true)}>
@@ -430,6 +441,7 @@ export function ClassPage() {
         open={bulletinsOpen}
         onClose={() => setBulletinsOpen(false)}
         klass={klass}
+        establishmentName={establishment?.name ?? ""}
         students={classStudents}
         period={currentPeriod ?? latestPeriod}
         subjects={subjectsQuery.data}
