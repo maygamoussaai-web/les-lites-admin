@@ -486,6 +486,9 @@ export function ClassPage() {
         period={currentPeriod ?? latestPeriod}
         subjects={subjectsQuery.data ?? []}
         grades={gradesForPeriod}
+        alreadyGeneratedIds={periodCards
+          .filter((c) => !!c.document_id)
+          .map((c) => c.student_id)}
       />
 
       <AnnualBulletinDialog
@@ -502,12 +505,12 @@ export function ClassPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Clôturer sans tous les bulletins ?</AlertDialogTitle>
             <AlertDialogDescription>
-              Des notes existent pour des élèves sans bulletin généré. Vous pouvez générer les bulletins d'abord, ou forcer la nouvelle période.
+              Des élèves ont des notes sans bulletin généré. Vous pouvez générer les bulletins d'abord, ou forcer la nouvelle période.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Annuler</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void startNewPeriod(true)}>Forcer la nouvelle période</AlertDialogAction>
+            <AlertDialogAction onClick={() => void startNewPeriod(true)}>Forcer</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
