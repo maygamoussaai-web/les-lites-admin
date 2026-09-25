@@ -1,9 +1,14 @@
 /**
- * Modele de bulletin actif d'une classe — charge une seule fois, mis en cache.
+ * Modèles de bulletin Excel — chargement, natures de notes, labels.
  */
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { readTemplate, isSubjectLabel, type TemplateMapping, type TemplateSheet } from "@/lib/xlsx-template";
+import {
+  isSubjectLabel,
+  readTemplate,
+  type TemplateMapping,
+  type TemplateSheet,
+} from "@/lib/xlsx-template";
 
 export type TemplateKind = "period" | "annual";
 
@@ -80,10 +85,9 @@ export type ActiveTemplate = {
   evaluationSlots: number;
 };
 
-export function templateBuffer(tpl: ActiveTemplate | null | undefined): ArrayBuffer | null {
-  if (!tpl?.bufferBase64) return null;
+function bufferFromBase64(b64: string): ArrayBuffer | null {
   try {
-    const bin = atob(tpl.bufferBase64);
+    const bin = atob(b64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     return bytes.buffer;
@@ -151,7 +155,8 @@ export function useActiveReportTemplate(classId: string | null, kind: TemplateKi
   const query = useQuery<ActiveTemplate | null>({
     queryKey: ["active-report-template", classId, kind],
     enabled: !!classId,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 30_000,
+    refetchOnMount: "always",
     queryFn: async () => {
       if (!classId) return null;
 
@@ -284,3 +289,5 @@ export function subjectsOfTemplate<
   }
   return ordered;
 }
+
+export { bufferFromBase64 };
