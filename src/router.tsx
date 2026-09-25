@@ -7,13 +7,13 @@ export const getRouter = () => {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
-        // Aligné sur QUERY_PERSIST_MAX_AGE : le cache reste utilisable en
-        // mémoire au moins aussi longtemps que ce qui est persisté en local,
-        // pour un fonctionnement hors ligne cohérent.
+        // Cache mémoire long (gcTime) pour le hors-ligne, mais données
+        // considérées fraîches seulement 45s — puis refetch au focus / montage.
         gcTime: QUERY_PERSIST_MAX_AGE,
-        staleTime: 180_000,
-        refetchOnWindowFocus: false,
-        refetchOnMount: false,
+        staleTime: 45_000,
+        refetchOnWindowFocus: true,
+        refetchOnMount: true,
+        refetchOnReconnect: true,
         retry: 1,
       },
     },
