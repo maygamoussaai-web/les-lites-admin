@@ -42,7 +42,7 @@ export function StudentGroupCard({
   rows?: AveragedStudent[];
   tone?: "destructive" | "success";
 }) {
-  if (students && students.length > 0) {
+  if (Array.isArray(students) && students.length > 0) {
     return (
       <Card className="animate-rise">
         <CardHeader className="pb-2">
@@ -71,7 +71,7 @@ export function StudentGroupCard({
     );
   }
 
-  if (!rows?.length) return null;
+  if (!Array.isArray(rows) || rows.length === 0) return null;
   return (
     <Card className="animate-rise">
       <CardHeader>
@@ -140,20 +140,22 @@ function renderClassReportCanvas({
   let y = 240;
   ctx.font = "22px sans-serif";
   ctx.fillStyle = "#12266B";
+  const withAvg = stats.withAvg ?? [];
+  const passing = stats.passing ?? [];
   ctx.fillText(
     `Moyenne : ${stats.classAverage != null ? stats.classAverage.toFixed(2) : "—"}`,
     60,
     y,
   );
   y += 40;
-  ctx.fillText(`Réussite : ${stats.passing.length}/${stats.withAvg.length}`, 60, y);
+  ctx.fillText(`Réussite : ${passing.length}/${withAvg.length}`, 60, y);
   y += 50;
   ctx.fillStyle = "#1a1a1a";
   ctx.font = "bold 22px sans-serif";
   ctx.fillText("Classement", 60, y);
   y += 36;
   ctx.font = "18px sans-serif";
-  for (const [i, r] of stats.withAvg.slice(0, 20).entries()) {
+  for (const [i, r] of withAvg.slice(0, 20).entries()) {
     ctx.fillText(
       `${i + 1}. ${r.student.last_name} ${r.student.first_name} — ${r.average.toFixed(2)}`,
       60,
@@ -169,7 +171,7 @@ export function ClassReportsSection({ classId }: { classId: string }) {
   const qc = useQueryClient();
   const reportsQuery = useSupabaseRows<ClassReport>("class_reports", { class_id: classId }, "created_at", false);
   const periodsQuery = useSupabaseRows<GradePeriod>("grade_periods", { class_id: classId }, "period_number");
-  const activeReports = reportsQuery.data;
+  const activeReports = reportsQuery.data ?? [];
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const remove = async (id: string) => {
