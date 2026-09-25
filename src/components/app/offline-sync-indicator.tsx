@@ -26,8 +26,15 @@ export function OfflineSyncIndicator() {
   const [queue, setQueue] = useState<QueueEntry[]>(() => loadQueue());
   const [open, setOpen] = useState(false);
   const [flushing, setFlushing] = useState(false);
+  const [online, setOnline] = useState(
+    () => typeof navigator === "undefined" || navigator.onLine,
+  );
 
   useEffect(() => {
+    const onOnline = () => setOnline(true);
+    const onOffline = () => setOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
     const refresh = () => setQueue(loadQueue());
     window.addEventListener(QUEUE_CHANGED_EVENT, refresh);
 
@@ -43,11 +50,13 @@ export function OfflineSyncIndicator() {
     return () => {
       window.removeEventListener(QUEUE_CHANGED_EVENT, refresh);
       window.removeEventListener("online", tryFlush);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
       clearInterval(interval);
     };
   }, [qc]);
 
-  if (queue.length === 0) return null;
+  if (queue.length === 0 && online) return null;
 
   const hasError = queue.some((e) => e.error);
 
@@ -68,15 +77,27 @@ export function OfflineSyncIndicator() {
         size="sm"
         className="press h-8 gap-1.5 px-2 text-xs sm:px-3"
         onClick={() => setOpen(true)}
-        aria-label={`${queue.length} actions en attente`}
+        aria-label={
+          queue.length
+            ? `${queue.length} actions en attente`
+            : "État de synchronisation"
+        }
       >
         {hasError ? (
           <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+        ) : !online ? (
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-600" />
         ) : (
           <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         )}
-        <span className="tabular-nums">{queue.length}</span>
-        <span className="hidden sm:inline">en attente</span>
+        {queue.length > 0 ? (
+          <>
+            <span className="tabular-nums">{queue.length}</span>
+            <span className="hidden sm:inline">en attente</span>
+          </>
+        ) : (
+          <span className="hidden sm:inline">Hors ligne</span>
+        )}
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>
