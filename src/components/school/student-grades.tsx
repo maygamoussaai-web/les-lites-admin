@@ -1,5 +1,5 @@
 /**
- * Carte notes periode — moyennes via formules du modele, liste repliable.
+ * Carte notes periode — moyennes modèle Excel + repli notes live.
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
@@ -16,6 +16,7 @@ import {
   useClassGrades,
 } from "@/lib/grades";
 import { buildModelFillData, computeModelAverages } from "@/lib/model-averages";
+import { liveAveragesFromGrades, mergeModelAndLive } from "@/lib/live-averages";
 import type { TemplateMapping } from "@/lib/xlsx-template";
 
 export function StudentGradesCard({ studentId, classId }: { studentId: string; classId: string | null }) {
@@ -84,31 +85,34 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
 
   const bySubject = useMemo(() => groupGradesBySubject(periodGrades, studentId), [periodGrades, studentId]);
 
-  const modelResult = useMemo(() => {
-    if (!templateReady || !templateBuffer || !templateMapping || !activePeriod || bySubject.size === 0) {
-      return null;
+  const averages = useMemo(() => {
+    if (!activePeriod || bySubject.size === 0) return null;
+    const live = liveAveragesFromGrades(periodGrades, studentId, subjects);
+    let model: { generalAverage: number | null; subjectAverages: Record<string, number | null> } | null = null;
+    if (templateReady && templateBuffer && templateMapping) {
+      try {
+        const fill = buildModelFillData({
+          establishmentName: "",
+          className: "",
+          studentFirstName: "",
+          studentLastName: "",
+          periodNumber: activePeriod.period_number,
+          subjects,
+          grades: periodGrades,
+          studentId,
+          headcount: 0,
+          scale: templateScale,
+          rank: null,
+          firstAverage: null,
+          lastAverage: null,
+        });
+        model = computeModelAverages(templateBuffer, templateMapping, fill);
+      } catch (e) {
+        console.error(e);
+        model = null;
+      }
     }
-    try {
-      const fill = buildModelFillData({
-        establishmentName: "",
-        className: "",
-        studentFirstName: "",
-        studentLastName: "",
-        periodNumber: activePeriod.period_number,
-        subjects,
-        grades: periodGrades,
-        studentId,
-        headcount: 0,
-        scale: templateScale,
-        rank: null,
-        firstAverage: null,
-        lastAverage: null,
-      });
-      return computeModelAverages(templateBuffer, templateMapping, fill);
-    } catch (e) {
-      console.error(e);
-      return null;
-    }
+    return mergeModelAndLive(model, live);
   }, [
     templateReady,
     templateBuffer,
@@ -121,21 +125,20 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
     studentId,
   ]);
 
-  const average = modelResult?.generalAverage ?? null;
+  const average = averages?.generalAverage ?? null;
   const weak = useMemo(() => {
-    if (!modelResult) return [];
-    return Object.entries(modelResult.subjectAverages)
+    if (!averages) return [];
+    return Object.entries(averages.subjectAverages)
       .filter(([name, avg]) => {
         if (avg === null || avg >= PASS_THRESHOLD) return false;
         const sub = subjects.find((x) => x.name === name);
         if (!sub) return false;
         const list = bySubject.get(sub.id) ?? [];
-        // Eval ou composition absente → pas « à travailler »
         return list.some((g) => g.nature === "evaluation") && list.some((g) => g.nature === "composition");
       })
       .map(([name, avg]) => ({ id: name, name, average: avg as number }))
       .sort((a, b) => a.average - b.average);
-  }, [modelResult, subjects, bySubject]);
+  }, [averages, subjects, bySubject]);
 
   const gradedSubjects = subjects.filter((s) => bySubject.has(s.id));
 
@@ -156,18 +159,19 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
           <p className="text-muted-foreground">Eleve non assigne a une classe.</p>
         ) : loading || !templateReady ? (
           <p className="text-muted-foreground">Chargement…</p>
-        ) : templateError && !templateBuffer ? (
-          <p className="text-muted-foreground text-xs">
-            {templateError} Importez un modele de bulletin pour les moyennes.
-          </p>
         ) : !activePeriod ? (
           <p className="text-muted-foreground">Aucune periode ouverte.</p>
         ) : bySubject.size === 0 ? (
           <p className="text-muted-foreground">Aucune note sur cette periode.</p>
         ) : (
           <>
+            {templateError && !templateBuffer && (
+              <p className="text-[11px] text-muted-foreground">
+                Pas de modèle Excel actif — moyennes calculées depuis les notes (aperçu live).
+              </p>
+            )}
             <div className="flex items-center justify-between rounded-lg border border-border bg-muted/40 px-3 py-2">
-              <span className="text-muted-foreground text-xs">Moyenne (formules modele)</span>
+              <span className="text-muted-foreground text-xs">Moyenne générale</span>
               <Badge
                 variant={average !== null && average < PASS_THRESHOLD ? "destructive" : "default"}
                 className="tabular-nums"
@@ -190,7 +194,7 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
                 <ul className="mt-2 divide-y divide-border rounded-lg border border-border">
                   {gradedSubjects.map((s) => {
                     const list = bySubject.get(s.id) ?? [];
-                    const avg = modelResult?.subjectAverages[s.name] ?? null;
+                    const avg = averages?.subjectAverages[s.name] ?? null;
                     return (
                       <li key={s.id} className="flex items-center justify-between gap-2 px-3 py-1.5">
                         <div className="min-w-0">
