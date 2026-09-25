@@ -20,6 +20,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAdminProfile, useOnlineStatus } from "@/hooks/use-auth";
 import { OfflineSyncIndicator } from "@/components/app/offline-sync-indicator";
 import { NetworkBanner } from "@/components/app/network-banner";
+import { GlobalSearch } from "@/components/app/global-search";
 import { initials, roleLabel } from "@/lib/format";
 import { ThemeToggle } from "@/components/app/theme-toggle";
 import { AuroraBackground } from "@/components/app/aurora-background";
@@ -54,6 +55,7 @@ function AuthenticatedLayout() {
           <header className="glass-panel safe-header sticky top-0 z-20 flex h-14 items-center gap-2 border-x-0 border-t-0 px-3 sm:px-4">
             <SidebarTrigger className="shrink-0" />
             <div className="min-w-0 flex-1" />
+            <GlobalSearch />
             <OfflineSyncIndicator />
             <Badge
               variant={online ? "success" : "destructive"}
