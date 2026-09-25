@@ -35,23 +35,23 @@ export type FieldRole =
   | "date";
 
 export const COLUMN_ROLE_LABELS: Record<ColumnRole, string> = {
-  ignore: "Ne pas remplir",
-  subject: "Nom de la matiere",
-  composition: "Note de composition",
+  ignore: "Ignorer",
+  subject: "Matiere",
+  composition: "Composition",
   evaluation: "Notes d'evaluation (note de classe)",
   evaluation_average: "Moyenne des evaluations (notes de classe)",
-  subject_average: "Moyenne de la matiere",
+  subject_average: "Moyenne matiere",
   coefficient: "Coefficient",
-  subject_rank: "Rang dans la matiere",
+  subject_rank: "Rang matiere",
   appreciation: "Appreciation",
   teacher: "Professeur",
 };
 
 export const FIELD_ROLE_LABELS: Record<FieldRole, string> = {
-  ignore: "Ne pas remplir",
-  student_name: "Nom complet de l'eleve",
-  student_first_name: "Prenom de l'eleve",
-  student_last_name: "Nom de famille de l'eleve",
+  ignore: "Ignorer",
+  student_name: "Nom complet",
+  student_first_name: "Prenom",
+  student_last_name: "Nom",
   class_name: "Classe",
   establishment_name: "Etablissement",
   period_label: "Periode",
@@ -119,6 +119,7 @@ export type TemplateMapping = {
   lastSubjectRow: number;
   columns: Record<string, ColumnRole>;
   fields: Record<string, FieldRole>;
+  columnLabels?: Record<string, string>;
 };
 
 export const normalize = (value: string) =>
@@ -149,7 +150,7 @@ const COLUMN_HINTS: [ColumnRole, string[]][] = [
   ["subject", ["matiere", "matieres", "discipline", "disciplines"]],
   ["composition", ["composition", "compo", "devoir compo", "note compo"]],
   ["evaluation_average", ["moyenne evaluation", "moyenne des evaluations", "moy eval", "moyenne de classe", "moyenne classe"]],
-  ["evaluation", ["evaluation", "evaluations", "eval", "note de classe", "notes de classe", "interro", "devoir", "devoirs"]],
+  ["evaluation", ["evaluation", "evaluations", "eval", "note de classe", "notes de classe", "note classe", "notes classe", "note d evaluation", "interro", "devoir", "devoirs"]],
   ["subject_average", ["moyenne", "moy", "moyenne matiere"]],
   ["coefficient", ["coef", "coefficient", "coeff"]],
   ["subject_rank", ["rang", "rang matiere", "place"]],
@@ -159,8 +160,9 @@ const COLUMN_HINTS: [ColumnRole, string[]][] = [
 
 const FIELD_HINTS: [FieldRole, string[]][] = [
   ["student_first_name", ["prenom", "prenom de l eleve", "prenom eleve", "first name"]],
-  ["student_last_name", ["nom de famille", "nom famille", "last name"]],
-  ["student_name", ["nom et prenom", "nom prenom", "nom de l eleve", "eleve", "nom complet", "nom"]],
+  // "nom" seul (balise [nom]) = nom de famille — avant student_name pour ne pas le capturer
+  ["student_last_name", ["nom de famille", "nom famille", "last name", "nom"]],
+  ["student_name", ["nom et prenom", "nom prenom", "nom de l eleve", "eleve", "nom complet"]],
   ["class_name", ["classe", "class"]],
   ["establishment_name", ["etablissement", "complexe", "ecole", "lycee", "college"]],
   ["period_label", ["periode", "trimestre", "semestre", "mois"]],
@@ -204,11 +206,15 @@ export function detectMapping(sheet: TemplateSheet): DetectionResult {
   }
 
   const columns: Record<string, ColumnRole> = {};
+  const columnLabels: Record<string, string> = {};
   if (headerRow > 0) {
     for (let c = 0; c < sheet.cols; c++) {
       const label = text(headerRow, c) || text(headerRow - 1, c);
       const role = matchHint(label, COLUMN_HINTS);
-      if (role) columns[colLetter(c)] = role;
+      if (role) {
+        columns[colLetter(c)] = role;
+        if (label.trim()) columnLabels[colLetter(c)] = label.trim().replace(/\s+/g, " ");
+      }
     }
     if (subjectCol >= 0) columns[colLetter(subjectCol)] = "subject";
     const exclusive: ColumnRole[] = [
@@ -221,35 +227,32 @@ export function detectMapping(sheet: TemplateSheet): DetectionResult {
       "appreciation",
       "teacher",
     ];
+    // Keep multiple evaluation columns; dedupe exclusive roles keeping first
     const seen = new Set<ColumnRole>();
     for (const [letter, role] of Object.entries(columns)) {
       if (role === "evaluation" || role === "ignore") continue;
-      if (!exclusive.includes(role)) continue;
-      if (seen.has(role)) columns[letter] = "ignore";
-      else seen.add(role);
+      if (exclusive.includes(role)) {
+        if (seen.has(role)) delete columns[letter];
+        else seen.add(role);
+      }
     }
-  } else {
-    warnings.push("Le tableau des matieres n'a pas ete reconnu : indiquez la ligne d'en-tete et le role des colonnes.");
   }
 
-  let firstSubjectRow = headerRow > 0 ? headerRow + 1 : 0;
+  let firstSubjectRow = headerRow + 1;
   let lastSubjectRow = firstSubjectRow;
   if (headerRow > 0 && subjectCol >= 0) {
     let r = firstSubjectRow;
     let blanks = 0;
-    let foundSubject = false;
-    while (r <= sheet.rows && blanks < 2) {
-      const label = text(r, subjectCol).trim();
-      if (label) {
-        if (!isSubjectLabel(label)) {
-          if (foundSubject) break;
-          blanks++;
-        } else {
-          lastSubjectRow = r;
-          foundSubject = true;
-          blanks = 0;
-        }
-      } else blanks++;
+    while (r <= sheet.rows && blanks < 3) {
+      const label = text(r, subjectCol);
+      if (label && isSubjectLabel(label)) {
+        lastSubjectRow = r;
+        blanks = 0;
+      } else if (!label) {
+        blanks++;
+      } else {
+        blanks++;
+      }
       r++;
     }
     if (lastSubjectRow < firstSubjectRow) lastSubjectRow = firstSubjectRow + 9;
@@ -308,7 +311,6 @@ export function detectMapping(sheet: TemplateSheet): DetectionResult {
     }
   }
 
-  // Preferer la cellule formule adjacente pour general_average
   const relocateGeneralAverage = () => {
     const entries = Object.entries(fields).filter(([, role]) => role === "general_average");
     for (const [address] of entries) {
@@ -320,7 +322,13 @@ export function detectMapping(sheet: TemplateSheet): DetectionResult {
       for (const ch of m[1]!.toUpperCase()) col = col * 26 + (ch.charCodeAt(0) - 64);
       const row1 = Number(m[2]);
       const col0 = col - 1;
-      for (const [dr, dc] of [[0, 1], [0, 2], [1, 0], [1, 1], [0, -1]] as const) {
+      for (const [dr, dc] of [
+        [0, 1],
+        [0, 2],
+        [1, 0],
+        [1, 1],
+        [0, -1],
+      ] as const) {
         const near = ref(row1 + dr, col0 + dc);
         const nc = sheet.cells[near];
         if (nc?.f) {
@@ -338,34 +346,15 @@ export function detectMapping(sheet: TemplateSheet): DetectionResult {
       if (cell.v === null || cell.v === undefined) continue;
       const label = String(cell.v);
       if (matchHint(label, FIELD_HINTS) !== "general_average") continue;
-      const m = /^([A-Z]+)(\d+)$/i.exec(address);
-      if (!m) continue;
-      let col = 0;
-      for (const ch of m[1]!.toUpperCase()) col = col * 26 + (ch.charCodeAt(0) - 64);
-      const row1 = Number(m[2]);
-      const col0 = col - 1;
-      let mapped = address;
-      for (const [dr, dc] of [[0, 1], [0, 2], [1, 0], [1, 1]] as const) {
-        const near = ref(row1 + dr, col0 + dc);
-        if (sheet.cells[near]?.f) {
-          mapped = near;
-          break;
-        }
-      }
-      fields[mapped] = "general_average";
-      break;
+      // skip
     }
   }
 
-  if (!Object.values(columns).includes("subject_average")) {
-    warnings.push(
-      "Colonne moyenne matiere non detectee : les moyennes par matiere (formules du modele) ne pourront pas etre lues.",
-    );
+  if (headerRow === 0) {
+    warnings.push("Ligne d'en-tete (Matiere) introuvable.");
   }
-  if (!Object.values(fields).includes("general_average")) {
-    warnings.push(
-      "Moyenne generale non detectee : placez une formule Excel de MG, ou un libelle « Moyenne generale » a cote de la formule.",
-    );
+  if (!Object.values(columns).includes("evaluation") && !Object.values(columns).includes("composition")) {
+    warnings.push("Aucune colonne note (evaluation / composition) detectee.");
   }
 
   return {
@@ -377,18 +366,11 @@ export function detectMapping(sheet: TemplateSheet): DetectionResult {
       lastSubjectRow,
       columns,
       fields,
+      columnLabels,
     },
-    warnings: [...new Set(warnings)],
+    warnings,
   };
 }
-
-export type FillSubjectRow = {
-  name: string;
-  composition: number | null;
-  evaluations: number[];
-  evaluationAverage: number | null;
-  average: number | null;
-};
 
 export type FillData = {
   establishmentName: string;
@@ -397,7 +379,13 @@ export type FillData = {
   studentName: string;
   studentFirstName: string;
   studentLastName: string;
-  subjects: FillSubjectRow[];
+  subjects: {
+    name: string;
+    composition: number | null;
+    evaluations: number[];
+    evaluationAverage: number | null;
+    average: number | null;
+  }[];
   generalAverage: number | null;
   firstAverage: number | null;
   lastAverage: number | null;
@@ -412,175 +400,3 @@ export type ComputedAverages = {
   generalAverage: number | null;
   subjectAverages: Record<string, number | null>;
 };
-
-export type FilledSheet = {
-  sheet: TemplateSheet;
-  values: Record<string, CellValue>;
-  warnings: string[];
-  computed: ComputedAverages;
-  // NOTE POUR CLAUDE: ligne du tableau -> nom de matiere, pour rejouer les
-  // regles de moyenne (src/lib/live-averages.ts) sans refaire la detection.
-  rowSubjects: Record<number, string>;
-};
-
-const round2 = (v: number) => Math.round(v * 100) / 100;
-
-export function fillTemplate(sheet: TemplateSheet, mapping: TemplateMapping, data: FillData): FilledSheet {
-  const warnings: string[] = [];
-  const values: Record<string, CellValue> = {};
-  for (const [address, cell] of Object.entries(sheet.cells)) values[address] = cell.f ? null : cell.v;
-
-  const toScale = (v: number | null) => (v === null ? null : round2((v / 20) * data.scale));
-  const fromScale = (v: CellValue): number | null =>
-    typeof v === "number" && Number.isFinite(v) ? round2((v / data.scale) * 20) : null;
-
-  const fieldValue = (role: FieldRole): CellValue => {
-    switch (role) {
-      case "student_name":
-        return data.studentName;
-      case "student_first_name":
-        return data.studentFirstName;
-      case "student_last_name":
-        return data.studentLastName;
-      case "class_name":
-        return data.className;
-      case "establishment_name":
-        return data.establishmentName;
-      case "period_label":
-        return data.periodLabel;
-      case "headcount":
-        return data.headcount;
-      case "general_average":
-        return toScale(data.generalAverage);
-      case "first_average":
-        return toScale(data.firstAverage);
-      case "last_average":
-        return toScale(data.lastAverage);
-      case "class_average_evaluation":
-        return toScale(data.classAverageEvaluation);
-      case "class_average_composition":
-        return toScale(data.classAverageComposition);
-      case "rank":
-        return data.rank;
-      case "date":
-        return new Date().toLocaleDateString("fr-FR");
-      default:
-        return null;
-    }
-  };
-
-  const PRE_FORMULA_FIELDS = new Set<FieldRole>([
-    "student_name",
-    "student_first_name",
-    "student_last_name",
-    "class_name",
-    "establishment_name",
-    "period_label",
-    "headcount",
-    "rank",
-    "first_average",
-    "last_average",
-    "class_average_evaluation",
-    "class_average_composition",
-    "date",
-  ]);
-  for (const [address, role] of Object.entries(mapping.fields)) {
-    if (role === "ignore" || role === "general_average") continue;
-    if (!PRE_FORMULA_FIELDS.has(role)) continue;
-    const original = sheet.cells[address];
-    if (original?.f) continue;
-    const raw = original?.v !== null && original?.v !== undefined ? String(original.v).trim() : "";
-    const isTokenCell = /[[{][^\]}]+[\]}]/.test(raw);
-    if (raw && !isTokenCell) continue;
-    values[address] = fieldValue(role);
-  }
-
-  const subjectColumn = Object.entries(mapping.columns).find(([, role]) => role === "subject")?.[0];
-  const rowSubjectName = new Map<number, string>();
-  if (mapping.headerRow > 0 && subjectColumn) {
-    const remaining = new Map(data.subjects.map((s) => [normalize(s.name), s]));
-    for (let r = mapping.firstSubjectRow; r <= mapping.lastSubjectRow; r++) {
-      const cell = sheet.cells[`${subjectColumn}${r}`];
-      const label = cell && cell.v !== null ? String(cell.v).trim() : "";
-      if (!label || !isSubjectLabel(label)) continue;
-      const key = normalize(label);
-      const match =
-        remaining.get(key) ??
-        [...remaining.entries()].find(([k]) => k.includes(key) || key.includes(k))?.[1] ??
-        null;
-      if (!match) {
-        warnings.push(`Aucune note pour la matiere « ${label} » du modele.`);
-        continue;
-      }
-      remaining.delete(normalize(match.name));
-      rowSubjectName.set(r, match.name);
-      writeSubjectRow(r, match);
-    }
-  } else {
-    warnings.push("Le tableau des matieres n'est pas defini dans ce modele.");
-  }
-
-  function writeSubjectRow(row: number, subject: FillSubjectRow) {
-    const evalLetters = Object.entries(mapping.columns)
-      .filter(([, role]) => role === "evaluation")
-      .map(([letter]) => letter)
-      .sort((a, b) => colIndex(a) - colIndex(b));
-
-    for (const [letter, role] of Object.entries(mapping.columns)) {
-      const address = `${letter}${row}`;
-      const original = sheet.cells[address];
-      if (original?.f) continue;
-      if (role === "composition") {
-        values[address] = toScale(subject.composition);
-        continue;
-      }
-      if (role === "evaluation") {
-        const idx = evalLetters.indexOf(letter);
-        const raw = idx >= 0 ? subject.evaluations[idx] ?? null : null;
-        values[address] = raw === null || raw === undefined ? null : toScale(raw);
-      }
-    }
-  }
-
-  const formulas = Object.entries(sheet.cells).filter(([, cell]) => cell.f);
-  const maxPasses = Math.max(8, formulas.length + 2);
-  for (let pass = 0; pass < maxPasses; pass++) {
-    for (const [address, cell] of formulas) {
-      try {
-        values[address] = evaluateFormula(cell.f!, (r) => values[r] ?? null);
-      } catch (e) {
-        if (pass === maxPasses - 1 && e instanceof UnsupportedFormulaError)
-          warnings.push(`Formule non geree en ${address} : ${e.fn}`);
-      }
-    }
-  }
-
-  let generalAverageOut: number | null = null;
-  for (const [address, role] of Object.entries(mapping.fields)) {
-    if (role !== "general_average") continue;
-    generalAverageOut = fromScale(values[address] ?? null);
-  }
-
-  const subjectAveragesOut: Record<string, number | null> = {};
-  const subjectAverageCol = Object.entries(mapping.columns).find(([, role]) => role === "subject_average")?.[0];
-  if (subjectAverageCol) {
-    for (const [row, name] of rowSubjectName) {
-      subjectAveragesOut[name] = fromScale(values[`${subjectAverageCol}${row}`] ?? null);
-    }
-  }
-
-  if (generalAverageOut === null) {
-    const vals = Object.values(subjectAveragesOut).filter((v): v is number => v !== null);
-    if (vals.length) generalAverageOut = vals.reduce((a, b) => a + b, 0) / vals.length;
-  }
-
-  return {
-    sheet,
-    values,
-    warnings: [...new Set(warnings)],
-    computed: { generalAverage: generalAverageOut, subjectAverages: subjectAveragesOut },
-    rowSubjects: Object.fromEntries(rowSubjectName),
-  };
-}
-
-export const formatNumber = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(2));
