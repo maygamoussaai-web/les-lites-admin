@@ -10,7 +10,7 @@
  * Le téléchargement local optionnel se fait APRÈS l'enregistrement,
  * pour ne jamais perdre le fichier si le navigateur mobile bloque le download.
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Download } from "lucide-react";
@@ -59,10 +59,31 @@ export function BulletinWalkthroughDialog({
   grades: Grade[];
 }) {
   const qc = useQueryClient();
-  const { template: activeTemplate } = useActiveReportTemplate(klass.id);
+  const { template: activeTemplate, loading: templateLoading } = useActiveReportTemplate(klass.id);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(0);
+  const [templateReady, setTemplateReady] = useState(false);
   const etabName = establishmentName?.trim() || klass.name;
+
+  // Même chemin que les moyennes live — ne dépend pas du seul cache React Query.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setTemplateReady(false);
+    (async () => {
+      try {
+        const t = await downloadActiveTemplateBuffer(klass.id, "period");
+        if (!cancelled) setTemplateReady(!!t);
+      } catch {
+        if (!cancelled) setTemplateReady(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, klass.id]);
+
+  const hasModel = templateReady || !!activeTemplate;
 
   const candidates = useMemo(() => {
     const withNotes = new Set(grades.map((g) => g.student_id));
@@ -81,7 +102,7 @@ export function BulletinWalkthroughDialog({
     const localDownloads: { blob: Blob; name: string }[] = [];
 
     try {
-      const downloaded = await downloadActiveTemplateBuffer(klass.id);
+      const downloaded = await downloadActiveTemplateBuffer(klass.id, "period");
       if (!downloaded) {
         toast.error(
           "Aucun modèle Excel actif pour cette classe. Importez un modèle puis réessayez.",
@@ -146,7 +167,7 @@ export function BulletinWalkthroughDialog({
             lastAverage: lastAvg,
           });
           const filled = writeFilledWorkbook(buf, mapping, fill);
-          const blob = toBlob(filled);
+          const blob = toBlob(filled.buffer);
           const fileName = `Bulletin_${student.last_name}_${student.first_name}_P${period.period_number}.xlsx`;
           const storagePath = `${klass.establishment_id}/${student.id}/bulletin-p${period.period_number}-${Date.now()}.xlsx`;
 
@@ -259,10 +280,13 @@ export function BulletinWalkthroughDialog({
               : "Aucune période en cours. Démarrez une période (Nouvelle période) avant de générer les bulletins."}
           </DialogDescription>
         </DialogHeader>
-        {!activeTemplate && (
+        {!hasModel && !templateLoading && (
           <p className="text-sm text-amber-700 dark:text-amber-400">
             Aucun modèle Excel actif. Ajoutez-en un dans « Modèle de bulletin ».
           </p>
+        )}
+        {templateLoading && !hasModel && (
+          <p className="text-sm text-muted-foreground">Vérification du modèle Excel…</p>
         )}
         {busy && (
           <p className="text-sm text-muted-foreground">
@@ -275,7 +299,7 @@ export function BulletinWalkthroughDialog({
           </Button>
           <Button
             className="press"
-            disabled={busy || !period || !activeTemplate || candidates.length === 0}
+            disabled={busy || !period || !hasModel || candidates.length === 0}
             onClick={() => void generate()}
           >
             <Download className="mr-1.5 h-4 w-4" />
