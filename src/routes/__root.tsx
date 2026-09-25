@@ -50,7 +50,6 @@ function NotFoundComponent() {
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   const router = useRouter();
   useEffect(() => {
-    // Journal technique uniquement (console / télémétrie) — jamais affiché à l'utilisateur
     console.error(error);
     reportLovableError(error, { boundary: "tanstack_root_error_component" });
   }, [error]);
@@ -177,9 +176,30 @@ function RootComponent() {
   return (
     <PersistQueryClientProvider
       client={queryClient}
-      persistOptions={{ persister: queryPersister, maxAge: QUERY_PERSIST_MAX_AGE }}
+      persistOptions={{
+        persister: queryPersister,
+        maxAge: QUERY_PERSIST_MAX_AGE,
+        dehydrateOptions: {
+          shouldDehydrateQuery: (query) => {
+            const key = query.queryKey[0];
+            if (
+              typeof key === "string" &&
+              [
+                "grades",
+                "grade_periods",
+                "student_documents",
+                "student_report_cards",
+                "class_reports",
+                "active-report-template",
+              ].includes(key)
+            ) {
+              return false;
+            }
+            return query.state.status === "success";
+          },
+        },
+      }}
     >
-      {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
       <Outlet />
     </PersistQueryClientProvider>
   );
