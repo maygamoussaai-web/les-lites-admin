@@ -41,8 +41,6 @@ export function annualAverage(student: Pick<Student, "term1_average" | "term2_av
 /**
  * Moyenne générale : basée sur les trimestres déjà renseignés, quel que soit
  * leur nombre (1, 2 ou 3) — somme divisée par le nombre de trimestres remplis.
- * Utilisée pour les statistiques de résultats de classe (qui ne doivent pas
- * attendre que les 3 trimestres soient saisis pour donner une indication).
  */
 export function generalAverage(student: Pick<Student, "term1_average" | "term2_average" | "term3_average">) {
   const values = [student.term1_average, student.term2_average, student.term3_average].filter(
@@ -80,9 +78,13 @@ export function lateStatus(
   installments: Installment[],
   today = new Date(),
 ): LateDetail {
-  const ordered = [...installments].sort(
-    (a, b) => a.due_date.localeCompare(b.due_date) || a.position - b.position,
-  );
+  const ordered = [...(installments ?? [])]
+    .filter((i) => i && typeof i.due_date === "string" && i.due_date.length > 0)
+    .sort(
+      (a, b) =>
+        a.due_date.localeCompare(b.due_date) ||
+        (Number(a.position) || 0) - (Number(b.position) || 0),
+    );
   let cumulative = 0;
   let requiredSoFar = 0;
   const unpaid: Installment[] = [];
@@ -97,11 +99,6 @@ export function lateStatus(
   return { isLate: overdue > 0, overdueAmount: overdue, unpaidInstallments: unpaid };
 }
 
-/**
- * Minutes cumulées validées pour un ensemble de séances, à partir de l'historique
- * des validations hebdomadaires (chaque semaine cochée compte pour toujours, même
- * si la case se réinitialise visuellement la semaine suivante).
- */
 function cumulativeValidatedMinutes(
   sessionIds: Set<string>,
   sessions: TeacherSession[],
