@@ -1,11 +1,9 @@
 /**
- * Cartes résultats + section rapports de classe.
+ * Helpers affichage résultats de classe (classement, rapports).
  */
-import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { FileText } from "lucide-react";
 import { toast } from "sonner";
-import { Clock, Download, Eye, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,13 +30,46 @@ export interface ClassStatsLike {
 export function StudentGroupCard({
   title,
   rows,
-  tone,
+  students,
+  tone = "success",
 }: {
   title: string;
-  rows: AveragedStudent[];
-  tone: "destructive" | "success";
+  /** Liste classée (fiche classe) */
+  students?: { id: string; name: string; value: string; rank: number }[];
+  /** Liste AveragedStudent (autres vues) */
+  rows?: AveragedStudent[];
+  tone?: "destructive" | "success";
 }) {
-  if (!rows.length) return null;
+  if (students && students.length > 0) {
+    return (
+      <Card className="animate-rise">
+        <CardHeader className="pb-2">
+          <CardTitle className="font-display text-base">{title}</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {students.map((s) => (
+            <div key={s.id} className="flex items-center justify-between gap-2 text-sm">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="w-6 shrink-0 tabular-nums text-muted-foreground">{s.rank}.</span>
+                <Link
+                  to="/eleves/$studentId"
+                  params={{ studentId: s.id }}
+                  className="min-w-0 truncate font-medium hover:underline"
+                >
+                  {s.name}
+                </Link>
+              </div>
+              <Badge variant="default" className="tabular-nums shrink-0">
+                {s.value}
+              </Badge>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!rows?.length) return null;
   return (
     <Card className="animate-rise">
       <CardHeader>
@@ -98,13 +129,15 @@ function renderClassReportCanvas({
   ctx.fillStyle = "#12266B";
   ctx.font = "bold 34px sans-serif";
   ctx.fillText(establishmentName, 60, 80);
-  ctx.font = "bold 40px sans-serif";
+  ctx.fillStyle = "#1a1a1a";
+  ctx.font = "bold 28px sans-serif";
   ctx.fillText(`Rapport — ${className}`, 60, 140);
-  ctx.fillStyle = "#374151";
+  ctx.font = "20px sans-serif";
+  ctx.fillStyle = "#444";
+  ctx.fillText(`Période ${period.period_number}`, 60, 180);
+  let y = 240;
   ctx.font = "22px sans-serif";
-  ctx.fillText(`Période ${period.period_number}`, 60, 190);
-  let y = 260;
-  ctx.font = "bold 22px sans-serif";
+  ctx.fillStyle = "#12266B";
   ctx.fillText(
     `Moyenne : ${stats.classAverage != null ? stats.classAverage.toFixed(2) : "—"}`,
     60,
@@ -112,124 +145,70 @@ function renderClassReportCanvas({
   );
   y += 40;
   ctx.fillText(`Réussite : ${stats.passing.length}/${stats.withAvg.length}`, 60, y);
+  y += 50;
+  ctx.fillStyle = "#1a1a1a";
+  ctx.font = "bold 22px sans-serif";
+  ctx.fillText("Classement", 60, y);
+  y += 36;
+  ctx.font = "18px sans-serif";
+  for (const [i, r] of stats.withAvg.slice(0, 20).entries()) {
+    ctx.fillText(
+      `${i + 1}. ${r.student.last_name} ${r.student.first_name} — ${r.average.toFixed(2)}`,
+      60,
+      y,
+    );
+    y += 28;
+    if (y > 1650) break;
+  }
   return canvas;
 }
 
-export function ClassReportsSection({
-  classId,
-  establishmentId,
-  establishmentName,
-  className,
-  period,
-  stats,
-}: {
-  classId: string;
-  establishmentId: string;
-  establishmentName: string;
-  className: string;
-  period: GradePeriod | null;
-  stats: ClassStatsLike | null;
-}) {
-  const qc = useQueryClient();
-  const [generating, setGenerating] = useState(false);
-  const reportsQuery = useSupabaseRows<ClassReport>("class_reports", { class_id: classId }, "generated_at", false);
+export function ClassReportsSection({ classId }: { classId: string }) {
+  const reportsQuery = useSupabaseRows<ClassReport>("class_reports", { class_id: classId }, "created_at", false);
+  const periodsQuery = useSupabaseRows<GradePeriod>("grade_periods", { class_id: classId }, "period_number");
   const activeReports = reportsQuery.data;
 
-  const generate = async () => {
-    if (!period || !stats) return;
-    setGenerating(true);
-    try {
-      const canvas = renderClassReportCanvas({ establishmentName, className, period, stats });
-      const blob = await canvasToPdfBlob(canvas);
-      const path = `${establishmentId}/${classId}/rapport-p${period.period_number}-${Date.now()}.pdf`;
-      const { error: up } = await supabase.storage.from("student-documents").upload(path, blob, {
-        contentType: "application/pdf",
-      });
-      if (up) throw up;
-      const { error } = await supabase.from("class_reports").insert({
-        class_id: classId,
-        establishment_id: establishmentId,
-        period_id: period.id,
-        file_path: path,
-        generated_at: new Date().toISOString(),
-      });
-      if (error) throw error;
-      qc.invalidateQueries({ queryKey: ["class_reports"] });
-      toast.success("Rapport généré");
-    } catch (e) {
-      toast.error(describeError(e, "Génération impossible"));
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const view = async (r: ClassReport) => {
-    const { data, error } = await supabase.storage.from("student-documents").createSignedUrl(r.file_path, 300);
-    if (error || !data) {
-      toast.error("Lien indisponible");
-      return;
-    }
-    window.open(data.signedUrl, "_blank");
-  };
-
-  const download = async (r: ClassReport) => {
-    const { data, error } = await supabase.storage.from("student-documents").createSignedUrl(r.file_path, 300);
-    if (error || !data) {
-      toast.error("Lien indisponible");
-      return;
-    }
-    const res = await fetch(data.signedUrl);
-    downloadBlob(await res.blob(), `Rapport-${className}.pdf`);
-  };
-
-  const remove = async (r: ClassReport) => {
-    const { error } = await supabase.from("class_reports").delete().eq("id", r.id);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    qc.invalidateQueries({ queryKey: ["class_reports"] });
-    toast.success("Rapport supprimé");
-  };
-
   return (
-    <Card>
-      <CardHeader className="flex flex-row items-center justify-between gap-2">
-        <CardTitle className="text-base">Rapports de classe</CardTitle>
-        <Button size="sm" className="press" onClick={() => void generate()} disabled={generating || !period || !stats}>
-          {generating ? "…" : "Générer"}
-        </Button>
+    <Card className="mb-6">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <FileText className="h-4 w-4" /> Rapports de classe
+        </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-2">
+      <CardContent className="space-y-2 text-sm">
         {activeReports.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Aucun rapport actif.</p>
+          <p className="text-muted-foreground text-xs">Aucun rapport enregistré pour cette classe.</p>
         ) : (
-          <ul className="space-y-2">
-            {activeReports.map((r) => (
-              <li
-                key={r.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm"
-              >
-                <span className="flex items-center gap-1.5 text-muted-foreground">
-                  <Clock className="h-3.5 w-3.5" />
-                  {formatDateTime(r.generated_at)}
-                </span>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="sm" aria-label="Voir" onClick={() => void view(r)}>
-                    <Eye className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="sm" aria-label="Télécharger" onClick={() => void download(r)}>
-                    <Download className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="sm" aria-label="Supprimer" onClick={() => void remove(r)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </li>
-            ))}
+          <ul className="divide-y divide-border rounded-lg border border-border">
+            {activeReports.map((r) => {
+              const period = periodsQuery.data.find((p) => p.id === r.period_id);
+              return (
+                <li key={r.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{r.title ?? `Rapport P${period?.period_number ?? "?"}`}</p>
+                    <p className="text-[11px] text-muted-foreground">{formatDateTime(r.created_at)}</p>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
       </CardContent>
     </Card>
   );
+}
+
+export async function downloadClassReportPdf(opts: {
+  establishmentName: string;
+  className: string;
+  period: GradePeriod;
+  stats: ClassStatsLike;
+}) {
+  try {
+    const canvas = renderClassReportCanvas(opts);
+    const blob = await canvasToPdfBlob(canvas);
+    downloadBlob(blob, `rapport-${opts.className}-p${opts.period.period_number}.pdf`);
+  } catch (e) {
+    toast.error(describeError(e, "Export PDF impossible"));
+  }
 }
