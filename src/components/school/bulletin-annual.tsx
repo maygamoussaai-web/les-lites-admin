@@ -5,6 +5,8 @@
  * Données : agrégation des student_report_cards des périodes (moyennes matière / MG).
  * Remplissage : même writeback que les bulletins de période (formules Excel respectées).
  * Fallback PDF canvas uniquement si aucun modèle annuel n'est configuré.
+ *
+ * La génération continue en arrière-plan si le dialogue est fermé.
  */
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -28,6 +30,13 @@ import { uploadBulletinWorkbook } from "@/lib/storage-upload";
 import type { ClassSubject, GradePeriod, StudentReportCard } from "@/lib/grades";
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+/** Verrou global : une génération annuelle par classe à la fois. */
+const runningAnnualByClass = new Set<string>();
+
+export function isAnnualBulletinGenerationRunning(classId: string): boolean {
+  return runningAnnualByClass.has(classId);
+}
 
 type StudentRef = { id: string; first_name: string; last_name: string };
 
@@ -106,16 +115,36 @@ export function AnnualBulletinDialog({
   const [done, setDone] = useState(0);
 
   const generateAll = async () => {
+    if (runningAnnualByClass.has(klass.id)) {
+      toast.message("Une génération annuelle est déjà en cours pour cette classe.");
+      return;
+    }
+
+    const studentsSnap = [...students];
+    const subjectsSnap = [...subjects];
+    const periodsSnap = [...periods];
+    const toastId = `bulletin-annual-${klass.id}`;
+
+    runningAnnualByClass.add(klass.id);
     setBusy(true);
     setDone(0);
+
+    toast.loading(
+      studentsSnap.length
+        ? `Bulletin annuel en arrière-plan… 0/${studentsSnap.length}`
+        : "Vérification…",
+      { id: toastId, duration: Infinity },
+    );
+    onClose();
+
     try {
-      const periodIds = periods.map((p) => p.id);
+      const periodIds = periodsSnap.map((p) => p.id);
       if (!periodIds.length) {
-        toast.error("Aucune période disponible pour construire l'annuel.");
+        toast.error("Aucune période disponible pour construire l'annuel.", { id: toastId });
         return;
       }
 
-      const sortedPeriods = [...periods].sort(
+      const sortedPeriods = [...periodsSnap].sort(
         (a, b) => (a.period_number ?? 0) - (b.period_number ?? 0),
       );
       const yearLabel =
@@ -134,6 +163,7 @@ export function AnnualBulletinDialog({
       if (!list.length) {
         toast.error(
           "Aucun bulletin de période trouvé. Générez d'abord les bulletins de chaque période.",
+          { id: toastId },
         );
         return;
       }
@@ -142,7 +172,7 @@ export function AnnualBulletinDialog({
       const useExcel = !!tpl?.buffer && !!tpl.mapping;
 
       const annualByStudent = new Map<string, number>();
-      for (const s of students) {
+      for (const s of studentsSnap) {
         const sc = list.filter((c) => c.student_id === s.id);
         const avgs = sc
           .map((c) => (c.general_average != null ? Number(c.general_average) : null))
@@ -160,7 +190,8 @@ export function AnnualBulletinDialog({
       let success = 0;
       const failures: string[] = [];
 
-      for (const s of students) {
+      for (let i = 0; i < studentsSnap.length; i++) {
+        const s = studentsSnap[i]!;
         const studentCards = list
           .filter((c) => c.student_id === s.id)
           .sort((a, b) => {
@@ -171,6 +202,10 @@ export function AnnualBulletinDialog({
 
         if (!studentCards.length) {
           failures.push(`${s.last_name} ${s.first_name}: aucune fiche de période`);
+          toast.loading(`Bulletin annuel en arrière-plan… ${i + 1}/${studentsSnap.length}`, {
+            id: toastId,
+            duration: Infinity,
+          });
           continue;
         }
 
@@ -182,9 +217,9 @@ export function AnnualBulletinDialog({
               studentFirstName: s.first_name,
               studentLastName: s.last_name,
               schoolYearLabel: yearLabel,
-              subjects,
+              subjects: subjectsSnap,
               studentCards,
-              headcount: students.length,
+              headcount: studentsSnap.length,
               scale: tpl.scale,
               rank: rankOf.get(s.id) ?? null,
               firstAverage,
@@ -221,7 +256,7 @@ export function AnnualBulletinDialog({
               periodAvgs.length > 0
                 ? periodAvgs.reduce((a, b) => a + b, 0) / periodAvgs.length
                 : null;
-            const subjectLines = subjects.map((sub) => {
+            const subjectLines = subjectsSnap.map((sub) => {
               const vals: number[] = [];
               for (const c of studentCards) {
                 const sa = c.subject_averages as Record<string, number | null> | null;
@@ -262,7 +297,10 @@ export function AnnualBulletinDialog({
             `${s.last_name} ${s.first_name}: ${describeError(e, "échec")}`,
           );
         }
-        setDone((d) => d + 1);
+        toast.loading(`Bulletin annuel en arrière-plan… ${i + 1}/${studentsSnap.length}`, {
+          id: toastId,
+          duration: Infinity,
+        });
       }
 
       void qc.invalidateQueries({ queryKey: ["student_documents"] });
@@ -272,47 +310,73 @@ export function AnnualBulletinDialog({
           useExcel
             ? `${success} bulletin(s) annuel(s) Excel généré(s)`
             : `${success} aperçu(s) annuel(s) généré(s) — chargez un modèle annuel Excel pour le format officiel`,
+          { id: toastId, duration: 8_000 },
         );
-        onClose();
       } else if (success > 0) {
         toast.message(`${success} OK, ${failures.length} échec(s)`, {
+          id: toastId,
           description: failures.slice(0, 3).join(" · "),
+          duration: 10_000,
         });
       } else {
-        toast.error(failures[0] ?? "Aucun bulletin annuel généré");
+        toast.error(failures[0] ?? "Aucun bulletin annuel généré", { id: toastId });
       }
     } catch (e) {
-      toast.error(describeError(e, "Génération annuelle impossible"));
+      toast.error(describeError(e, "Génération annuelle impossible"), { id: toastId });
     } finally {
+      runningAnnualByClass.delete(klass.id);
       setBusy(false);
     }
   };
 
+  const jobRunning = busy || runningAnnualByClass.has(klass.id);
+
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) {
+          if (jobRunning) {
+            toast.message("Génération annuelle continue en arrière-plan — vous serez notifié à la fin.");
+          }
+          onClose();
+        }
+      }}
+    >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Bulletin annuel</DialogTitle>
           <DialogDescription>
             Synthèse à partir des bulletins de période déjà générés (
             {periods.length} période{periods.length > 1 ? "s" : ""}). Le modèle Excel{" "}
-            <strong>annuel</strong> de la classe est utilisé s'il est actif — quel que soit son
-            plan de colonnes (bref ou complet). Sinon, un aperçu simplifié est produit.
+            <strong>annuel</strong> de la classe est utilisé s'il est actif. Vous pouvez fermer
+            cette fenêtre : la génération continue en arrière-plan.
           </DialogDescription>
         </DialogHeader>
-        {busy && (
+        {jobRunning && (
           <p className="text-sm text-muted-foreground">
             {done} / {students.length}…
           </p>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={busy}>
-            Annuler
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (jobRunning) {
+                toast.message("Génération annuelle continue en arrière-plan — vous serez notifié à la fin.");
+              }
+              onClose();
+            }}
+          >
+            {jobRunning ? "Continuer en arrière-plan" : "Annuler"}
           </Button>
-          <Button onClick={() => void generateAll()} disabled={busy || students.length === 0}>
-            {busy ? (
+          <Button
+            onClick={() => void generateAll()}
+            disabled={jobRunning || students.length === 0}
+          >
+            {jobRunning ? (
               <>
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> Génération…
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> En cours…
               </>
             ) : (
               "Générer"
