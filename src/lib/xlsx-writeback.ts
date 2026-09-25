@@ -86,6 +86,35 @@ export function writeFilledWorkbook(
 
   const warnings: string[] = [];
 
+  // Rattrapage : "Note classe" souvent absente du mapping stocké
+  {
+    const cols = { ...mapping.columns };
+    const hasEval = Object.values(cols).includes("evaluation");
+    const hasCompo = Object.values(cols).includes("composition");
+    if ((!hasEval || !hasCompo) && mapping.headerRow > 0) {
+      for (let c = 0; c < 20; c++) {
+        const letter = XLSX.utils.encode_col(c);
+        if (cols[letter] && cols[letter] !== "ignore") continue;
+        const cell = ws[`${letter}${mapping.headerRow}`] as XLSX.CellObject | undefined;
+        const label = cell?.v != null ? normalize(String(cell.v)) : "";
+        if (!label) continue;
+        if (
+          !hasEval &&
+          (label.includes("note classe") ||
+            label.includes("note de classe") ||
+            label === "eval" ||
+            label.includes("evaluation") ||
+            label.includes("interro"))
+        ) {
+          cols[letter] = "evaluation";
+        } else if (!hasCompo && (label.includes("compo") || label.includes("composition"))) {
+          cols[letter] = "composition";
+        }
+      }
+      mapping.columns = cols;
+    }
+  }
+
   const setInputCell = (address: string, value: number | string | null) => {
     const cell = ws[address] as XLSX.CellObject | undefined;
     if (cell?.f) return;
@@ -112,6 +141,40 @@ export function writeFilledWorkbook(
     const isToken = /^\s*[[{].+[\]}]\s*$/.test(raw);
     if (raw && !isToken) continue;
     setInputCell(address, fieldValue(role, data));
+  }
+
+  // Repli : balises [prenom], [nom], … même si absentes du mapping stocké
+  {
+    const TOKEN_ROLES: Record<string, FieldRole> = {
+      prenom: "student_first_name",
+      nom: "student_last_name",
+      "nom de famille": "student_last_name",
+      "nom et prenom": "student_name",
+      classe: "class_name",
+      etablissement: "establishment_name",
+      periode: "period_label",
+      trimestre: "period_label",
+      effectif: "headcount",
+      rang: "rank",
+      date: "date",
+      "moyenne du premier": "first_average",
+      "moyenne du dernier": "last_average",
+    };
+    const rangeTok = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
+    for (let r = rangeTok.s.r; r <= rangeTok.e.r; r++) {
+      for (let c = rangeTok.s.c; c <= rangeTok.e.c; c++) {
+        const address = XLSX.utils.encode_cell({ r, c });
+        const cell = ws[address] as XLSX.CellObject | undefined;
+        if (!cell || cell.f) continue;
+        const raw = cell.v !== null && cell.v !== undefined ? String(cell.v).trim() : "";
+        const m = /^\[\s*([^\]]+?)\s*\]$/.exec(raw) || /^\{\s*([^}]+?)\s*\}$/.exec(raw);
+        if (!m) continue;
+        const key = normalize(m[1]!);
+        const role = TOKEN_ROLES[key];
+        if (!role || !PRE_FORMULA_FIELDS.has(role)) continue;
+        setInputCell(address, fieldValue(role, data));
+      }
+    }
   }
 
   const subjectColumn = Object.entries(mapping.columns).find(([, role]) => role === "subject")?.[0];
@@ -253,8 +316,6 @@ export function writeFilledWorkbook(
     }
   }
 
-  // Si le mapping pointe vers une balise sans formule, lire la ligne « Moyen Général »
-  // calculée par les formules du modèle (ex. ROUND(F26/B26,2)).
   if (generalAverage === null && ws) {
     const range2 = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
     for (let r = range2.s.r; r <= range2.e.r; r++) {
@@ -278,7 +339,6 @@ export function writeFilledWorkbook(
     }
   }
 
-  // Dernier recours : moyenne des moyennes de matières déjà calculées par les formules sujet.
   if (generalAverage === null) {
     const vals = Object.values(subjectAverages).filter((v): v is number => v !== null);
     if (vals.length) {
@@ -286,7 +346,11 @@ export function writeFilledWorkbook(
     }
   }
 
-  const buffer = XLSX.write(wb, { type: "array", bookType: "xlsx", cellStyles: true }) as ArrayBuffer;
+  const written = XLSX.write(wb, { type: "array", bookType: "xlsx", cellStyles: true });
+  const buffer: ArrayBuffer =
+    written instanceof ArrayBuffer
+      ? written
+      : new Uint8Array(written as number[]).buffer.slice(0);
   return {
     buffer,
     computed: { generalAverage, subjectAverages },
