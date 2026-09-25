@@ -47,9 +47,14 @@ export function buildModelFillData(opts: {
   firstAverage: number | null;
   lastAverage: number | null;
 }): FillData {
+  // groupGradesBySubject indexe par subject_id (UUID), pas par nom.
   const bySubject = groupGradesBySubject(opts.grades, opts.studentId);
   const fillSubjects = opts.subjects.map((sub) => {
-    const gs = bySubject.get(sub.name) ?? bySubject.get(sub.name.trim()) ?? [];
+    const gs =
+      bySubject.get(sub.id) ??
+      bySubject.get(sub.name) ??
+      bySubject.get(sub.name.trim()) ??
+      [];
     return subjectRowFromGrades(sub.name, gs);
   });
   return {
@@ -76,15 +81,16 @@ export function computeModelAverages(
   mapping: TemplateMapping,
   fillData: FillData,
 ): ModelAverages {
-  const written = writeFilledWorkbook(templateBuffer, mapping, fillData);
+  const { computed, warnings } = writeFilledWorkbook(templateBuffer, mapping, fillData);
   return {
-    generalAverage: written.computed.generalAverage,
-    subjectAverages: written.computed.subjectAverages,
-    warnings: written.warnings,
+    generalAverage: computed.generalAverage,
+    subjectAverages: computed.subjectAverages,
+    warnings,
   };
 }
 
-export function computeClassModelAverages(opts: {
+/** Calcule les moyennes modèle pour plusieurs élèves (stats de classe live). */
+export function computeModelAveragesForStudents(opts: {
   templateBuffer: ArrayBuffer;
   mapping: TemplateMapping;
   scale: number;
@@ -139,11 +145,8 @@ export function computeClassModelAverages(opts: {
 }
 
 /**
- * FillData pour bulletin annuel — s'adapte à n'importe quel mapping de modèle.
- *
- * Stratégie (sans supposer un plan de colonnes fixe) :
+ * Remplissage annuel à partir des bulletins de périodes déjà générés.
  * - evaluations[] = moyennes de matière de chaque période (ordre chronologique)
- *   → colonnes "evaluation" multiples (ex. T1, T2, T3) sont remplies dans l'ordre
  * - composition = moyenne annuelle matière (si le modèle a une colonne composition unique)
  * - average / evaluationAverage = moyenne annuelle matière
  *   → colonnes subject_average / evaluation_average (modèle bref type B)
