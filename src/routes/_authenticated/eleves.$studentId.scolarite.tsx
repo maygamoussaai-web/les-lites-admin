@@ -25,7 +25,10 @@ function Page() {
   const { isDG, establishmentIds, establishmentIdsLoading } = useAdminProfile();
   const data = useSchoolData();
 
-  const student = data.students.find((s) => s.id === studentId);
+  const student =
+    data.students.find((s) => s.id === studentId) ??
+    data.archivedStudents?.find((s) => s.id === studentId) ??
+    data.studentsById?.get(studentId);
   const allowed = student && (isDG || establishmentIds.includes(student.establishment_id));
 
   const periods = data.enrollments
