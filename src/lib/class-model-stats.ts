@@ -1,9 +1,8 @@
 /**
- * Stats de classe — bulletins validés prioritaires, sinon aperçu live
- * (formules modèle + repli notes saisies).
+ * Stats de classe à partir des formules du modèle Excel uniquement
+ * (même moteur que le remplissage des bulletins).
  */
 import { buildModelFillData, computeModelAverages } from "@/lib/model-averages";
-import { liveAveragesFromGrades, mergeModelAndLive } from "@/lib/live-averages";
 import type { TemplateMapping } from "@/lib/xlsx-template";
 import type { ClassSubject, Grade } from "@/lib/grades";
 import { PASS_THRESHOLD, EXCELLENT_THRESHOLD } from "@/lib/grades";
@@ -25,7 +24,7 @@ export type LiveClassStats = {
   lowest: LiveAveragedStudent | null;
   bestSubject: { subject: ClassSubject; avg: number } | null;
   worstSubject: { subject: ClassSubject; avg: number } | null;
-  source: "bulletin" | "modele_live" | "notes_live";
+  source: "bulletin" | "modele_live";
 };
 
 export function computeLiveClassStats(args: {
@@ -33,8 +32,8 @@ export function computeLiveClassStats(args: {
   subjects: ClassSubject[];
   grades: Grade[];
   periodNumber: number;
-  templateBuffer: ArrayBuffer | null;
-  mapping: TemplateMapping | null;
+  templateBuffer: ArrayBuffer;
+  mapping: TemplateMapping;
   scale: number;
   establishmentName?: string;
   className?: string;
@@ -53,55 +52,39 @@ export function computeLiveClassStats(args: {
 
   const studentIdsWithNotes = new Set(grades.map((g) => g.student_id));
   const withAvg: LiveAveragedStudent[] = [];
-  let anyModel = false;
-  let anyLive = false;
 
   for (const s of students) {
     if (!studentIdsWithNotes.has(s.id)) continue;
-
-    const live = liveAveragesFromGrades(grades, s.id, subjects);
-    let model: { generalAverage: number | null; subjectAverages: Record<string, number | null> } | null =
-      null;
-
-    if (templateBuffer && mapping) {
-      try {
-        const fill = buildModelFillData({
-          establishmentName,
-          className,
-          studentFirstName: s.first_name,
-          studentLastName: s.last_name,
-          periodNumber,
-          subjects,
-          grades,
-          studentId: s.id,
-          headcount: students.length,
-          scale,
-          rank: null,
-          firstAverage: null,
-          lastAverage: null,
-        });
-        model = computeModelAverages(templateBuffer, mapping, fill);
-      } catch {
-        model = null;
-      }
+    try {
+      const fill = buildModelFillData({
+        establishmentName,
+        className,
+        studentFirstName: s.first_name,
+        studentLastName: s.last_name,
+        periodNumber,
+        subjects,
+        grades,
+        studentId: s.id,
+        headcount: students.length,
+        scale,
+        rank: null,
+        firstAverage: null,
+        lastAverage: null,
+      });
+      const result = computeModelAverages(templateBuffer, mapping, fill);
+      if (result.generalAverage === null || !Number.isFinite(result.generalAverage)) continue;
+      const weak = Object.entries(result.subjectAverages)
+        .filter(([, v]) => v !== null && (v as number) < PASS_THRESHOLD)
+        .map(([name]) => name);
+      withAvg.push({
+        student: s,
+        average: result.generalAverage,
+        weakSubjects: weak,
+        subjectAverages: result.subjectAverages,
+      });
+    } catch {
+      continue;
     }
-
-    const merged = mergeModelAndLive(model, live);
-    if (merged.source === "modele" || merged.source === "mixte") anyModel = true;
-    if (merged.source === "live" || merged.source === "mixte") anyLive = true;
-
-    if (merged.generalAverage === null || !Number.isFinite(merged.generalAverage)) continue;
-
-    const weak = Object.entries(merged.subjectAverages)
-      .filter(([, v]) => v !== null && (v as number) < PASS_THRESHOLD)
-      .map(([name]) => name);
-
-    withAvg.push({
-      student: s,
-      average: merged.generalAverage,
-      weakSubjects: weak,
-      subjectAverages: merged.subjectAverages,
-    });
   }
 
   if (!withAvg.length) return null;
@@ -128,6 +111,6 @@ export function computeLiveClassStats(args: {
     lowest: withAvg[withAvg.length - 1] ?? null,
     bestSubject: ranked[0] ?? null,
     worstSubject: ranked.length ? ranked[ranked.length - 1]! : null,
-    source: anyModel && !anyLive ? "modele_live" : anyModel ? "modele_live" : "notes_live",
+    source: "modele_live",
   };
 }
