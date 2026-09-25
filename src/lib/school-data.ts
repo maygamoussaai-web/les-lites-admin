@@ -45,39 +45,35 @@ export function useSchoolData() {
     staleTime: STABLE_STALE_TIME,
   });
   const installments = useRows<Installment>("fee_plan_installments", {
-    order: { column: "due_date" },
+    order: { column: "position" },
     staleTime: STABLE_STALE_TIME,
   });
   const tuitionPayments = useRows<TuitionPayment>("tuition_payments", {
     order: { column: "paid_at", ascending: false },
-    staleTime: SEMI_STALE_TIME,
   });
   const enrollments = useRows<StudentEnrollment>("student_enrollments", {
-    order: { column: "created_at", ascending: false },
+    order: { column: "started_at" },
     staleTime: SEMI_STALE_TIME,
   });
   const teachers = useRows<Teacher>("teachers", {
     order: { column: "last_name" },
-    staleTime: STABLE_STALE_TIME,
+    staleTime: SEMI_STALE_TIME,
   });
   const assignments = useRows<TeacherAssignment>("teacher_assignments", {
-    order: { column: "created_at", ascending: false },
     staleTime: SEMI_STALE_TIME,
   });
   const sessions = useRows<TeacherSession>("teacher_sessions", {
-    order: { column: "session_date", ascending: false },
-    staleTime: SEMI_STALE_TIME,
+    order: { column: "weekday" },
+    staleTime: STABLE_STALE_TIME,
   });
   const sessionCompletions = useRows<TeacherSessionCompletion>("teacher_session_completions", {
-    order: { column: "created_at", ascending: false },
     staleTime: SEMI_STALE_TIME,
   });
   const teacherPayments = useRows<TeacherPayment>("teacher_payments", {
     order: { column: "paid_at", ascending: false },
-    staleTime: SEMI_STALE_TIME,
   });
 
-  const isPending =
+  const loading =
     establishments.isPending ||
     classes.isPending ||
     students.isPending ||
@@ -101,10 +97,14 @@ export function useSchoolData() {
     const paidByEnrollment = new Map<string, number>();
     for (const p of allTuitionPayments) {
       if (!p.enrollment_id) continue;
-      paidByEnrollment.set(p.enrollment_id, (paidByEnrollment.get(p.enrollment_id) ?? 0) + Number(p.amount));
+      paidByEnrollment.set(
+        p.enrollment_id,
+        (paidByEnrollment.get(p.enrollment_id) ?? 0) + Number(p.amount),
+      );
     }
 
-    const data = {
+    return {
+      loading,
       establishments: establishments.data ?? [],
       classes: allClasses,
       students: allStudents,
@@ -119,57 +119,9 @@ export function useSchoolData() {
       teacherPayments: teacherPayments.data ?? [],
       activeEnrollmentByStudent,
       paidByEnrollment,
-      isPending,
     };
-
-    // Stats par établissement (tableau de bord)
-    const byEstablishment = (data.establishments as Establishment[]).map((est) => {
-      const estStudents = allStudents.filter((s) => s.establishment_id === est.id && !s.archived_at);
-      let expected = 0;
-      let outstanding = 0;
-      let lateStudents = 0;
-      for (const student of estStudents) {
-        const enrollment = data.activeEnrollmentByStudent.get(student.id);
-        if (!enrollment) continue;
-        const total = Number(enrollment.total_amount);
-        const paidForEnrollment = sum(
-          data.tuitionPayments.filter((p) => p.enrollment_id === enrollment.id).map((p) => Number(p.amount)),
-        );
-        expected += total;
-        outstanding += Math.max(0, total - paidForEnrollment);
-        const status = lateStatus(
-          paidForEnrollment,
-          (enrollment.installments_snapshot as unknown as Installment[]) ?? [],
-        );
-        if (status.isLate) lateStudents += 1;
-      }
-
-      const estAssignments = data.assignments.filter(
-        (a) => a.establishment_id === est.id && a.is_active && data.teachers.some((t) => t.id === a.teacher_id),
-      );
-      const dueTeachers = estAssignments.reduce(
-        (acc, a) => acc + teacherDue(a, data.sessions, data.sessionCompletions),
-        0,
-      );
-      const paidTeachers = sum(
-        data.teacherPayments
-          .filter((p) => p.establishment_id === est.id)
-          .map((p) => Number(p.amount)),
-      );
-
-      return {
-        establishment: est,
-        studentCount: estStudents.length,
-        classCount: allClasses.filter((c) => c.establishment_id === est.id).length,
-        expectedTuition: expected,
-        outstandingTuition: outstanding,
-        lateStudents,
-        teacherDue: Math.max(0, dueTeachers - paidTeachers),
-      };
-    });
-
-    return { ...data, byEstablishment };
   }, [
+    loading,
     establishments.data,
     classes.data,
     students.data,
@@ -182,6 +134,83 @@ export function useSchoolData() {
     sessions.data,
     sessionCompletions.data,
     teacherPayments.data,
-    isPending,
   ]);
+}
+
+export type SchoolData = ReturnType<typeof useSchoolData>;
+
+export type EstablishmentStats = {
+  students: number;
+  classes: number;
+  expected: number;
+  collected: number;
+  outstanding: number;
+  lateStudents: number;
+  teachers: number;
+  teacherDue: number;
+  teacherPaid: number;
+};
+
+export function useEstablishmentStats(data: SchoolData, since?: string) {
+  return useMemo(() => {
+    const map = new Map<string, EstablishmentStats>();
+    for (const est of data.establishments) {
+      const estClasses = data.classes.filter((c) => c.establishment_id === est.id);
+      const estStudents = data.students.filter((s) => s.establishment_id === est.id);
+      const payments = data.tuitionPayments.filter(
+        (p) => p.establishment_id === est.id && (!since || p.paid_at >= since),
+      );
+      const collected = sum(payments.map((p) => Number(p.amount)));
+
+      let expected = 0;
+      let outstanding = 0;
+      let lateStudents = 0;
+      for (const student of estStudents) {
+        const enrollment = data.activeEnrollmentByStudent.get(student.id);
+        if (!enrollment) continue;
+        const total = Number(enrollment.total_amount);
+        const paidForEnrollment = sum(
+          data.tuitionPayments
+            .filter((p) => p.enrollment_id === enrollment.id)
+            .map((p) => Number(p.amount)),
+        );
+        expected += total;
+        outstanding += Math.max(0, total - paidForEnrollment);
+        const status = lateStatus(
+          paidForEnrollment,
+          (enrollment.installments_snapshot as unknown as Installment[]) ?? [],
+        );
+        if (status.isLate) lateStudents += 1;
+      }
+
+      const estAssignments = data.assignments.filter(
+        (a) =>
+          a.establishment_id === est.id &&
+          a.is_active &&
+          data.teachers.some((t) => t.id === a.teacher_id),
+      );
+      const dueTeachers = estAssignments.reduce(
+        (acc, a) => acc + teacherDue(a, data.sessions, data.sessionCompletions),
+        0,
+      );
+      const paidTeachers = sum(
+        data.teacherPayments
+          .filter((p) => p.establishment_id === est.id && (!since || p.paid_at >= since))
+          .map((p) => Number(p.amount)),
+      );
+
+      map.set(est.id, {
+        students: estStudents.length,
+        classes: estClasses.length,
+        expected,
+        collected,
+        outstanding,
+        lateStudents,
+        teachers: estAssignments.length,
+        teacherDue: dueTeachers,
+        teacherPaid: paidTeachers,
+      });
+    }
+    return map;
+  }, [data, since]);
 }
