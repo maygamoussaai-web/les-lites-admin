@@ -53,6 +53,8 @@ export function BulletinWalkthroughDialog({
   subjects,
   period,
   grades,
+  /** Élèves ayant déjà un bulletin (document) pour cette période — exclus par défaut. */
+  alreadyGeneratedIds = [],
 }: {
   open: boolean;
   onClose: () => void;
@@ -62,12 +64,14 @@ export function BulletinWalkthroughDialog({
   subjects: ClassSubject[];
   period: GradePeriod | null;
   grades: Grade[];
+  alreadyGeneratedIds?: string[];
 }) {
   const qc = useQueryClient();
   const { template: activeTemplate, loading: templateLoading } = useActiveReportTemplate(klass.id);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(0);
   const [templateReady, setTemplateReady] = useState(false);
+  const [forceRegenerate, setForceRegenerate] = useState(false);
   const etabName = establishmentName?.trim() || klass.name;
 
   useEffect(() => {
@@ -89,10 +93,24 @@ export function BulletinWalkthroughDialog({
 
   const hasModel = templateReady || !!activeTemplate;
 
+  const alreadySet = useMemo(
+    () => new Set(alreadyGeneratedIds),
+    [alreadyGeneratedIds],
+  );
+
   const candidates = useMemo(() => {
     const withNotes = new Set(grades.map((g) => g.student_id));
-    return students.filter((s) => withNotes.has(s.id));
-  }, [students, grades]);
+    return students.filter((s) => {
+      if (!withNotes.has(s.id)) return false;
+      if (forceRegenerate) return true;
+      return !alreadySet.has(s.id);
+    });
+  }, [students, grades, alreadySet, forceRegenerate]);
+
+  const alreadyCount = useMemo(() => {
+    const withNotes = new Set(grades.map((g) => g.student_id));
+    return students.filter((s) => withNotes.has(s.id) && alreadySet.has(s.id)).length;
+  }, [students, grades, alreadySet]);
 
   const generate = async () => {
     if (!period) {
@@ -104,12 +122,19 @@ export function BulletinWalkthroughDialog({
     let successCount = 0;
     const failures: string[] = [];
     const localDownloads: { blob: Blob; name: string }[] = [];
+    toast.loading(
+      candidates.length
+        ? `Génération en cours… 0/${candidates.length}`
+        : "Vérification…",
+      { id: "bulletin-gen" },
+    );
 
     try {
       const downloaded = await downloadActiveTemplateBuffer(klass.id, "period");
       if (!downloaded) {
         toast.error(
           "Aucun modèle Excel actif pour cette classe. Importez un modèle puis réessayez.",
+          { id: "bulletin-gen" },
         );
         return;
       }
@@ -232,7 +257,13 @@ export function BulletinWalkthroughDialog({
             `${student.last_name} ${student.first_name}: ${describeError(e, "échec")}`,
           );
         }
-        setDone((d) => d + 1);
+        setDone((d) => {
+          const next = d + 1;
+          toast.loading(`Génération en cours… ${next}/${candidates.length}`, {
+            id: "bulletin-gen",
+          });
+          return next;
+        });
       }
 
       qc.invalidateQueries({ queryKey: ["student_documents"] });
@@ -240,7 +271,10 @@ export function BulletinWalkthroughDialog({
       qc.invalidateQueries({ queryKey: ["grades"] });
 
       if (successCount > 0) {
-        toast.success(`${successCount} bulletin(s) généré(s) et placé(s) en bibliothèque.`);
+        toast.success(
+          `${successCount} bulletin(s) généré(s) et placé(s) en bibliothèque.`,
+          { id: "bulletin-gen" },
+        );
         for (const f of localDownloads) {
           try {
             downloadBlob(f.blob, f.name);
@@ -248,32 +282,53 @@ export function BulletinWalkthroughDialog({
             /* mobile may block */
           }
         }
-        try {
-          const { closedPeriodNumber, newPeriodNumber } = await closeAndStartNextPeriod({
-            classId: klass.id,
-            establishmentId: klass.establishment_id,
-            currentPeriodId: period.id,
-          });
-          qc.invalidateQueries({ queryKey: ["grade_periods"] });
-          toast.success(
-            closedPeriodNumber != null
-              ? `Période ${closedPeriodNumber} clôturée — période ${newPeriodNumber} ouverte.`
-              : `Période ${newPeriodNumber} ouverte.`,
-          );
-        } catch (e) {
-          toast.error(describeError(e, "Bulletins OK, ouverture de période impossible"));
+        const stillMissing =
+          students.filter((s) => {
+            const hasNotes = grades.some((g) => g.student_id === s.id);
+            if (!hasNotes) return false;
+            return !alreadySet.has(s.id);
+          }).length - successCount;
+        const allCovered = stillMissing <= 0 && failures.length === 0;
+
+        if (allCovered) {
+          try {
+            const { closedPeriodNumber, newPeriodNumber } = await closeAndStartNextPeriod({
+              classId: klass.id,
+              establishmentId: klass.establishment_id,
+              currentPeriodId: period.id,
+            });
+            qc.invalidateQueries({ queryKey: ["grade_periods"] });
+            toast.success(
+              closedPeriodNumber != null
+                ? `Période ${closedPeriodNumber} clôturée — période ${newPeriodNumber} ouverte.`
+                : `Période ${newPeriodNumber} ouverte.`,
+            );
+          } catch (e) {
+            toast.error(describeError(e, "Bulletins OK, ouverture de période impossible"));
+          }
+        } else if (successCount > 0) {
+          toast.message(`Il reste des bulletins à générer. La période reste ouverte.`);
         }
       }
       if (failures.length) {
-        toast.error(`${failures.length} échec(s) : ${failures.slice(0, 2).join(" · ")}`);
+        toast.error(`${failures.length} échec(s) : ${failures.slice(0, 2).join(" · ")}`, {
+          id: successCount > 0 ? undefined : "bulletin-gen",
+        });
       }
       if (successCount === 0 && failures.length === 0) {
-        toast.message("Aucun élève avec notes à traiter.");
+        toast.message(
+          alreadyCount > 0
+            ? "Tous les bulletins de cette période existent déjà."
+            : "Aucun élève avec notes à traiter.",
+          { id: "bulletin-gen" },
+        );
       }
 
       onClose();
     } catch (e) {
-      toast.error(describeError(e, "Génération des bulletins impossible"));
+      toast.error(describeError(e, "Génération des bulletins impossible"), {
+        id: "bulletin-gen",
+      });
     } finally {
       setBusy(false);
     }
@@ -286,10 +341,24 @@ export function BulletinWalkthroughDialog({
           <DialogTitle className="font-display">Créer les bulletins</DialogTitle>
           <DialogDescription>
             {period
-              ? `Génération Excel — période ${period.period_number}. ${candidates.length} élève(s) avec notes. Chaque fichier est placé dans Documents de l'élève avant validation.`
-              : "Aucune période en cours. Démarrez une période (Nouvelle période) avant de générer les bulletins."}
+              ? `Période ${period.period_number} — ${candidates.length} à générer${
+                  alreadyCount > 0 ? `, ${alreadyCount} déjà en bibliothèque` : ""
+                }. Les fichiers sont placés dans Documents de chaque élève.`
+              : "Aucune période en cours. Démarrez une période avant de générer les bulletins."}
           </DialogDescription>
         </DialogHeader>
+        {alreadyCount > 0 && (
+          <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-border/70 bg-muted/30 px-3 py-2 text-sm">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded border-border"
+              checked={forceRegenerate}
+              disabled={busy}
+              onChange={(e) => setForceRegenerate(e.target.checked)}
+            />
+            <span>Régénérer aussi les {alreadyCount} bulletin(s) déjà créés</span>
+          </label>
+        )}
         {!hasModel && !templateLoading && (
           <p className="text-sm text-amber-700 dark:text-amber-400">
             Aucun modèle Excel actif. Ajoutez-en un dans « Modèle de bulletin ».
