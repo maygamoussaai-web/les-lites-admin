@@ -54,6 +54,17 @@ function applyOptimisticGrades(
   });
 }
 
+function removeOptimisticGrades(
+  qc: ReturnType<typeof useQueryClient>,
+  ids: string[],
+) {
+  const idSet = new Set(ids);
+  qc.setQueriesData({ queryKey: ["grades"] }, (old: unknown) => {
+    if (!Array.isArray(old)) return old;
+    return (old as { id: string }[]).filter((r) => !idSet.has(r.id));
+  });
+}
+
 export function NoteEntryDialog({
   open,
   onClose,
@@ -198,7 +209,32 @@ export function NoteEntryDialog({
         }
         applyOptimisticGrades(qc, rows);
         qc.invalidateQueries({ queryKey: ["grades"] });
-        toast.success(`${rows.length} note(s) enregistrée(s)`);
+        const gradeIds = rows.map((r) => String(r.id));
+        toast.success(`${rows.length} note(s) enregistrée(s)`, {
+          duration: 10_000,
+          action: {
+            label: "Annuler",
+            onClick: () => {
+              void (async () => {
+                try {
+                  const { error: delErr } = await supabase
+                    .from("grades")
+                    .delete()
+                    .in("id", gradeIds);
+                  if (delErr) throw delErr;
+                  for (const row of rows) {
+                    await writeAudit("delete", "grades" as never, row, null);
+                  }
+                  removeOptimisticGrades(qc, gradeIds);
+                  qc.invalidateQueries({ queryKey: ["grades"] });
+                  toast.message("Note(s) annulée(s)");
+                } catch (err) {
+                  toast.error(describeError(err, "Annulation impossible"));
+                }
+              })();
+            },
+          },
+        });
       } else {
         for (const row of rows) {
           enqueue({
