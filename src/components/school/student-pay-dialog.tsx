@@ -15,6 +15,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useSchoolData } from "@/lib/school-data";
 import { formatFCFA } from "@/lib/format";
 import { describeError } from "@/lib/errors";
+import { downloadPaymentReceipt } from "@/lib/payment-receipt";
 
 export function PayDialog({
   open,
@@ -34,6 +35,7 @@ export function PayDialog({
   totalDue: number;
 }) {
   const qc = useQueryClient();
+  const school = useSchoolData();
   const [amount, setAmount] = useState("");
   const [paidAt, setPaidAt] = useState(new Date().toISOString().slice(0, 10));
   const [method, setMethod] = useState("cash");
@@ -60,7 +62,37 @@ export function PayDialog({
       });
       if (error) throw error;
       qc.invalidateQueries({ queryKey: ["tuition_payments"] });
-      toast.success("Paiement enregistré");
+      const remainingAfter = Math.max(0, totalDue - paid - amountNum);
+      const estName =
+        school.establishments.find((e) => e.id === student.establishment_id)?.name ?? "";
+      const receiptPayload = {
+        studentName: `${student.last_name} ${student.first_name}`,
+        establishmentName: estName,
+        amount: amountNum,
+        paidAt,
+        method,
+        note: note || null,
+        paidBefore: paid,
+        totalDue,
+        remainingAfter,
+      };
+      toast.success("Paiement enregistré", {
+        action: {
+          label: "Télécharger le reçu",
+          onClick: () => {
+            void downloadPaymentReceipt(receiptPayload).catch((err) =>
+              toast.error(describeError(err, "Reçu impossible")),
+            );
+          },
+        },
+        duration: 12_000,
+      });
+      // Téléchargement auto du reçu
+      try {
+        await downloadPaymentReceipt(receiptPayload);
+      } catch {
+        /* toast action reste disponible */
+      }
       setAmount("");
       setNote("");
       onClose();
