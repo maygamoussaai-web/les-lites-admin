@@ -225,6 +225,15 @@ export function evaluateFormula(formula: string, get: CellGetter): CellValue {
     while (peek()?.type === "op" && ["=", "<", ">", "<=", ">=", "<>"].includes(peek()!.value)) {
       const op = eat()!.value;
       const right = parseSum();
+      // Cellule vide (null) ≡ "" pour les tests Excel type C12=""
+      const leftBlank = left === null || left === "";
+      const rightBlank = right === null || right === "";
+      if ((op === "=" || op === "<>") && (leftBlank || rightBlank || typeof left === "string" || typeof right === "string")) {
+        const a = leftBlank ? "" : String(left);
+        const b = rightBlank ? "" : String(right);
+        left = op === "=" ? (a === b ? 1 : 0) : (a !== b ? 1 : 0);
+        continue;
+      }
       const bothNumbers = typeof left !== "string" && typeof right !== "string";
       const a: number | string = bothNumbers ? num(left) : String(left ?? "");
       const b: number | string = bothNumbers ? num(right) : String(right ?? "");
@@ -284,6 +293,9 @@ export function evaluateFormula(formula: string, get: CellGetter): CellValue {
         return Math.floor(num(first));
       case "ABS":
         return Math.abs(num(first));
+      case "ISBLANK":
+      case "ESTVIDE":
+        return first === null || first === "" ? 1 : 0;
       case "IF":
       case "SI": {
         const condVal = first;
