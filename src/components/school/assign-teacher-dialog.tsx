@@ -69,6 +69,7 @@ export function AssignTeacherDialog({
       : Boolean(firstName.trim() && lastName.trim());
 
   const reset = () => {
+    setMode("existing");
     setTeacherId("");
     setFirstName("");
     setLastName("");
@@ -142,157 +143,160 @@ export function AssignTeacherDialog({
         }
       }}
     >
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[min(90vh,640px)] flex-col gap-0 overflow-hidden p-0 sm:max-w-md">
+        <DialogHeader className="shrink-0 space-y-1.5 border-b border-border px-6 pb-4 pt-6 text-left">
           <DialogTitle>Assigner un enseignant</DialogTitle>
           <DialogDescription>
             Choisissez un enseignant déjà présent dans le complexe, ou créez-en un nouveau.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-muted/40 p-1">
-          <button
-            type="button"
-            className={cn(
-              "rounded-md px-3 py-2 text-sm font-medium transition",
-              mode === "existing"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-            onClick={() => setMode("existing")}
-          >
-            Existant
-          </button>
-          <button
-            type="button"
-            className={cn(
-              "rounded-md px-3 py-2 text-sm font-medium transition",
-              mode === "new"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-            onClick={() => setMode("new")}
-          >
-            Nouveau
-          </button>
-        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-4">
+          <div className="grid grid-cols-2 gap-1 rounded-lg border border-border bg-muted/40 p-1">
+            <button
+              type="button"
+              className={cn(
+                "rounded-md px-3 py-2 text-sm font-medium transition",
+                mode === "existing"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setMode("existing")}
+            >
+              Existant
+            </button>
+            <button
+              type="button"
+              className={cn(
+                "rounded-md px-3 py-2 text-sm font-medium transition",
+                mode === "new"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setMode("new")}
+            >
+              Nouveau
+            </button>
+          </div>
 
-        <div className="space-y-4">
-          {mode === "existing" ? (
+          {/* Hauteur mini stable pour éviter le saut de scroll au changement d'onglet */}
+          <div className="mt-4 min-h-[11.5rem] space-y-4">
+            {mode === "existing" ? (
+              <div>
+                <Label className="mb-1.5 block text-sm">Enseignant</Label>
+                <Select value={teacherId || ""} onValueChange={setTeacherId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Sélectionner" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {available.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.last_name} {t.first_name}
+                        {t.domain ? ` · ${t.domain}` : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {available.length === 0 && (
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    Aucun enseignant disponible. Passez sur l’onglet{" "}
+                    <button
+                      type="button"
+                      className="font-medium text-primary underline-offset-2 hover:underline"
+                      onClick={() => setMode("new")}
+                    >
+                      Nouveau
+                    </button>{" "}
+                    pour en créer un.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <Label className="mb-1.5 block text-sm">
+                      Prénom<span className="ml-0.5 text-destructive">*</span>
+                    </Label>
+                    <Input
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      placeholder="Amadou"
+                      autoComplete="off"
+                    />
+                  </div>
+                  <div>
+                    <Label className="mb-1.5 block text-sm">
+                      Nom<span className="ml-0.5 text-destructive">*</span>
+                    </Label>
+                    <Input
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      placeholder="Traoré"
+                      autoComplete="off"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label className="mb-1.5 block text-sm">Téléphone</Label>
+                  <Input
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="+223 …"
+                    inputMode="tel"
+                  />
+                </div>
+                <div>
+                  <Label className="mb-1.5 block text-sm">Domaine / matière</Label>
+                  <Input
+                    value={domain}
+                    onChange={(e) => setDomain(e.target.value)}
+                    placeholder="Mathématiques, Français…"
+                  />
+                </div>
+              </div>
+            )}
+
             <div>
-              <Label className="mb-1.5 block text-sm">Enseignant</Label>
-              <Select value={teacherId || ""} onValueChange={setTeacherId}>
+              <Label className="mb-1.5 block text-sm">Mode de paiement</Label>
+              <Select
+                value={paymentMethod}
+                onValueChange={(v) => setPaymentMethod(v as PayMethod)}
+              >
                 <SelectTrigger>
-                  <SelectValue placeholder="Sélectionner" />
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {available.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.last_name} {t.first_name}
-                      {t.domain ? ` · ${t.domain}` : ""}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="hourly">Tarif horaire</SelectItem>
+                  <SelectItem value="fixed_salary">Salaire fixe</SelectItem>
                 </SelectContent>
               </Select>
-              {available.length === 0 && (
-                <p className="mt-1.5 text-xs text-muted-foreground">
-                  Aucun enseignant disponible. Passez sur l’onglet{" "}
-                  <button
-                    type="button"
-                    className="font-medium text-primary underline-offset-2 hover:underline"
-                    onClick={() => setMode("new")}
-                  >
-                    Nouveau
-                  </button>{" "}
-                  pour en créer un.
-                </p>
-              )}
             </div>
-          ) : (
-            <div className="space-y-3">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <Label className="mb-1.5 block text-sm">
-                    Prénom<span className="ml-0.5 text-destructive">*</span>
-                  </Label>
-                  <Input
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                    placeholder="Amadou"
-                    autoComplete="off"
-                  />
-                </div>
-                <div>
-                  <Label className="mb-1.5 block text-sm">
-                    Nom<span className="ml-0.5 text-destructive">*</span>
-                  </Label>
-                  <Input
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                    placeholder="Traoré"
-                    autoComplete="off"
-                  />
-                </div>
-              </div>
+            {paymentMethod === "hourly" ? (
               <div>
-                <Label className="mb-1.5 block text-sm">Téléphone</Label>
+                <Label className="mb-1.5 block text-sm">Tarif horaire (FCFA)</Label>
                 <Input
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="+223 …"
-                  inputMode="tel"
+                  type="number"
+                  min={0}
+                  value={hourlyRate}
+                  onChange={(e) => setHourlyRate(e.target.value)}
                 />
               </div>
+            ) : (
               <div>
-                <Label className="mb-1.5 block text-sm">Domaine / matière</Label>
+                <Label className="mb-1.5 block text-sm">Salaire fixe (FCFA)</Label>
                 <Input
-                  value={domain}
-                  onChange={(e) => setDomain(e.target.value)}
-                  placeholder="Mathématiques, Français…"
+                  type="number"
+                  min={0}
+                  value={salaryAmount}
+                  onChange={(e) => setSalaryAmount(e.target.value)}
                 />
               </div>
-            </div>
-          )}
-
-          <div>
-            <Label className="mb-1.5 block text-sm">Mode de paiement</Label>
-            <Select
-              value={paymentMethod}
-              onValueChange={(v) => setPaymentMethod(v as PayMethod)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="hourly">Tarif horaire</SelectItem>
-                <SelectItem value="fixed_salary">Salaire fixe</SelectItem>
-              </SelectContent>
-            </Select>
+            )}
           </div>
-          {paymentMethod === "hourly" ? (
-            <div>
-              <Label className="mb-1.5 block text-sm">Tarif horaire (FCFA)</Label>
-              <Input
-                type="number"
-                min={0}
-                value={hourlyRate}
-                onChange={(e) => setHourlyRate(e.target.value)}
-              />
-            </div>
-          ) : (
-            <div>
-              <Label className="mb-1.5 block text-sm">Salaire fixe (FCFA)</Label>
-              <Input
-                type="number"
-                min={0}
-                value={salaryAmount}
-                onChange={(e) => setSalaryAmount(e.target.value)}
-              />
-            </div>
-          )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="shrink-0 gap-2 border-t border-border px-6 py-4 sm:space-x-0">
           <Button
             variant="outline"
             onClick={() => {
