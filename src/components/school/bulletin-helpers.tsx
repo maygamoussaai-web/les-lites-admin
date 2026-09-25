@@ -34,9 +34,14 @@ type StudentRef = { id: string; first_name: string; last_name: string };
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-function toBlob(buffer: ArrayBuffer | Uint8Array): Blob {
-  const copy = new Uint8Array(buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer));
-  return new Blob([copy], { type: XLSX_MIME });
+function toBlob(buffer: ArrayBuffer | Uint8Array | number[]): Blob {
+  let bytes: Uint8Array;
+  if (buffer instanceof Uint8Array) bytes = buffer;
+  else if (buffer instanceof ArrayBuffer) bytes = new Uint8Array(buffer);
+  else if (Array.isArray(buffer)) bytes = new Uint8Array(buffer);
+  else throw new Error("Buffer Excel invalide");
+  if (!bytes.byteLength) throw new Error("Fichier bulletin vide — génération Excel a échoué.");
+  return new Blob([bytes], { type: XLSX_MIME });
 }
 
 export function BulletinWalkthroughDialog({
@@ -65,7 +70,6 @@ export function BulletinWalkthroughDialog({
   const [templateReady, setTemplateReady] = useState(false);
   const etabName = establishmentName?.trim() || klass.name;
 
-  // Même chemin que les moyennes live — ne dépend pas du seul cache React Query.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -167,17 +171,23 @@ export function BulletinWalkthroughDialog({
             lastAverage: lastAvg,
           });
           const filled = writeFilledWorkbook(buf, mapping, fill);
-          const blob = toBlob(filled.buffer);
+          const rawBuf = filled.buffer;
+          if (!rawBuf || (rawBuf instanceof ArrayBuffer && rawBuf.byteLength === 0)) {
+            throw new Error("Génération Excel a produit un fichier vide.");
+          }
+          const blob = toBlob(rawBuf);
+          if (!blob.size) {
+            throw new Error("Fichier bulletin vide — génération Excel a échoué.");
+          }
           const fileName = `Bulletin_${student.last_name}_${student.first_name}_P${period.period_number}.xlsx`;
           const storagePath = `${klass.establishment_id}/${student.id}/bulletin-p${period.period_number}-${Date.now()}.xlsx`;
 
-          const uploaded = await uploadBulletinWorkbook({
-            establishmentId: klass.establishment_id,
-            studentId: student.id,
-            path: storagePath,
-            blob,
-          });
+          const uploaded = await uploadBulletinWorkbook(storagePath, blob);
           if (!uploaded?.path) throw new Error("Upload storage échoué");
+          const storedPath =
+            uploaded.bucket && uploaded.bucket !== "student-documents"
+              ? `${uploaded.bucket}:${uploaded.path}`
+              : uploaded.path;
 
           const docName = `Bulletin période ${period.period_number}`;
           const { data: docRow, error: docErr } = await supabase
@@ -186,7 +196,7 @@ export function BulletinWalkthroughDialog({
               student_id: student.id,
               establishment_id: klass.establishment_id,
               name: docName,
-              file_path: uploaded.path,
+              file_path: storedPath,
               file_type: XLSX_MIME,
               file_size: blob.size,
             })
