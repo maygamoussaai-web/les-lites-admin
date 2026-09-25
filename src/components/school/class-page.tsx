@@ -1,6 +1,6 @@
 /**
- * Page classe — stats live (notes / modèle) + design modernisé.
- * Priorité : bulletins validés. Repli : aperçu live notes (± formules modèle).
+ * Page classe — stats via formules modèle Excel + design modernisé.
+ * Priorité : bulletins validés. Repli : évaluation live des formules du modèle.
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
@@ -37,7 +37,6 @@ import {
 } from "@/lib/grades";
 import { describeError } from "@/lib/errors";
 import { computeLiveClassStats } from "@/lib/class-model-stats";
-import type { TemplateMapping } from "@/lib/xlsx-template";
 
 type AveragedStudent = {
   student: { id: string; first_name: string; last_name: string };
@@ -55,7 +54,7 @@ interface ClassStats {
   lowest: AveragedStudent | null;
   bestSubject: { subject: ClassSubject; avg: number } | null;
   worstSubject: { subject: ClassSubject; avg: number } | null;
-  source: "bulletin" | "modele_live" | "notes_live";
+  source: "bulletin" | "modele_live";
 }
 
 function useSupabaseRows<T extends { id: string }>(
@@ -222,28 +221,19 @@ export function ClassPage() {
 
     (async () => {
       try {
-        let buffer: ArrayBuffer | null = null;
-        let mapping: TemplateMapping | null = null;
-        let scale = 20;
-        try {
-          const downloaded = await downloadActiveTemplateBuffer(classId);
-          if (downloaded) {
-            buffer = downloaded.buffer;
-            mapping = downloaded.mapping;
-            scale = downloaded.scale;
-          }
-        } catch {
-          /* modèle optionnel pour l'aperçu live */
+        const downloaded = await downloadActiveTemplateBuffer(classId);
+        if (cancelled || !downloaded) {
+          if (!cancelled) setStats(null);
+          return;
         }
-        if (cancelled) return;
         const live = computeLiveClassStats({
           students: classStudents,
           subjects: subjectsQuery.data,
           grades: gradesForPeriod,
           periodNumber: latestPeriod.period_number,
-          templateBuffer: buffer,
-          mapping,
-          scale,
+          templateBuffer: downloaded.buffer,
+          mapping: downloaded.mapping,
+          scale: downloaded.scale,
           establishmentName: establishment?.name ?? "",
           className: klass?.name ?? "",
         });
@@ -262,7 +252,7 @@ export function ClassPage() {
           lowest: live.lowest,
           bestSubject: live.bestSubject,
           worstSubject: live.worstSubject,
-          source: live.source === "notes_live" ? "notes_live" : "modele_live",
+          source: "modele_live",
         });
       } catch {
         if (!cancelled) setStats(null);
@@ -364,11 +354,9 @@ export function ClassPage() {
             description={
               stats?.source === "bulletin"
                 ? "Bulletins validés"
-                : stats?.source === "notes_live"
-                  ? "Aperçu live (notes)"
-                  : stats
-                    ? "Aperçu live (modèle)"
-                    : periodLabel
+                : stats
+                  ? "Formules du modèle (live)"
+                  : periodLabel
             }
             icon={GraduationCap}
           />
