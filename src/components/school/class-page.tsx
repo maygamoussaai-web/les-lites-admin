@@ -8,7 +8,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   ArrowLeft, Trophy, TrendingDown, Users, GraduationCap, AlertTriangle,
-  Plus, RotateCcw, FileBarChart, FileText,
+  Plus, RotateCcw, FileBarChart, FileText, Download,
 } from "lucide-react";
 import { StatCard } from "@/components/app/stat-card";
 import { EmptyState } from "@/components/app/empty-state";
@@ -38,6 +38,7 @@ import {
 } from "@/lib/grades";
 import { describeError } from "@/lib/errors";
 import { computeLiveClassStats } from "@/lib/class-model-stats";
+import { downloadPeriodBulletinsZip } from "@/lib/bulletin-zip";
 
 type AveragedStudent = {
   student: { id: string; first_name: string; last_name: string };
@@ -85,6 +86,7 @@ export function ClassPage() {
   const [studentsOpen, setStudentsOpen] = useState(false);
   const [noteEntryOpen, setNoteEntryOpen] = useState(false);
   const [bulletinsOpen, setBulletinsOpen] = useState(false);
+  const [zipBusy, setZipBusy] = useState(false);
   const [annualOpen, setAnnualOpen] = useState(false);
   const [renewOpen, setRenewOpen] = useState(false);
   const [pendingForcePeriod, setPendingForcePeriod] = useState(false);
@@ -388,6 +390,46 @@ export function ClassPage() {
                   </span>
                 )}
               </Button>
+              {bulletinsDone > 0 && (currentPeriod ?? latestPeriod) && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="press"
+                  disabled={zipBusy}
+                  onClick={() => {
+                    const per = currentPeriod ?? latestPeriod;
+                    if (!per) return;
+                    void (async () => {
+                      setZipBusy(true);
+                      const toastId = toast.loading("Préparation du ZIP des bulletins…");
+                      try {
+                        const n = await downloadPeriodBulletinsZip({
+                          classId,
+                          periodId: per.id,
+                          periodNumber: per.period_number,
+                          className: klass.name,
+                          students: classStudents.map((s) => ({
+                            id: s.id,
+                            first_name: s.first_name,
+                            last_name: s.last_name,
+                          })),
+                          onProgress: (done, total) => {
+                            toast.loading(`ZIP ${done}/${total}…`, { id: toastId });
+                          },
+                        });
+                        toast.success(`${n} bulletin(s) dans le ZIP`, { id: toastId });
+                      } catch (e) {
+                        toast.error(describeError(e, "ZIP impossible"), { id: toastId });
+                      } finally {
+                        setZipBusy(false);
+                      }
+                    })();
+                  }}
+                >
+                  <Download className="mr-1.5 h-4 w-4" />
+                  {zipBusy ? "ZIP…" : "ZIP bulletins"}
+                </Button>
+              )}
               <Button variant="outline" size="sm" className="press" onClick={() => setAnnualOpen(true)}>
                 <FileText className="mr-1.5 h-4 w-4" /> Annuel
               </Button>
@@ -477,26 +519,23 @@ export function ClassPage() {
               </div>
               {stats.bestSubject && (
                 <p className="text-sm text-muted-foreground">
-                  Meilleure matière : <strong>{stats.bestSubject.subject.name}</strong> ({
-                    stats.bestSubject.avg.toFixed(2)
-                  })
+                  Meilleure matière : <strong>{stats.bestSubject.subject.name}</strong> ({" "}
+                  {stats.bestSubject.avg.toFixed(2)})
                 </p>
               )}
               {stats.worstSubject && (
                 <p className="text-sm text-muted-foreground">
-                  Plus faible : <strong>{stats.worstSubject.subject.name}</strong> ({
-                    stats.worstSubject.avg.toFixed(2)
-                  })
+                  Matière à renforcer : <strong>{stats.worstSubject.subject.name}</strong> ({" "}
+                  {stats.worstSubject.avg.toFixed(2)})
                 </p>
               )}
             </CardContent>
           </Card>
           <StudentGroupCard
             title="Classement"
-            students={stats.withAvg.slice(0, 10).map((r, i) => ({
-              id: r.student.id,
-              name: `${r.student.last_name} ${r.student.first_name}`,
-              value: r.average.toFixed(2),
+            students={(stats.withAvg ?? []).map((r, i) => ({
+              ...r.student,
+              average: r.average,
               rank: i + 1,
             }))}
           />
