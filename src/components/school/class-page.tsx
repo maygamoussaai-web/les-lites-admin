@@ -166,7 +166,7 @@ export function ClassPage() {
     let cancelled = false;
 
     const fromCards = (): ClassStats | null => {
-      if (!latestPeriod || periodCards.length === 0) return null;
+      if (!latestPeriod || !periodCards?.length) return null;
       const withAvg: AveragedStudent[] = [];
       for (const s of classStudents) {
         const card = periodCards.find((c) => c.student_id === s.id);
@@ -214,7 +214,7 @@ export function ClassPage() {
       return;
     }
 
-    if (!latestPeriod || gradesForPeriod.length === 0 || !classStudents.length) {
+    if (!latestPeriod || !gradesForPeriod?.length || !classStudents?.length) {
       setStats(null);
       return;
     }
@@ -362,19 +362,19 @@ export function ClassPage() {
           />
           <StatCard
             title="Admis / excellent"
-            value={stats ? `${stats.passing.length} / ${stats.excellent.length}` : "—"}
-            description={stats ? `sur ${stats.withAvg.length} élève(s)` : "—"}
+            value={stats ? `${stats.passing?.length ?? 0} / ${stats.excellent?.length ?? 0}` : "—"}
+            description={stats ? `sur ${stats.withAvg?.length ?? 0} élève(s)` : "—"}
             icon={Trophy}
           />
           <StatCard
             title="En difficulté"
-            value={stats ? String(stats.struggling.length) : "—"}
+            value={stats ? String(stats.struggling?.length ?? 0) : "—"}
             description={stats?.lowest ? `Plus bas : ${stats.lowest.average.toFixed(2)}` : "—"}
             icon={TrendingDown}
           />
           <StatCard
             title="Effectif"
-            value={String(classStudents.length)}
+            value={String(classStudents?.length ?? 0)}
             description={periodLabel}
             icon={Users}
           />
@@ -391,16 +391,16 @@ export function ClassPage() {
               <div>
                 <div className="mb-1 flex justify-between text-sm">
                   <span>Réussite (≥ {PASS_THRESHOLD})</span>
-                  <span>{stats.withAvg.length ? Math.round((stats.passing.length / stats.withAvg.length) * 100) : 0}%</span>
+                  <span>{(stats.withAvg?.length ?? 0) ? Math.round(((stats.passing?.length ?? 0) / stats.withAvg.length) * 100) : 0}%</span>
                 </div>
-                <Progress value={stats.withAvg.length ? (stats.passing.length / stats.withAvg.length) * 100 : 0} />
+                <Progress value={(stats.withAvg?.length ?? 0) ? ((stats.passing?.length ?? 0) / stats.withAvg.length) * 100 : 0} />
               </div>
               <div>
                 <div className="mb-1 flex justify-between text-sm">
                   <span>Excellence (≥ {EXCELLENT_THRESHOLD})</span>
-                  <span>{stats.withAvg.length ? Math.round((stats.excellent.length / stats.withAvg.length) * 100) : 0}%</span>
+                  <span>{(stats.withAvg?.length ?? 0) ? Math.round(((stats.excellent?.length ?? 0) / stats.withAvg.length) * 100) : 0}%</span>
                 </div>
-                <Progress value={stats.withAvg.length ? (stats.excellent.length / stats.withAvg.length) * 100 : 0} />
+                <Progress value={(stats.withAvg?.length ?? 0) ? ((stats.excellent?.length ?? 0) / stats.withAvg.length) * 100 : 0} />
               </div>
               {stats.bestSubject && (
                 <p className="text-sm text-muted-foreground">
@@ -416,7 +416,7 @@ export function ClassPage() {
           </Card>
           <StudentGroupCard
             title="Classement"
-            students={stats.withAvg.slice(0, 10).map((r, i) => ({
+            students={(stats.withAvg ?? []).slice(0, 10).map((r, i) => ({
               id: r.student.id,
               name: `${r.student.last_name} ${r.student.first_name}`,
               value: r.average.toFixed(2),
