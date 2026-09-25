@@ -1,17 +1,19 @@
 import {
-  keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
+  keepPreviousData,
   type QueryClient,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import type { Database } from "@/integrations/supabase/types";
-import { describeError } from "@/lib/errors";
+import { enqueue } from "@/lib/offline-queue";
 import { flushQueue } from "@/lib/offline-sync";
+import { describeError } from "@/lib/errors";
+import type { TableName } from "@/lib/audit";
 
-type TableName = keyof Database["public"]["Tables"];
+export type { TableName };
+export { writeAudit } from "@/lib/audit";
 
 type ListOptions = {
   select?: string;
@@ -100,7 +102,6 @@ export function useSaveRow(table: TableName, label = "Enregistrement") {
           : [...rows, { id: rowId, ...values }],
       );
 
-      const { enqueue } = await import("@/lib/offline-queue");
       enqueue({ id: crypto.randomUUID(), table, op, rowId, values, createdAt: Date.now(), label });
 
       if (isOnline()) await flushQueue(qc);
@@ -118,7 +119,6 @@ export function useDeleteRow(table: TableName, label = "Élément") {
   return useMutation({
     mutationFn: async (rowId: string) => {
       applyOptimistic(qc, table, (rows) => rows.filter((r) => r.id !== rowId));
-      const { enqueue } = await import("@/lib/offline-queue");
       enqueue({ id: crypto.randomUUID(), table, op: "delete", rowId, createdAt: Date.now(), label });
       if (isOnline()) await flushQueue(qc);
       return rowId;
@@ -139,7 +139,6 @@ export function useArchiveRow(table: TableName, label = "Élément") {
       applyOptimistic(qc, table, (rows) =>
         rows.map((r) => (r.id === rowId ? { ...r, archived_at: new Date().toISOString() } : r)),
       );
-      const { enqueue } = await import("@/lib/offline-queue");
       enqueue({ id: crypto.randomUUID(), table, op: "archive", rowId, createdAt: Date.now(), label });
       if (isOnline()) await flushQueue(qc);
       return rowId;
