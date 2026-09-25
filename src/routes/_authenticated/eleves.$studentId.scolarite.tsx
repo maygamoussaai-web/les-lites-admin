@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useAdminProfile } from "@/hooks/use-auth";
 import { useSchoolData } from "@/lib/school-data";
-import { sum } from "@/lib/school";
+import { sum, lateStatus, type Installment } from "@/lib/school";
 import { formatFCFA, formatDate } from "@/lib/format";
 
 export const Route = createFileRoute("/_authenticated/eleves/$studentId/scolarite")({
@@ -37,7 +37,11 @@ function Page() {
       const paid = sum(data.tuitionPayments.filter((p) => p.enrollment_id === e.id).map((p) => Number(p.amount)));
       const total = Number(e.total_amount);
       const closed = total > 0 && paid >= total;
-      return { enrollment: e, paid, total, closed };
+      const late = lateStatus(
+        paid,
+        (e.installments_snapshot as unknown as Installment[]) ?? [],
+      );
+      return { enrollment: e, paid, total, closed, late };
     })
     .sort((a, b) => b.enrollment.started_at.localeCompare(a.enrollment.started_at));
 
@@ -66,7 +70,7 @@ function Page() {
         <EmptyState icon={Receipt} title="Aucune période" description="Aucune période de scolarité enregistrée pour cet élève." />
       ) : (
         <div className="space-y-3">
-          {periods.map(({ enrollment, paid, total, closed }, index) => {
+          {periods.map(({ enrollment, paid, total, closed, late }, index) => {
             const rate = total > 0 ? Math.min(100, Math.round((paid / total) * 100)) : 0;
             return (
               <div
@@ -87,11 +91,17 @@ function Page() {
                       {enrollment.ended_at ? ` au ${formatDate(enrollment.ended_at)}` : ""}
                     </p>
                   </div>
-                  {closed ? (
-                    <Badge className="bg-success text-success-foreground">Bouclé</Badge>
-                  ) : (
-                    <Badge variant="destructive">Non bouclé</Badge>
-                  )}
+                  <div className="flex flex-wrap gap-1.5">
+                    {closed ? (
+                      <Badge className="bg-success text-success-foreground">Bouclé</Badge>
+                    ) : late.isLate ? (
+                      <Badge variant="destructive">
+                        En retard · {late.overdueAmount.toLocaleString("fr-FR")} F
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary">En cours</Badge>
+                    )}
+                  </div>
                 </div>
                 <div className="mt-3">
                   <div className="mb-1.5 flex items-center justify-between text-sm">
