@@ -113,22 +113,6 @@ export function NoteEntryDialog({
     }
   }, [open, realSubjects]);
 
-  const previewEvalAvg = (() => {
-    if (nature !== "evaluation") return null;
-    if (!subjectId || !currentPeriod) return null;
-    const scaleNum = Number(scale);
-    if (!Number.isFinite(scaleNum) || scaleNum <= 0) return null;
-    const prior = existingGrades.filter(
-      (g) =>
-        g.student_id &&
-        g.subject_id === subjectId &&
-        g.period_id === currentPeriod.id &&
-        g.nature === "evaluation",
-    );
-    // simplified: just show message that avg is computed on save
-    return null;
-  })();
-
   const onSubmit = async () => {
     if (!currentPeriod) {
       toast.error("Aucune période en cours");
@@ -154,6 +138,17 @@ export function NoteEntryDialog({
       .filter(Boolean) as { student: StudentRef; value: number }[];
     if (!entries.length) {
       toast.error("Saisissez au moins une note");
+      return;
+    }
+    const outOfRange = entries.filter((e) => e.value < 0 || e.value > scaleNum);
+    if (outOfRange.length) {
+      const sample = outOfRange
+        .slice(0, 2)
+        .map((e) => `${e.student.last_name} (${e.value})`)
+        .join(", ");
+      toast.error(
+        `Note hors barème (0–${scaleNum}) : ${sample}${outOfRange.length > 2 ? "…" : ""}`,
+      );
       return;
     }
     setSubmitting(true);
@@ -299,10 +294,31 @@ export function NoteEntryDialog({
                   {s.last_name} {s.first_name}
                 </span>
                 <Input
-                  className="w-24"
+                  className={(() => {
+                    const raw = values[s.id]?.trim();
+                    if (!raw) return "w-24";
+                    const n = Number(raw.replace(",", "."));
+                    const scaleNum = Number(scale);
+                    if (!Number.isFinite(n)) return "w-24 border-destructive";
+                    if (Number.isFinite(scaleNum) && (n < 0 || n > scaleNum))
+                      return "w-24 border-destructive focus-visible:ring-destructive";
+                    return "w-24";
+                  })()}
                   type="number"
                   step="any"
+                  min={0}
+                  max={Number(scale) || undefined}
                   placeholder="—"
+                  aria-invalid={(() => {
+                    const raw = values[s.id]?.trim();
+                    if (!raw) return false;
+                    const n = Number(raw.replace(",", "."));
+                    const scaleNum = Number(scale);
+                    return (
+                      !Number.isFinite(n) ||
+                      (Number.isFinite(scaleNum) && (n < 0 || n > scaleNum))
+                    );
+                  })()}
                   value={values[s.id] ?? ""}
                   onChange={(e) => setValues((v) => ({ ...v, [s.id]: e.target.value }))}
                 />
