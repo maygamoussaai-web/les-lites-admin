@@ -161,27 +161,27 @@ export function EstablishmentPage() {
       )}
 
       <Tabs defaultValue="classes" className="space-y-4">
-        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-xl border border-border/70 bg-muted/40 p-1 sm:w-auto">
+        <TabsList className="grid h-11 w-full grid-cols-3 gap-1 rounded-xl border border-border/70 bg-muted/40 p-1">
           <TabsTrigger
             value="classes"
-            className="gap-1.5 rounded-lg px-3 py-2 data-[state=active]:shadow-sm"
+            className="gap-1.5 rounded-lg px-2 py-2 text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm"
           >
-            <GraduationCap className="h-3.5 w-3.5" />
-            Classes
+            <GraduationCap className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">Classes</span>
           </TabsTrigger>
           <TabsTrigger
             value="enseignants"
-            className="gap-1.5 rounded-lg px-3 py-2 data-[state=active]:shadow-sm"
+            className="gap-1.5 rounded-lg px-2 py-2 text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm"
           >
-            <UserCheck className="h-3.5 w-3.5" />
-            Enseignants
+            <UserCheck className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">Enseignants</span>
           </TabsTrigger>
           <TabsTrigger
             value="finance"
-            className="gap-1.5 rounded-lg px-3 py-2 data-[state=active]:shadow-sm"
+            className="gap-1.5 rounded-lg px-2 py-2 text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm"
           >
-            <Wallet className="h-3.5 w-3.5" />
-            Finance
+            <Wallet className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">Finance</span>
           </TabsTrigger>
         </TabsList>
         <TabsContent value="classes" className="mt-0 focus-visible:outline-none">
