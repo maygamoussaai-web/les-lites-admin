@@ -72,15 +72,14 @@ export function ClassPage() {
   const data = useSchoolData();
   const qc = useQueryClient();
   const klass = data.classes.find((c) => c.id === classId);
-  const allowed = klass && (isDG || establishmentIds.includes(klass.establishment_id));
+  const allowed = klass && (isDG || (establishmentIds ?? []).includes(klass.establishment_id));
   const establishment = klass ? data.establishments.find((e) => e.id === klass.establishment_id) : null;
-  const classStudents = useMemo(
-    () =>
-      data.students
-        .filter((s) => s.class_id === classId)
-        .sort((a, b) => `${a.last_name}${a.first_name}`.localeCompare(`${b.last_name}${b.first_name}`)),
-    [data.students, classId],
-  );
+  const classStudents = useMemo(() => {
+    const list = Array.isArray(data.students) ? data.students : [];
+    return list
+      .filter((s) => s.class_id === classId)
+      .sort((a, b) => `${a.last_name}${a.first_name}`.localeCompare(`${b.last_name}${b.first_name}`));
+  }, [data.students, classId]);
 
   const [studentsOpen, setStudentsOpen] = useState(false);
   const [noteEntryOpen, setNoteEntryOpen] = useState(false);
@@ -96,7 +95,9 @@ export function ClassPage() {
   const currentPeriod = periodsQuery.data.find((p) => p.ended_at === null) ?? null;
   const latestPeriod =
     currentPeriod ??
-    [...periodsQuery.data].sort((a, b) => b.period_number - a.period_number)[0] ??
+    [...(Array.isArray(periodsQuery.data) ? periodsQuery.data : [])].sort(
+      (a, b) => b.period_number - a.period_number,
+    )[0] ??
     null;
   const gradesAllQuery = useSupabaseRows<Grade>("grades", { class_id: classId }, "created_at");
   const gradesForPeriod = useMemo(
@@ -183,7 +184,7 @@ export function ClassPage() {
       withAvg.sort((a, b) => b.average - a.average);
 
       const ranked: { subject: ClassSubject; avg: number }[] = [];
-      for (const sub of subjectsQuery.data) {
+      for (const sub of subjectsQuery.data ?? []) {
         const vals: number[] = [];
         for (const c of periodCards) {
           const sa = (c.subject_averages as Record<string, number | null> | null) ?? {};
@@ -228,7 +229,7 @@ export function ClassPage() {
         }
         const live = computeLiveClassStats({
           students: classStudents,
-          subjects: subjectsQuery.data,
+          subjects: subjectsQuery.data ?? [],
           grades: gradesForPeriod,
           periodNumber: latestPeriod.period_number,
           templateBuffer: downloaded.buffer,
@@ -243,10 +244,10 @@ export function ClassPage() {
           return;
         }
         setStats({
-          withAvg: live.withAvg,
-          passing: live.passing,
-          excellent: live.excellent,
-          struggling: live.struggling,
+          withAvg: live.withAvg ?? [],
+          passing: live.passing ?? [],
+          excellent: live.excellent ?? [],
+          struggling: live.struggling ?? [],
           classAverage: live.classAverage,
           highest: live.highest,
           lowest: live.lowest,
@@ -349,9 +350,9 @@ export function ClassPage() {
         </div>
         <div className="grid gap-px bg-border/60 sm:grid-cols-2 lg:grid-cols-4">
           <StatCard
-            title="Moyenne de classe"
+            label="Moyenne de classe"
             value={stats?.classAverage != null ? stats.classAverage.toFixed(2) : "—"}
-            description={
+            hint={
               stats?.source === "bulletin"
                 ? "Bulletins validés"
                 : stats
@@ -361,27 +362,27 @@ export function ClassPage() {
             icon={GraduationCap}
           />
           <StatCard
-            title="Admis / excellent"
+            label="Admis / excellent"
             value={stats ? `${stats.passing?.length ?? 0} / ${stats.excellent?.length ?? 0}` : "—"}
-            description={stats ? `sur ${stats.withAvg?.length ?? 0} élève(s)` : "—"}
+            hint={stats ? `sur ${stats.withAvg?.length ?? 0} élève(s)` : "—"}
             icon={Trophy}
           />
           <StatCard
-            title="En difficulté"
+            label="En difficulté"
             value={stats ? String(stats.struggling?.length ?? 0) : "—"}
-            description={stats?.lowest ? `Plus bas : ${stats.lowest.average.toFixed(2)}` : "—"}
+            hint={stats?.lowest ? `Plus bas : ${stats.lowest.average.toFixed(2)}` : "—"}
             icon={TrendingDown}
           />
           <StatCard
-            title="Effectif"
+            label="Effectif"
             value={String(classStudents?.length ?? 0)}
-            description={periodLabel}
+            hint={periodLabel}
             icon={Users}
           />
         </div>
       </div>
 
-      {stats && (
+      {stats && Array.isArray(stats.withAvg) && stats.withAvg.length > 0 && (
         <div className="mb-6 mt-4 grid gap-4 lg:grid-cols-2">
           <Card>
             <CardHeader className="pb-2">
@@ -391,32 +392,58 @@ export function ClassPage() {
               <div>
                 <div className="mb-1 flex justify-between text-sm">
                   <span>Réussite (≥ {PASS_THRESHOLD})</span>
-                  <span>{(stats.withAvg?.length ?? 0) ? Math.round(((stats.passing?.length ?? 0) / stats.withAvg.length) * 100) : 0}%</span>
+                  <span>
+                    {stats.withAvg.length
+                      ? Math.round(((stats.passing?.length ?? 0) / stats.withAvg.length) * 100)
+                      : 0}
+                    %
+                  </span>
                 </div>
-                <Progress value={(stats.withAvg?.length ?? 0) ? ((stats.passing?.length ?? 0) / stats.withAvg.length) * 100 : 0} />
+                <Progress
+                  value={
+                    stats.withAvg.length
+                      ? ((stats.passing?.length ?? 0) / stats.withAvg.length) * 100
+                      : 0
+                  }
+                />
               </div>
               <div>
                 <div className="mb-1 flex justify-between text-sm">
                   <span>Excellence (≥ {EXCELLENT_THRESHOLD})</span>
-                  <span>{(stats.withAvg?.length ?? 0) ? Math.round(((stats.excellent?.length ?? 0) / stats.withAvg.length) * 100) : 0}%</span>
+                  <span>
+                    {stats.withAvg.length
+                      ? Math.round(((stats.excellent?.length ?? 0) / stats.withAvg.length) * 100)
+                      : 0}
+                    %
+                  </span>
                 </div>
-                <Progress value={(stats.withAvg?.length ?? 0) ? ((stats.excellent?.length ?? 0) / stats.withAvg.length) * 100 : 0} />
+                <Progress
+                  value={
+                    stats.withAvg.length
+                      ? ((stats.excellent?.length ?? 0) / stats.withAvg.length) * 100
+                      : 0
+                  }
+                />
               </div>
               {stats.bestSubject && (
                 <p className="text-sm text-muted-foreground">
-                  Meilleure matière : <strong>{stats.bestSubject.subject.name}</strong> ({stats.bestSubject.avg.toFixed(2)})
+                  Meilleure matière : <strong>{stats.bestSubject.subject.name}</strong> ({
+                    stats.bestSubject.avg.toFixed(2)
+                  })
                 </p>
               )}
               {stats.worstSubject && (
                 <p className="text-sm text-muted-foreground">
-                  Plus faible : <strong>{stats.worstSubject.subject.name}</strong> ({stats.worstSubject.avg.toFixed(2)})
+                  Plus faible : <strong>{stats.worstSubject.subject.name}</strong> ({
+                    stats.worstSubject.avg.toFixed(2)
+                  })
                 </p>
               )}
             </CardContent>
           </Card>
           <StudentGroupCard
             title="Classement"
-            students={(stats.withAvg ?? []).slice(0, 10).map((r, i) => ({
+            students={stats.withAvg.slice(0, 10).map((r, i) => ({
               id: r.student.id,
               name: `${r.student.last_name} ${r.student.first_name}`,
               value: r.average.toFixed(2),
@@ -440,7 +467,7 @@ export function ClassPage() {
         classId={classId}
         establishmentId={klass.establishment_id}
         students={classStudents}
-        subjects={subjectsQuery.data}
+        subjects={subjectsQuery.data ?? []}
         currentPeriod={currentPeriod}
         subjectLabels={activeTemplate?.subjectLabels}
         allowedNatures={activeTemplate?.gradeNatures}
@@ -457,7 +484,7 @@ export function ClassPage() {
         establishmentName={establishment?.name ?? ""}
         students={classStudents}
         period={currentPeriod ?? latestPeriod}
-        subjects={subjectsQuery.data}
+        subjects={subjectsQuery.data ?? []}
         grades={gradesForPeriod}
       />
 
@@ -466,8 +493,8 @@ export function ClassPage() {
         onClose={() => setAnnualOpen(false)}
         klass={klass}
         students={classStudents}
-        periods={periodsQuery.data}
-        subjects={subjectsQuery.data}
+        periods={periodsQuery.data ?? []}
+        subjects={subjectsQuery.data ?? []}
       />
 
       <AlertDialog open={pendingForcePeriod} onOpenChange={setPendingForcePeriod}>
