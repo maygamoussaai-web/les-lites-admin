@@ -78,7 +78,6 @@ export function ReportTemplateManager({
     null;
   const activeAnnual =
     templates.find((t) => t.is_active && t.kind === "annual") ?? null;
-  const active = activePeriod ?? templates.find((t) => t.is_active) ?? templates[0] ?? null;
 
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -227,7 +226,7 @@ export function ReportTemplateManager({
       });
       qc.invalidateQueries({ queryKey: ["report_templates"] });
       qc.invalidateQueries({ queryKey: ["class_subjects"] });
-      qc.invalidateQueries({ queryKey: ["active_report_template"] });
+      qc.invalidateQueries({ queryKey: ["active-report-template"] });
       toast.success(
         kind === "annual"
           ? "Modèle annuel enregistré"
@@ -356,11 +355,6 @@ export function ReportTemplateManager({
                     Annuel
                   </Button>
                 </div>
-                <p className="mt-1.5 text-[11px] text-muted-foreground">
-                  {templateKind === "annual"
-                    ? "Utilisé pour la génération des bulletins annuels. N'importe quel plan de colonnes (bref ou complet)."
-                    : "Utilisé pour les bulletins de chaque période et la saisie des notes."}
-                </p>
               </div>
 
               <div className="rounded-lg border border-success/30 bg-success/10 p-3 space-y-2">
@@ -473,59 +467,20 @@ export function ReportTemplateManager({
                       </div>
                     ))}
                   </div>
-                  <div className="space-y-1.5">
-                    {Object.entries(mapping.fields).map(([address, role]) => (
-                      <div key={address} className="flex items-center gap-2">
-                        <Badge variant="outline" className="w-14 justify-center font-mono">
-                          {address}
-                        </Badge>
-                        <Select
-                          value={role}
-                          onValueChange={(v) =>
-                            setMapping((m) =>
-                              m ? { ...m, fields: { ...m.fields, [address]: v as FieldRole } } : m,
-                            )
-                          }
-                        >
-                          <SelectTrigger className="flex-1">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {(Object.keys(FIELD_ROLE_LABELS) as FieldRole[]).map((r) => (
-                              <SelectItem key={r} value={r}>
-                                {FIELD_ROLE_LABELS[r]}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ))}
-                  </div>
                 </CollapsibleContent>
               </Collapsible>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setOpen(false); reset(); }} disabled={busy}>
+                  Annuler
+                </Button>
+                <Button className="press" disabled={busy} onClick={() => void save()}>
+                  {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Check className="mr-1.5 h-4 w-4" />}
+                  Enregistrer le modèle
+                </Button>
+              </DialogFooter>
             </div>
           )}
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                if (step === "review") reset();
-                else {
-                  setOpen(false);
-                  reset();
-                }
-              }}
-            >
-              {step === "review" ? "Recommencer" : "Annuler"}
-            </Button>
-            {step === "review" && (
-              <Button onClick={save} disabled={busy || !mapping}>
-                {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Check className="mr-1.5 h-4 w-4" />}
-                Valider le modèle
-              </Button>
-            )}
-          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
