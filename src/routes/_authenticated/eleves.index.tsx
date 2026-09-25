@@ -52,17 +52,20 @@ function Page() {
   );
 
   const rows = useMemo(() => {
+    let list = data.students.filter((s) => isDG || establishmentIds.includes(s.establishment_id));
+    if (establishmentFilter) list = list.filter((s) => s.establishment_id === establishmentFilter);
+    if (classFilter === "unassigned") list = list.filter((s) => !s.class_id);
+    else if (classFilter) list = list.filter((s) => s.class_id === classFilter);
     const term = search.trim().toLowerCase();
-    return data.students
-      .filter((s) => (establishmentFilter ? s.establishment_id === establishmentFilter : true))
-      .filter((s) => {
-        if (classFilter === "unassigned") return !s.class_id;
-        if (classFilter) return s.class_id === classFilter;
-        return true;
-      })
-      .filter((s) => (term ? `${s.first_name} ${s.last_name}`.toLowerCase().includes(term) : true))
-      .sort((a, b) => `${a.last_name}${a.first_name}`.localeCompare(`${b.last_name}${b.first_name}`));
-  }, [data.students, establishmentFilter, classFilter, search]);
+    if (term) {
+      list = list.filter((s) =>
+        `${s.first_name} ${s.last_name}`.toLowerCase().includes(term),
+      );
+    }
+    return list.sort((a, b) =>
+      `${a.last_name}${a.first_name}`.localeCompare(`${b.last_name}${b.first_name}`),
+    );
+  }, [data.students, isDG, establishmentIds, establishmentFilter, classFilter, search]);
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);
@@ -78,7 +81,9 @@ function Page() {
       cell: (s) => (
         <div className="flex items-center gap-3">
           <Avatar className="h-9 w-9 border border-border">
-            {s.photo_path ? <AvatarImage src={s.photo_path} alt="" /> : null}
+            {s.photo_url ? (
+              <AvatarImage src={s.photo_url} alt={`${s.last_name} ${s.first_name}`} />
+            ) : null}
             <AvatarFallback className="text-xs">{initials(s.first_name, s.last_name)}</AvatarFallback>
           </Avatar>
           <div className="min-w-0">
@@ -102,9 +107,11 @@ function Page() {
           data.tuitionPayments.filter((p) => p.enrollment_id === enr.id).map((p) => Number(p.amount)),
         );
         const total = Number(enr.total_amount);
-        if (total > 0 && paid >= total) return <Badge className="bg-success text-success-foreground">Bouclé</Badge>;
-        const late = lateStatus(paid, (enr.installments_snapshot as unknown as Installment[]) ?? []);
-        if (late.isLate) return <Badge variant="destructive">Retard</Badge>;
+        if (total > 0 && paid >= total)
+          return <Badge className="bg-success text-success-foreground">Bouclé</Badge>;
+        const installments = (enr.installments_snapshot as unknown as Installment[]) ?? [];
+        const status = lateStatus(paid, installments);
+        if (status.isLate) return <Badge variant="destructive">Retard</Badge>;
         return <Badge variant="secondary">{formatFCFA(paid)}</Badge>;
       },
     },
@@ -129,7 +136,10 @@ function Page() {
           />
         </div>
         {canFilterByEstablishment && (
-          <Select value={establishmentFilter || "all"} onValueChange={(v) => setEstablishmentFilter(v === "all" ? "" : v)}>
+          <Select
+            value={establishmentFilter || "all"}
+            onValueChange={(v) => setEstablishmentFilter(v === "all" ? "" : v)}
+          >
             <SelectTrigger className="w-full sm:w-48">
               <SelectValue placeholder="Établissement" />
             </SelectTrigger>
@@ -143,7 +153,10 @@ function Page() {
             </SelectContent>
           </Select>
         )}
-        <Select value={classFilter || "all"} onValueChange={(v) => setClassFilter(v === "all" ? "" : v)}>
+        <Select
+          value={classFilter || "all"}
+          onValueChange={(v) => setClassFilter(v === "all" ? "" : v)}
+        >
           <SelectTrigger className="w-full sm:w-48">
             <SelectValue placeholder="Classe" />
           </SelectTrigger>
