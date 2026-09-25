@@ -19,9 +19,9 @@ import {
 } from "@/lib/school";
 
 // Structure stable : moins de refetch, UI plus fluide (surtout mobile).
-const STABLE_STALE_TIME = 5 * 60_000;
+const STABLE_STALE_TIME = 2 * 60_000;
 // Listes qui bougent un peu plus souvent mais pas a chaque seconde.
-const SEMI_STALE_TIME = 2 * 60_000;
+const SEMI_STALE_TIME = 45_000;
 
 /**
  * Charge l'ensemble des donnees visibles par l'utilisateur courant.
@@ -45,168 +45,108 @@ export function useSchoolData() {
     staleTime: STABLE_STALE_TIME,
   });
   const installments = useRows<Installment>("fee_plan_installments", {
-    order: { column: "position" },
+    order: { column: "due_date" },
     staleTime: STABLE_STALE_TIME,
+  });
+  const enrollments = useRows<StudentEnrollment>("student_enrollments", {
+    order: { column: "created_at", ascending: false },
+    staleTime: SEMI_STALE_TIME,
   });
   const tuitionPayments = useRows<TuitionPayment>("tuition_payments", {
     order: { column: "paid_at", ascending: false },
-  });
-  const enrollments = useRows<StudentEnrollment>("student_enrollments", {
-    order: { column: "started_at" },
     staleTime: SEMI_STALE_TIME,
   });
   const teachers = useRows<Teacher>("teachers", {
     order: { column: "last_name" },
-    staleTime: SEMI_STALE_TIME,
+    staleTime: STABLE_STALE_TIME,
   });
   const assignments = useRows<TeacherAssignment>("teacher_assignments", {
+    order: { column: "created_at", ascending: false },
     staleTime: SEMI_STALE_TIME,
   });
   const sessions = useRows<TeacherSession>("teacher_sessions", {
-    order: { column: "weekday" },
-    staleTime: STABLE_STALE_TIME,
+    order: { column: "session_date", ascending: false },
+    staleTime: SEMI_STALE_TIME,
   });
-  const sessionCompletions = useRows<TeacherSessionCompletion>("teacher_session_completions", {
+  const completions = useRows<TeacherSessionCompletion>("teacher_session_completions", {
+    order: { column: "created_at", ascending: false },
     staleTime: SEMI_STALE_TIME,
   });
   const teacherPayments = useRows<TeacherPayment>("teacher_payments", {
     order: { column: "paid_at", ascending: false },
+    staleTime: SEMI_STALE_TIME,
   });
 
   const loading =
-    establishments.isPending ||
-    classes.isPending ||
-    students.isPending ||
-    feePlans.isPending ||
-    installments.isPending ||
-    tuitionPayments.isPending ||
-    enrollments.isPending;
+    establishments.isLoading ||
+    classes.isLoading ||
+    students.isLoading ||
+    feePlans.isLoading ||
+    installments.isLoading ||
+    enrollments.isLoading ||
+    tuitionPayments.isLoading ||
+    teachers.isLoading ||
+    assignments.isLoading ||
+    sessions.isLoading ||
+    completions.isLoading ||
+    teacherPayments.isLoading;
 
-  return useMemo(() => {
-    const allStudents = students.data ?? [];
-    const allTeachers = teachers.data ?? [];
-    const allEnrollments = enrollments.data ?? [];
-    const allClasses = classes.data ?? [];
-
-    const activeEnrollmentByStudent = new Map<string, StudentEnrollment>();
-    for (const e of allEnrollments) {
-      if (e.ended_at === null) activeEnrollmentByStudent.set(e.student_id, e);
-    }
-
-    const allTuitionPayments = tuitionPayments.data ?? [];
-    const paidByEnrollment = new Map<string, number>();
-    for (const p of allTuitionPayments) {
-      if (!p.enrollment_id) continue;
-      paidByEnrollment.set(p.enrollment_id, (paidByEnrollment.get(p.enrollment_id) ?? 0) + Number(p.amount));
-    }
-
+  const stats = useMemo(() => {
+    const st = students.data ?? [];
+    const cl = classes.data ?? [];
+    const en = enrollments.data ?? [];
+    const tp = tuitionPayments.data ?? [];
+    const te = teachers.data ?? [];
     return {
-      loading,
-      establishments: establishments.data ?? [],
-      classes: allClasses.filter((c) => c.is_active !== false),
-      archivedClasses: allClasses.filter((c) => c.is_active === false),
-      students: allStudents.filter((s) => !s.archived_at),
-      archivedStudents: allStudents.filter((s) => !!s.archived_at),
-      feePlans: feePlans.data ?? [],
-      installments: installments.data ?? [],
-      tuitionPayments: allTuitionPayments,
-      enrollments: allEnrollments,
-      activeEnrollmentByStudent,
-      paidByEnrollment,
-      teachers: allTeachers.filter((t) => !t.archived_at),
-      assignments: assignments.data ?? [],
-      sessions: sessions.data ?? [],
-      sessionCompletions: sessionCompletions.data ?? [],
-      teacherPayments: teacherPayments.data ?? [],
-      studentsById: new Map(allStudents.map((s) => [s.id, s])),
-      teachersById: new Map(allTeachers.map((t) => [t.id, t])),
+      studentCount: st.length,
+      classCount: cl.length,
+      teacherCount: te.length,
+      enrollmentCount: en.length,
+      tuitionCollected: sum(tp.map((p) => Number(p.amount) || 0)),
+      lateStudents: st.filter((s) => lateStatus(s, en, installments.data ?? [], tp)).length,
+      teacherDueTotal: sum(te.map((t) => teacherDue(t, assignments.data ?? [], sessions.data ?? [], completions.data ?? [], teacherPayments.data ?? []))),
     };
   }, [
-    loading,
-    establishments.data,
-    classes.data,
     students.data,
-    feePlans.data,
-    installments.data,
-    tuitionPayments.data,
+    classes.data,
     enrollments.data,
+    tuitionPayments.data,
     teachers.data,
     assignments.data,
     sessions.data,
-    sessionCompletions.data,
+    completions.data,
     teacherPayments.data,
+    installments.data,
   ]);
-}
 
-export type SchoolData = ReturnType<typeof useSchoolData>;
-
-export type EstablishmentStats = {
-  students: number;
-  classes: number;
-  expected: number;
-  collected: number;
-  outstanding: number;
-  lateStudents: number;
-  teachers: number;
-  teacherDue: number;
-  teacherPaid: number;
-};
-
-export function useEstablishmentStats(data: SchoolData, since?: string) {
-  return useMemo(() => {
-    const map = new Map<string, EstablishmentStats>();
-    for (const est of data.establishments) {
-      const estClasses = data.classes.filter((c) => c.establishment_id === est.id);
-      const estStudents = data.students.filter((s) => s.establishment_id === est.id);
-      const payments = data.tuitionPayments.filter(
-        (p) => p.establishment_id === est.id && (!since || p.paid_at >= since),
-      );
-      const collected = sum(payments.map((p) => Number(p.amount)));
-
-      let expected = 0;
-      let outstanding = 0;
-      let lateStudents = 0;
-      for (const student of estStudents) {
-        const enrollment = data.activeEnrollmentByStudent.get(student.id);
-        if (!enrollment) continue;
-        const total = Number(enrollment.total_amount);
-        const paidForEnrollment = sum(
-          data.tuitionPayments.filter((p) => p.enrollment_id === enrollment.id).map((p) => Number(p.amount)),
-        );
-        expected += total;
-        outstanding += Math.max(0, total - paidForEnrollment);
-        const status = lateStatus(
-          paidForEnrollment,
-          (enrollment.installments_snapshot as unknown as Installment[]) ?? [],
-        );
-        if (status.isLate) lateStudents += 1;
-      }
-
-      const estAssignments = data.assignments.filter(
-        (a) => a.establishment_id === est.id && a.is_active && data.teachers.some((t) => t.id === a.teacher_id),
-      );
-      const dueTeachers = estAssignments.reduce(
-        (acc, a) => acc + teacherDue(a, data.sessions, data.sessionCompletions),
-        0,
-      );
-      const paidTeachers = sum(
-        data.teacherPayments
-          .filter((p) => p.establishment_id === est.id && (!since || p.paid_at >= since))
-          .map((p) => Number(p.amount)),
-      );
-
-      map.set(est.id, {
-        students: estStudents.length,
-        classes: estClasses.length,
-        expected,
-        collected,
-        outstanding,
-        lateStudents,
-        teachers: estAssignments.length,
-        teacherDue: dueTeachers,
-        teacherPaid: paidTeachers,
-      });
-    }
-    return map;
-  }, [data, since]);
+  return {
+    loading,
+    establishments: establishments.data ?? [],
+    classes: classes.data ?? [],
+    students: students.data ?? [],
+    feePlans: feePlans.data ?? [],
+    installments: installments.data ?? [],
+    enrollments: enrollments.data ?? [],
+    tuitionPayments: tuitionPayments.data ?? [],
+    teachers: teachers.data ?? [],
+    assignments: assignments.data ?? [],
+    sessions: sessions.data ?? [],
+    completions: completions.data ?? [],
+    teacherPayments: teacherPayments.data ?? [],
+    stats,
+    refetchAll: () => {
+      void establishments.refetch();
+      void classes.refetch();
+      void students.refetch();
+      void feePlans.refetch();
+      void installments.refetch();
+      void enrollments.refetch();
+      void tuitionPayments.refetch();
+      void teachers.refetch();
+      void assignments.refetch();
+      void sessions.refetch();
+      void completions.refetch();
+      void teacherPayments.refetch();
+    },
+  };
 }

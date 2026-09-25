@@ -7,13 +7,11 @@ import {
 } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { enqueue } from "@/lib/offline-queue";
-import { flushQueue } from "@/lib/offline-sync";
+import type { Database } from "@/integrations/supabase/types";
 import { describeError } from "@/lib/errors";
-import type { TableName } from "@/lib/audit";
+import { enqueue, flushQueue } from "@/lib/offline-queue";
 
-export type { TableName };
-export { writeAudit } from "@/lib/audit";
+type TableName = keyof Database["public"]["Tables"];
 
 type ListOptions = {
   select?: string;
@@ -22,25 +20,39 @@ type ListOptions = {
   enabled?: boolean;
   limit?: number;
   /**
-   * Durée (ms) pendant laquelle la donnée est considérée à jour avant qu'une
-   * revalidation silencieuse en arrière-plan soit tentée au prochain montage.
-   * Par défaut 30s (données qui bougent souvent : paiements, séances...).
-   * Les tables qui changent rarement (établissements, classes, modèles de
-   * scolarité) peuvent passer une valeur plus longue pour réduire le nombre
-   * de requêtes réseau silencieuses, sans jamais affecter l'affichage —
-   * celui-ci reste instantané grâce à placeholderData, quelle que soit cette
-   * valeur.
+   * Durée pendant laquelle les données restent « fraîches » sans refetch.
+   * Le placeholderData (keepPreviousData) assure un affichage instantané.
    */
   staleTime?: number;
 };
 
+/** Tables qui changent souvent (notes, périodes, documents) — cache court. */
+const VOLATILE_TABLES = new Set([
+  "grades",
+  "grade_periods",
+  "student_documents",
+  "student_report_cards",
+  "class_reports",
+]);
+
 export function useRows<T = any>(table: TableName, options: ListOptions = {}) {
-  const { select = "*", order, eq, enabled = true, limit, staleTime = 120_000 } = options;
+  const isVolatile = VOLATILE_TABLES.has(table);
+  const {
+    select = "*",
+    order,
+    eq,
+    enabled = true,
+    limit,
+    staleTime = isVolatile ? 15_000 : 60_000,
+  } = options;
   return useQuery({
     queryKey: [table, select, order, eq, limit],
     enabled,
     staleTime,
-    refetchOnWindowFocus: false,
+    // Toujours rafraîchir les données volatiles au focus / montage ;
+    // le reste suit les defaults globaux (45s).
+    refetchOnWindowFocus: true,
+    refetchOnMount: isVolatile ? "always" : true,
     refetchOnReconnect: true,
     structuralSharing: true,
     placeholderData: keepPreviousData,
@@ -101,36 +113,46 @@ export function useSaveRow(table: TableName, label = "Enregistrement") {
   });
 }
 
-export function useDeleteRow(table: TableName, label = "Élément") {
+export function useDeleteRow(table: TableName, label = "Suppression") {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (rowId: string) => {
-      applyOptimistic(qc, table, (rows) => rows.filter((r) => r.id !== rowId));
-      enqueue({ id: crypto.randomUUID(), table, op: "delete", rowId, createdAt: Date.now(), label });
+    mutationFn: async (id: string) => {
+      applyOptimistic(qc, table, (rows) => rows.filter((r) => r.id !== id));
+      enqueue({
+        id: crypto.randomUUID(),
+        table,
+        op: "delete",
+        rowId: id,
+        values: {},
+        createdAt: Date.now(),
+        label,
+      });
       if (isOnline()) await flushQueue(qc);
-      return rowId;
+      return id;
     },
-    onSuccess: () => toast.success(isOnline() ? `${label} supprimé` : `${label} supprimé — en attente de connexion`),
+    onSuccess: () => {
+      toast.success(isOnline() ? `${label} effectuée` : `${label} — en attente de connexion`);
+    },
     onError: (error: unknown) => toast.error(describeError(error, `Suppression impossible — ${label}`, table)),
   });
 }
 
-/**
- * Archive une ligne (soft-delete) au lieu de la supprimer définitivement.
- * Utilisé pour students et teachers.
- */
-export function useArchiveRow(table: TableName, label = "Élément") {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (rowId: string) => {
-      applyOptimistic(qc, table, (rows) =>
-        rows.map((r) => (r.id === rowId ? { ...r, archived_at: new Date().toISOString() } : r)),
-      );
-      enqueue({ id: crypto.randomUUID(), table, op: "archive", rowId, createdAt: Date.now(), label });
-      if (isOnline()) await flushQueue(qc);
-      return rowId;
-    },
-    onSuccess: () => toast.success(isOnline() ? `${label} archivé` : `${label} archivé — en attente de connexion`),
-    onError: (error: unknown) => toast.error(describeError(error, `Archivage impossible — ${label}`, table)),
-  });
+export async function writeAudit(
+  action: string,
+  entity: string,
+  entityId: string | null,
+  meta?: Record<string, unknown>,
+) {
+  try {
+    await supabase.from("audit_logs" as never).insert({
+      action,
+      entity,
+      entity_id: entityId,
+      meta: meta ?? {},
+    } as never);
+  } catch {
+    /* audit best-effort */
+  }
 }
+
+export { useQueryClient };
