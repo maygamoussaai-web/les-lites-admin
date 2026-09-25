@@ -1,9 +1,11 @@
 /**
- * Helpers affichage résultats de classe (classement, rapports).
+ * Cartes résultats + section rapports de classe.
  */
+import { useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { FileText } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { Clock, Download, Eye, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -164,15 +166,31 @@ function renderClassReportCanvas({
 }
 
 export function ClassReportsSection({ classId }: { classId: string }) {
+  const qc = useQueryClient();
   const reportsQuery = useSupabaseRows<ClassReport>("class_reports", { class_id: classId }, "created_at", false);
   const periodsQuery = useSupabaseRows<GradePeriod>("grade_periods", { class_id: classId }, "period_number");
   const activeReports = reportsQuery.data;
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const remove = async (id: string) => {
+    setBusyId(id);
+    try {
+      const { error } = await supabase.from("class_reports").delete().eq("id", id);
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["class_reports"] });
+      toast.success("Rapport supprimé");
+    } catch (e) {
+      toast.error(describeError(e, "Suppression impossible"));
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   return (
     <Card className="mb-6">
       <CardHeader className="pb-2">
         <CardTitle className="text-base flex items-center gap-2">
-          <FileText className="h-4 w-4" /> Rapports de classe
+          <Clock className="h-4 w-4" /> Rapports de classe
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
@@ -187,6 +205,17 @@ export function ClassReportsSection({ classId }: { classId: string }) {
                   <div className="min-w-0">
                     <p className="font-medium truncate">{r.title ?? `Rapport P${period?.period_number ?? "?"}`}</p>
                     <p className="text-[11px] text-muted-foreground">{formatDateTime(r.created_at)}</p>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      disabled={busyId === r.id}
+                      onClick={() => void remove(r.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
                   </div>
                 </li>
               );
