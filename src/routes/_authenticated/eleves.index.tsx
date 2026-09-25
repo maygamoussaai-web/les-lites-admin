@@ -78,46 +78,34 @@ function Page() {
       cell: (s) => (
         <div className="flex items-center gap-3">
           <Avatar className="h-9 w-9 border border-border">
-            {s.photo_url ? <AvatarImage src={s.photo_url} alt={`${s.last_name} ${s.first_name}`} /> : null}
-            <AvatarFallback className="bg-primary/10 text-xs font-medium text-primary">
-              {initials(s.first_name, s.last_name)}
-            </AvatarFallback>
+            {s.photo_path ? <AvatarImage src={s.photo_path} alt="" /> : null}
+            <AvatarFallback className="text-xs">{initials(s.first_name, s.last_name)}</AvatarFallback>
           </Avatar>
-          <p className="font-medium text-foreground">
-            {s.last_name} {s.first_name}
-          </p>
+          <div className="min-w-0">
+            <p className="truncate font-medium">
+              {s.last_name} {s.first_name}
+            </p>
+            <p className="truncate text-xs text-muted-foreground">
+              {data.classes.find((c) => c.id === s.class_id)?.name ?? "Sans classe"}
+            </p>
+          </div>
         </div>
       ),
     },
     {
-      key: "class",
-      header: "Classe",
-      cell: (s) => {
-        const klass = data.classes.find((c) => c.id === s.class_id);
-        return klass ? (
-          <span className="text-sm text-foreground">{klass.name}</span>
-        ) : (
-          <Badge variant="outline">Non assignée</Badge>
-        );
-      },
-    },
-    {
-      key: "tuition",
+      key: "status",
       header: "Scolarité",
       cell: (s) => {
-        const enrollment = data.activeEnrollmentByStudent.get(s.id);
-        if (!enrollment) return <span className="text-sm text-muted-foreground">—</span>;
-        const installments = (enrollment.installments_snapshot as unknown as Installment[]) ?? [];
+        const enr = data.activeEnrollmentByStudent.get(s.id);
+        if (!enr) return <Badge variant="outline">—</Badge>;
         const paid = sum(
-          data.tuitionPayments.filter((p) => p.enrollment_id === enrollment.id).map((p) => Number(p.amount)),
+          data.tuitionPayments.filter((p) => p.enrollment_id === enr.id).map((p) => Number(p.amount)),
         );
-        if (!installments.length) return <span className="text-sm text-muted-foreground">—</span>;
-        const status = lateStatus(paid, installments);
-        return status.isLate ? (
-          <Badge variant="destructive">Retard {formatFCFA(status.overdueAmount)}</Badge>
-        ) : (
-          <Badge className="bg-success text-success-foreground">À jour</Badge>
-        );
+        const total = Number(enr.total_amount);
+        if (total > 0 && paid >= total) return <Badge className="bg-success text-success-foreground">Bouclé</Badge>;
+        const late = lateStatus(paid, (enr.installments_snapshot as unknown as Installment[]) ?? []);
+        if (late.isLate) return <Badge variant="destructive">Retard</Badge>;
+        return <Badge variant="secondary">{formatFCFA(paid)}</Badge>;
       },
     },
   ];
@@ -125,31 +113,25 @@ function Page() {
   return (
     <>
       <PageHeader
-        eyebrow="Complexe scolaire"
+        eyebrow="Effectifs"
         title="Élèves"
-        description={isDG ? "Tous les élèves du complexe." : "Les élèves de votre établissement."}
+        description="Recherche et filtres sur l’ensemble des élèves accessibles."
       />
 
-      <div className="flex flex-wrap gap-2">
-        <div className="relative min-w-[200px] flex-1">
-          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="relative min-w-0 flex-1 sm:max-w-xs">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
+            className="pl-9"
             placeholder="Rechercher un élève…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-8"
           />
         </div>
         {canFilterByEstablishment && (
-          <Select
-            value={establishmentFilter || "all"}
-            onValueChange={(v) => {
-              setEstablishmentFilter(v === "all" ? "" : v);
-              setClassFilter("");
-            }}
-          >
-            <SelectTrigger className="w-56">
-              <SelectValue placeholder="Tous les établissements" />
+          <Select value={establishmentFilter || "all"} onValueChange={(v) => setEstablishmentFilter(v === "all" ? "" : v)}>
+            <SelectTrigger className="w-full sm:w-48">
+              <SelectValue placeholder="Établissement" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Tous les établissements</SelectItem>
@@ -162,12 +144,12 @@ function Page() {
           </Select>
         )}
         <Select value={classFilter || "all"} onValueChange={(v) => setClassFilter(v === "all" ? "" : v)}>
-          <SelectTrigger className="w-48">
-            <SelectValue placeholder="Toutes les classes" />
+          <SelectTrigger className="w-full sm:w-48">
+            <SelectValue placeholder="Classe" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Toutes les classes</SelectItem>
-            <SelectItem value="unassigned">Non assignée</SelectItem>
+            <SelectItem value="unassigned">Sans classe</SelectItem>
             {classOptions.map((c) => (
               <SelectItem key={c.id} value={c.id}>
                 {c.name}
@@ -178,7 +160,15 @@ function Page() {
       </div>
 
       {rows.length === 0 && !data.loading ? (
-        <EmptyState icon={Users} title="Aucun élève" description="Aucun élève ne correspond à ces critères." />
+        <EmptyState
+          icon={Users}
+          title="Aucun élève"
+          description={
+            search || classFilter || establishmentFilter
+              ? "Aucun élève ne correspond à ces critères. Modifiez les filtres ou la recherche."
+              : "Aucun élève enregistré pour le moment. Ajoutez-en depuis une classe."
+          }
+        />
       ) : (
         <>
           <DataTable
@@ -187,16 +177,13 @@ function Page() {
             loading={data.loading}
             onRowClick={(s) => navigate({ to: "/eleves/$studentId", params: { studentId: s.id } })}
           />
-          <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <span>
-              {visibleRows.length} / {rows.length} élève(s) affiché(s)
-            </span>
-            {hasMore && (
-              <Button variant="outline" size="sm" className="press" onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}>
-                Afficher {Math.min(PAGE_SIZE, rows.length - visibleRows.length)} de plus
+          {hasMore && (
+            <div className="mt-3 flex justify-center">
+              <Button variant="outline" onClick={() => setVisibleCount((n) => n + PAGE_SIZE)}>
+                Afficher plus
               </Button>
-            )}
-          </div>
+            </div>
+          )}
         </>
       )}
     </>
