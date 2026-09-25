@@ -9,6 +9,8 @@
  *
  * Le téléchargement local optionnel se fait APRÈS l'enregistrement,
  * pour ne jamais perdre le fichier si le navigateur mobile bloque le download.
+ *
+ * La génération continue en arrière-plan si le dialogue est fermé.
  */
 import { useEffect, useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -33,6 +35,13 @@ import type { ClassRow } from "@/lib/school";
 type StudentRef = { id: string; first_name: string; last_name: string };
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+/** Verrou global : une génération par classe à la fois (survit à la fermeture du dialogue). */
+const runningByClass = new Set<string>();
+
+export function isBulletinGenerationRunning(classId: string): boolean {
+  return runningByClass.has(classId);
+}
 
 function toBlob(buffer: ArrayBuffer | Uint8Array | number[]): Blob {
   let bytes: Uint8Array;
@@ -117,24 +126,42 @@ export function BulletinWalkthroughDialog({
       toast.error("Aucune période disponible. Démarrez une période d'abord.");
       return;
     }
+    if (runningByClass.has(klass.id)) {
+      toast.message("Une génération est déjà en cours pour cette classe.");
+      return;
+    }
+
+    const periodSnap = period;
+    const candidatesSnap = [...candidates];
+    const alreadySnap = new Set(alreadySet);
+    const studentsSnap = [...students];
+    const gradesSnap = [...grades];
+    const subjectsSnap = [...subjects];
+    const forceSnap = forceRegenerate;
+    const alreadyCountSnap = alreadyCount;
+    const toastId = `bulletin-gen-${klass.id}`;
+
+    runningByClass.add(klass.id);
     setBusy(true);
     setDone(0);
     let successCount = 0;
     const failures: string[] = [];
     const localDownloads: { blob: Blob; name: string }[] = [];
+
     toast.loading(
-      candidates.length
-        ? `Génération en cours… 0/${candidates.length}`
+      candidatesSnap.length
+        ? `Génération en arrière-plan… 0/${candidatesSnap.length}`
         : "Vérification…",
-      { id: "bulletin-gen" },
+      { id: toastId, duration: Infinity },
     );
+    onClose();
 
     try {
       const downloaded = await downloadActiveTemplateBuffer(klass.id, "period");
       if (!downloaded) {
         toast.error(
           "Aucun modèle Excel actif pour cette classe. Importez un modèle puis réessayez.",
-          { id: "bulletin-gen" },
+          { id: toastId },
         );
         return;
       }
@@ -144,17 +171,17 @@ export function BulletinWalkthroughDialog({
         string,
         { avg: number; subjects: Record<string, number | null> }
       >();
-      for (const student of candidates) {
+      for (const student of candidatesSnap) {
         const fill = buildModelFillData({
           establishmentName: etabName,
           className: klass.name,
           studentFirstName: student.first_name,
           studentLastName: student.last_name,
-          periodNumber: period.period_number,
-          subjects,
-          grades,
+          periodNumber: periodSnap.period_number,
+          subjects: subjectsSnap,
+          grades: gradesSnap,
           studentId: student.id,
-          headcount: students.length,
+          headcount: studentsSnap.length,
           scale,
           rank: null,
           firstAverage: null,
@@ -178,18 +205,19 @@ export function BulletinWalkthroughDialog({
         ? avgByStudent.get(rankedIds[rankedIds.length - 1]!)!.avg
         : null;
 
-      for (const student of candidates) {
+      for (let i = 0; i < candidatesSnap.length; i++) {
+        const student = candidatesSnap[i]!;
         try {
           const fill = buildModelFillData({
             establishmentName: etabName,
             className: klass.name,
             studentFirstName: student.first_name,
             studentLastName: student.last_name,
-            periodNumber: period.period_number,
-            subjects,
-            grades,
+            periodNumber: periodSnap.period_number,
+            subjects: subjectsSnap,
+            grades: gradesSnap,
             studentId: student.id,
-            headcount: students.length,
+            headcount: studentsSnap.length,
             scale,
             rank: rankOf.get(student.id) ?? null,
             firstAverage: firstAvg,
@@ -204,8 +232,8 @@ export function BulletinWalkthroughDialog({
           if (!blob.size) {
             throw new Error("Fichier bulletin vide — génération Excel a échoué.");
           }
-          const fileName = `Bulletin_${student.last_name}_${student.first_name}_P${period.period_number}.xlsx`;
-          const storagePath = `${klass.establishment_id}/${student.id}/bulletin-p${period.period_number}-${Date.now()}.xlsx`;
+          const fileName = `Bulletin_${student.last_name}_${student.first_name}_P${periodSnap.period_number}.xlsx`;
+          const storagePath = `${klass.establishment_id}/${student.id}/bulletin-p${periodSnap.period_number}-${Date.now()}.xlsx`;
 
           const uploaded = await uploadBulletinWorkbook(storagePath, blob);
           if (!uploaded?.path) throw new Error("Upload storage échoué");
@@ -214,7 +242,7 @@ export function BulletinWalkthroughDialog({
               ? `${uploaded.bucket}:${uploaded.path}`
               : uploaded.path;
 
-          const docName = `Bulletin période ${period.period_number}`;
+          const docName = `Bulletin période ${periodSnap.period_number}`;
           const { data: docRow, error: docErr } = await supabase
             .from("student_documents")
             .insert({
@@ -235,7 +263,7 @@ export function BulletinWalkthroughDialog({
               student_id: student.id,
               class_id: klass.id,
               establishment_id: klass.establishment_id,
-              period_id: period.id,
+              period_id: periodSnap.id,
               document_id: docRow.id,
               general_average: avgInfo?.avg ?? null,
               subject_averages: avgInfo?.subjects ?? {},
@@ -246,7 +274,7 @@ export function BulletinWalkthroughDialog({
 
           await writeAudit("create", "student_report_cards" as never, null, {
             student_id: student.id,
-            period_id: period.id,
+            period_id: periodSnap.id,
             document_id: docRow.id,
           });
 
@@ -257,12 +285,10 @@ export function BulletinWalkthroughDialog({
             `${student.last_name} ${student.first_name}: ${describeError(e, "échec")}`,
           );
         }
-        setDone((d) => {
-          const next = d + 1;
-          toast.loading(`Génération en cours… ${next}/${candidates.length}`, {
-            id: "bulletin-gen",
-          });
-          return next;
+        const next = i + 1;
+        toast.loading(`Génération en arrière-plan… ${next}/${candidatesSnap.length}`, {
+          id: toastId,
+          duration: Infinity,
         });
       }
 
@@ -273,20 +299,21 @@ export function BulletinWalkthroughDialog({
       if (successCount > 0) {
         toast.success(
           `${successCount} bulletin(s) généré(s) et placé(s) en bibliothèque.`,
-          { id: "bulletin-gen" },
+          { id: toastId, duration: 8_000 },
         );
         for (const f of localDownloads) {
           try {
             downloadBlob(f.blob, f.name);
           } catch {
-            /* mobile may block */
+            /* mobile / background may block */
           }
         }
         const stillMissing =
-          students.filter((s) => {
-            const hasNotes = grades.some((g) => g.student_id === s.id);
+          studentsSnap.filter((s) => {
+            const hasNotes = gradesSnap.some((g) => g.student_id === s.id);
             if (!hasNotes) return false;
-            return !alreadySet.has(s.id);
+            if (forceSnap) return false;
+            return !alreadySnap.has(s.id);
           }).length - successCount;
         const allCovered = stillMissing <= 0 && failures.length === 0;
 
@@ -295,7 +322,7 @@ export function BulletinWalkthroughDialog({
             const { closedPeriodNumber, newPeriodNumber } = await closeAndStartNextPeriod({
               classId: klass.id,
               establishmentId: klass.establishment_id,
-              currentPeriodId: period.id,
+              currentPeriodId: periodSnap.id,
             });
             qc.invalidateQueries({ queryKey: ["grade_periods"] });
             toast.success(
@@ -312,30 +339,42 @@ export function BulletinWalkthroughDialog({
       }
       if (failures.length) {
         toast.error(`${failures.length} échec(s) : ${failures.slice(0, 2).join(" · ")}`, {
-          id: successCount > 0 ? undefined : "bulletin-gen",
+          id: successCount > 0 ? undefined : toastId,
+          duration: 10_000,
         });
       }
       if (successCount === 0 && failures.length === 0) {
         toast.message(
-          alreadyCount > 0
+          alreadyCountSnap > 0
             ? "Tous les bulletins de cette période existent déjà."
             : "Aucun élève avec notes à traiter.",
-          { id: "bulletin-gen" },
+          { id: toastId },
         );
       }
-
-      onClose();
     } catch (e) {
       toast.error(describeError(e, "Génération des bulletins impossible"), {
-        id: "bulletin-gen",
+        id: toastId,
       });
     } finally {
+      runningByClass.delete(klass.id);
       setBusy(false);
     }
   };
 
+  const jobRunning = busy || runningByClass.has(klass.id);
+
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && !busy && onClose()}>
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) {
+          if (jobRunning) {
+            toast.message("Génération continue en arrière-plan — vous serez notifié à la fin.");
+          }
+          onClose();
+        }
+      }}
+    >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="font-display">Créer les bulletins</DialogTitle>
@@ -343,7 +382,7 @@ export function BulletinWalkthroughDialog({
             {period
               ? `Période ${period.period_number} — ${candidates.length} à générer${
                   alreadyCount > 0 ? `, ${alreadyCount} déjà en bibliothèque` : ""
-                }. Les fichiers sont placés dans Documents de chaque élève.`
+                }. Les fichiers vont dans Documents de chaque élève. Vous pouvez fermer cette fenêtre : la génération continue.`
               : "Aucune période en cours. Démarrez une période avant de générer les bulletins."}
           </DialogDescription>
         </DialogHeader>
@@ -353,7 +392,7 @@ export function BulletinWalkthroughDialog({
               type="checkbox"
               className="h-4 w-4 rounded border-border"
               checked={forceRegenerate}
-              disabled={busy}
+              disabled={jobRunning}
               onChange={(e) => setForceRegenerate(e.target.checked)}
             />
             <span>Régénérer aussi les {alreadyCount} bulletin(s) déjà créés</span>
@@ -367,22 +406,30 @@ export function BulletinWalkthroughDialog({
         {templateLoading && !hasModel && (
           <p className="text-sm text-muted-foreground">Vérification du modèle Excel…</p>
         )}
-        {busy && (
+        {jobRunning && (
           <p className="text-sm text-muted-foreground">
-            Génération… {done} / {candidates.length}
+            Génération en arrière-plan… {done} / {candidates.length || "…"}
           </p>
         )}
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={busy}>
-            Annuler
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (jobRunning) {
+                toast.message("Génération continue en arrière-plan — vous serez notifié à la fin.");
+              }
+              onClose();
+            }}
+          >
+            {jobRunning ? "Continuer en arrière-plan" : "Annuler"}
           </Button>
           <Button
             className="press"
-            disabled={busy || !period || !hasModel || candidates.length === 0}
+            disabled={jobRunning || !period || !hasModel || candidates.length === 0}
             onClick={() => void generate()}
           >
             <Download className="mr-1.5 h-4 w-4" />
-            {busy ? "Génération…" : `Générer ${candidates.length} bulletin(s)`}
+            {jobRunning ? "En cours…" : `Générer ${candidates.length} bulletin(s)`}
           </Button>
         </DialogFooter>
       </DialogContent>
