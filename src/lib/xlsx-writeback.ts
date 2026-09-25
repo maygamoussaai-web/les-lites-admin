@@ -147,6 +147,7 @@ export function writeFilledWorkbook(
         } else if (role === "evaluation_average") {
           setInputCell(address, toScale(match.evaluationAverage ?? match.average, data.scale));
         } else if (role === "subject_average") {
+          // Ne jamais écraser une formule du modèle (ex. =(C+D)/2)
           setInputCell(address, toScale(match.average, data.scale));
         }
       }
@@ -252,6 +253,32 @@ export function writeFilledWorkbook(
     }
   }
 
+  // Si le mapping pointe vers une balise sans formule, lire la ligne « Moyen Général »
+  // calculée par les formules du modèle (ex. ROUND(F26/B26,2)).
+  if (generalAverage === null && ws) {
+    const range2 = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
+    for (let r = range2.s.r; r <= range2.e.r; r++) {
+      let label = "";
+      for (let c = range2.s.c; c <= Math.min(range2.e.c, range2.s.c + 3); c++) {
+        const addr = XLSX.utils.encode_cell({ r, c });
+        const cell = ws[addr] as XLSX.CellObject | undefined;
+        if (cell?.v != null && !cell.f) label += " " + String(cell.v);
+      }
+      const norm = normalize(label);
+      if (!norm.includes("moyen") || (!norm.includes("general") && !norm.includes("generale"))) continue;
+      for (let c = range2.s.c; c <= range2.e.c; c++) {
+        const addr = XLSX.utils.encode_cell({ r, c });
+        const v = fromScale(values[addr], data.scale);
+        if (v !== null) {
+          generalAverage = v;
+          break;
+        }
+      }
+      if (generalAverage !== null) break;
+    }
+  }
+
+  // Dernier recours : moyenne des moyennes de matières déjà calculées par les formules sujet.
   if (generalAverage === null) {
     const vals = Object.values(subjectAverages).filter((v): v is number => v !== null);
     if (vals.length) {
