@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { StatCard } from "@/components/app/stat-card";
 import { EmptyState } from "@/components/app/empty-state";
+import { PageLoading } from "@/components/app/page-loading";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -283,13 +284,28 @@ export function ClassPage() {
       />
     );
   }
-  if (!klass) return null;
+  if (!klass) {
+    if (data.loading || establishmentIdsLoading) return <PageLoading />;
+    return null;
+  }
 
   const periodLabel = currentPeriod
     ? `Période ${currentPeriod.period_number}`
     : latestPeriod
       ? `Période ${latestPeriod.period_number} (clôturée)`
       : "—";
+
+  const studentsWithNotes = new Set(gradesForPeriod.map((g) => g.student_id));
+  const withBulletins = new Set(
+    periodCards.filter((c) => !!c.document_id).map((c) => c.student_id),
+  );
+  let bulletinsDone = 0;
+  let bulletinsMissing = 0;
+  for (const id of studentsWithNotes) {
+    if (withBulletins.has(id)) bulletinsDone++;
+    else bulletinsMissing++;
+  }
+  const notesWithoutPeriod = !currentPeriod && !latestPeriod;
 
   return (
     <>
@@ -298,6 +314,35 @@ export function ClassPage() {
           <ArrowLeft className="mr-1.5 h-4 w-4" /> Retour à l'établissement
         </Link>
       </Button>
+
+      {currentPeriod && bulletinsMissing > 0 && (
+        <div
+          role="status"
+          className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm"
+        >
+          <p className="text-amber-900 dark:text-amber-100">
+            <strong>{bulletinsMissing}</strong> élève(s) ont des notes sans bulletin pour la période{" "}
+            {currentPeriod.period_number}
+            {bulletinsDone > 0 ? ` · ${bulletinsDone} déjà généré(s)` : ""}.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="press shrink-0 border-amber-600/40"
+            onClick={() => setBulletinsOpen(true)}
+          >
+            Compléter les bulletins
+          </Button>
+        </div>
+      )}
+      {notesWithoutPeriod && (
+        <div
+          role="status"
+          className="mb-3 rounded-xl border border-border/70 bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground"
+        >
+          Aucune période active. Démarrez une période avant de saisir des notes ou générer des bulletins.
+        </div>
+      )}
 
       <div className="overflow-hidden rounded-2xl border border-border/80 bg-gradient-to-br from-card via-card to-primary/[0.04] shadow-sm">
         <div className="border-b border-border/60 px-5 py-5 sm:px-6">
@@ -337,6 +382,11 @@ export function ClassPage() {
                 }}
               >
                 <FileBarChart className="mr-1.5 h-4 w-4" /> Bulletins
+                {studentsWithNotes.size > 0 && (
+                  <span className="ml-1.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-primary">
+                    {bulletinsDone}/{studentsWithNotes.size}
+                  </span>
+                )}
               </Button>
               <Button variant="outline" size="sm" className="press" onClick={() => setAnnualOpen(true)}>
                 <FileText className="mr-1.5 h-4 w-4" /> Annuel
