@@ -1,7 +1,6 @@
 /**
- * Page classe — stats via formules modèle Excel.
- * Priorité : bulletins validés (student_report_cards).
- * Repli : calcul live modèle (même source que la fiche élève) si notes présentes.
+ * Page classe — stats live (notes / modèle) + design modernisé.
+ * Priorité : bulletins validés. Repli : aperçu live notes (± formules modèle).
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
@@ -11,7 +10,6 @@ import {
   ArrowLeft, Trophy, TrendingDown, Users, GraduationCap, AlertTriangle,
   Plus, RotateCcw, FileBarChart, FileText,
 } from "lucide-react";
-import { PageHeader } from "@/components/app/page-header";
 import { StatCard } from "@/components/app/stat-card";
 import { EmptyState } from "@/components/app/empty-state";
 import { Button } from "@/components/ui/button";
@@ -39,6 +37,7 @@ import {
 } from "@/lib/grades";
 import { describeError } from "@/lib/errors";
 import { computeLiveClassStats } from "@/lib/class-model-stats";
+import type { TemplateMapping } from "@/lib/xlsx-template";
 
 type AveragedStudent = {
   student: { id: string; first_name: string; last_name: string };
@@ -56,7 +55,7 @@ interface ClassStats {
   lowest: AveragedStudent | null;
   bestSubject: { subject: ClassSubject; avg: number } | null;
   worstSubject: { subject: ClassSubject; avg: number } | null;
-  source: "bulletin" | "modele_live";
+  source: "bulletin" | "modele_live" | "notes_live";
 }
 
 function useSupabaseRows<T extends { id: string }>(
@@ -223,19 +222,28 @@ export function ClassPage() {
 
     (async () => {
       try {
-        const downloaded = await downloadActiveTemplateBuffer(classId);
-        if (cancelled || !downloaded) {
-          if (!cancelled) setStats(null);
-          return;
+        let buffer: ArrayBuffer | null = null;
+        let mapping: TemplateMapping | null = null;
+        let scale = 20;
+        try {
+          const downloaded = await downloadActiveTemplateBuffer(classId);
+          if (downloaded) {
+            buffer = downloaded.buffer;
+            mapping = downloaded.mapping;
+            scale = downloaded.scale;
+          }
+        } catch {
+          /* modèle optionnel pour l'aperçu live */
         }
+        if (cancelled) return;
         const live = computeLiveClassStats({
           students: classStudents,
           subjects: subjectsQuery.data,
           grades: gradesForPeriod,
           periodNumber: latestPeriod.period_number,
-          templateBuffer: downloaded.buffer,
-          mapping: downloaded.mapping,
-          scale: downloaded.scale,
+          templateBuffer: buffer,
+          mapping,
+          scale,
           establishmentName: establishment?.name ?? "",
           className: klass?.name ?? "",
         });
@@ -254,7 +262,7 @@ export function ClassPage() {
           lowest: live.lowest,
           bestSubject: live.bestSubject,
           worstSubject: live.worstSubject,
-          source: "modele_live",
+          source: live.source === "notes_live" ? "notes_live" : "modele_live",
         });
       } catch {
         if (!cancelled) setStats(null);
@@ -300,76 +308,93 @@ export function ClassPage() {
         </Link>
       </Button>
 
-      <PageHeader
-        eyebrow={establishment?.name ?? "Classe"}
-        title={klass.name}
-        description={
-          currentPeriod
-            ? `Période ${currentPeriod.period_number} en cours — démarrée le ${formatDateTime(currentPeriod.started_at)}`
-            : "Aucune période en cours."
-        }
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" className="press" onClick={() => setStudentsOpen(true)}>
-              <Users className="mr-1.5 h-4 w-4" /> Élèves
-            </Button>
-            <Button size="sm" className="press" onClick={() => setNoteEntryOpen(true)}>
-              <Plus className="mr-1.5 h-4 w-4" /> Note
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="press"
-              onClick={() => {
-                if (!(currentPeriod ?? latestPeriod)) {
-                  toast.message("Démarrez une période avant de générer les bulletins.");
-                  return;
-                }
-                setBulletinsOpen(true);
-              }}
-            >
-              <FileBarChart className="mr-1.5 h-4 w-4" /> Bulletins
-            </Button>
-            <Button variant="outline" size="sm" className="press" onClick={() => setAnnualOpen(true)}>
-              <FileText className="mr-1.5 h-4 w-4" /> Annuel
-            </Button>
-            <Button variant="outline" size="sm" className="press" onClick={() => void startNewPeriod()}>
-              <RotateCcw className="mr-1.5 h-4 w-4" /> Nouvelle période
-            </Button>
-            <ClassActionsMenu klass={klass} data={data} />
+      <div className="overflow-hidden rounded-2xl border border-border/80 bg-gradient-to-br from-card via-card to-primary/[0.04] shadow-sm">
+        <div className="border-b border-border/60 px-5 py-5 sm:px-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 space-y-1.5">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {establishment?.name ?? "Classe"}
+              </p>
+              <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+                {klass.name}
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                {currentPeriod
+                  ? `Période ${currentPeriod.period_number} en cours · démarrée le ${formatDateTime(currentPeriod.started_at)}`
+                  : latestPeriod
+                    ? `Dernière période : ${latestPeriod.period_number} (clôturée)`
+                    : "Aucune période en cours"}
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <Button variant="outline" size="sm" className="press" onClick={() => setStudentsOpen(true)}>
+                <Users className="mr-1.5 h-4 w-4" /> Élèves
+              </Button>
+              <Button size="sm" className="press" onClick={() => setNoteEntryOpen(true)}>
+                <Plus className="mr-1.5 h-4 w-4" /> Note
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="press"
+                onClick={() => {
+                  if (!(currentPeriod ?? latestPeriod)) {
+                    toast.message("Démarrez une période avant de générer les bulletins.");
+                    return;
+                  }
+                  setBulletinsOpen(true);
+                }}
+              >
+                <FileBarChart className="mr-1.5 h-4 w-4" /> Bulletins
+              </Button>
+              <Button variant="outline" size="sm" className="press" onClick={() => setAnnualOpen(true)}>
+                <FileText className="mr-1.5 h-4 w-4" /> Annuel
+              </Button>
+              <Button variant="outline" size="sm" className="press" onClick={() => void startNewPeriod()}>
+                <RotateCcw className="mr-1.5 h-4 w-4" /> Nouvelle période
+              </Button>
+              <ClassActionsMenu klass={klass} data={data} />
+            </div>
           </div>
-        }
-      />
-
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          title="Moyenne de classe"
-          value={stats?.classAverage != null ? stats.classAverage.toFixed(2) : "—"}
-          description={stats?.source === "bulletin" ? "D'après les bulletins" : stats ? "Calcul modèle (live)" : periodLabel}
-          icon={GraduationCap}
-        />
-        <StatCard
-          title="Admis / excellent"
-          value={stats ? `${stats.passing.length} / ${stats.excellent.length}` : "—"}
-          description={stats ? `sur ${stats.withAvg.length} élève(s)` : "—"}
-          icon={Trophy}
-        />
-        <StatCard
-          title="En difficulté"
-          value={stats ? String(stats.struggling.length) : "—"}
-          description={stats?.lowest ? `Plus bas : ${stats.lowest.average.toFixed(2)}` : "—"}
-          icon={TrendingDown}
-        />
-        <StatCard
-          title="Effectif"
-          value={String(classStudents.length)}
-          description={periodLabel}
-          icon={Users}
-        />
+        </div>
+        <div className="grid gap-px bg-border/60 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            title="Moyenne de classe"
+            value={stats?.classAverage != null ? stats.classAverage.toFixed(2) : "—"}
+            description={
+              stats?.source === "bulletin"
+                ? "Bulletins validés"
+                : stats?.source === "notes_live"
+                  ? "Aperçu live (notes)"
+                  : stats
+                    ? "Aperçu live (modèle)"
+                    : periodLabel
+            }
+            icon={GraduationCap}
+          />
+          <StatCard
+            title="Admis / excellent"
+            value={stats ? `${stats.passing.length} / ${stats.excellent.length}` : "—"}
+            description={stats ? `sur ${stats.withAvg.length} élève(s)` : "—"}
+            icon={Trophy}
+          />
+          <StatCard
+            title="En difficulté"
+            value={stats ? String(stats.struggling.length) : "—"}
+            description={stats?.lowest ? `Plus bas : ${stats.lowest.average.toFixed(2)}` : "—"}
+            icon={TrendingDown}
+          />
+          <StatCard
+            title="Effectif"
+            value={String(classStudents.length)}
+            description={periodLabel}
+            icon={Users}
+          />
+        </div>
       </div>
 
       {stats && (
-        <div className="mb-6 grid gap-4 lg:grid-cols-2">
+        <div className="mb-6 mt-4 grid gap-4 lg:grid-cols-2">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-base">Répartition</CardTitle>
