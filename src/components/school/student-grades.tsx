@@ -1,5 +1,5 @@
 /**
- * Carte notes periode — moyennes modèle Excel + repli notes live.
+ * Carte notes période — moyennes = formules du modèle Excel (moteur writeback).
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
@@ -16,7 +16,6 @@ import {
   useClassGrades,
 } from "@/lib/grades";
 import { buildModelFillData, computeModelAverages } from "@/lib/model-averages";
-import { liveAveragesFromGrades, mergeModelAndLive } from "@/lib/live-averages";
 import type { TemplateMapping } from "@/lib/xlsx-template";
 
 export function StudentGradesCard({ studentId, classId }: { studentId: string; classId: string | null }) {
@@ -32,7 +31,7 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
   useEffect(() => {
     if (!classId) {
       setTemplateReady(true);
-      setTemplateError("Eleve non assigne a une classe.");
+      setTemplateError("Élève non assigné à une classe.");
       return;
     }
     let cancelled = false;
@@ -42,33 +41,35 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
       try {
         const { data: tpl, error: tplError } = await supabase
           .from("report_templates")
-          .select("file_path, mapping, scale, is_active")
+          .select("file_path, mapping, scale, is_active, kind")
           .eq("class_id", classId)
           .eq("is_active", true)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
+          .order("created_at", { ascending: false });
         if (tplError) throw tplError;
-        if (!tpl?.file_path || !tpl.mapping) {
+        const periodTpl =
+          (tpl ?? []).find((r) => (r.kind ?? "period") === "period") ?? (tpl ?? [])[0];
+        if (!periodTpl?.file_path || !periodTpl.mapping) {
           if (!cancelled) {
             setTemplateBuffer(null);
             setTemplateMapping(null);
-            setTemplateError("Aucun modele Excel actif.");
+            setTemplateError("Aucun modèle Excel actif pour cette classe.");
             setTemplateReady(true);
           }
           return;
         }
-        const { data: file, error } = await supabase.storage.from("report-templates").download(tpl.file_path);
-        if (error || !file) throw error ?? new Error("Telechargement du modele impossible");
+        const { data: file, error } = await supabase.storage
+          .from("report-templates")
+          .download(periodTpl.file_path);
+        if (error || !file) throw error ?? new Error("Téléchargement du modèle impossible");
         const buffer = await file.arrayBuffer();
         if (cancelled) return;
         setTemplateBuffer(buffer);
-        setTemplateMapping(tpl.mapping as unknown as TemplateMapping);
-        setTemplateScale(Number(tpl.scale) || 20);
+        setTemplateMapping(periodTpl.mapping as unknown as TemplateMapping);
+        setTemplateScale(Number(periodTpl.scale) || 20);
         setTemplateReady(true);
       } catch (e) {
         if (!cancelled) {
-          setTemplateError((e as Error).message || "Modele indisponible");
+          setTemplateError((e as Error).message || "Modèle indisponible");
           setTemplateReady(true);
         }
       }
@@ -83,36 +84,36 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
     [grades, activePeriod],
   );
 
-  const bySubject = useMemo(() => groupGradesBySubject(periodGrades, studentId), [periodGrades, studentId]);
+  const bySubject = useMemo(
+    () => groupGradesBySubject(periodGrades, studentId),
+    [periodGrades, studentId],
+  );
 
-  const averages = useMemo(() => {
-    if (!activePeriod || bySubject.size === 0) return null;
-    const live = liveAveragesFromGrades(periodGrades, studentId, subjects);
-    let model: { generalAverage: number | null; subjectAverages: Record<string, number | null> } | null = null;
-    if (templateReady && templateBuffer && templateMapping) {
-      try {
-        const fill = buildModelFillData({
-          establishmentName: "",
-          className: "",
-          studentFirstName: "",
-          studentLastName: "",
-          periodNumber: activePeriod.period_number,
-          subjects,
-          grades: periodGrades,
-          studentId,
-          headcount: 0,
-          scale: templateScale,
-          rank: null,
-          firstAverage: null,
-          lastAverage: null,
-        });
-        model = computeModelAverages(templateBuffer, templateMapping, fill);
-      } catch (e) {
-        console.error(e);
-        model = null;
-      }
+  const modelResult = useMemo(() => {
+    if (!templateReady || !templateBuffer || !templateMapping || !activePeriod || bySubject.size === 0) {
+      return null;
     }
-    return mergeModelAndLive(model, live);
+    try {
+      const fill = buildModelFillData({
+        establishmentName: "",
+        className: "",
+        studentFirstName: "",
+        studentLastName: "",
+        periodNumber: activePeriod.period_number,
+        subjects,
+        grades: periodGrades,
+        studentId,
+        headcount: 0,
+        scale: templateScale,
+        rank: null,
+        firstAverage: null,
+        lastAverage: null,
+      });
+      return computeModelAverages(templateBuffer, templateMapping, fill);
+    } catch (e) {
+      console.error(e);
+      return null;
+    }
   }, [
     templateReady,
     templateBuffer,
@@ -125,10 +126,10 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
     studentId,
   ]);
 
-  const average = averages?.generalAverage ?? null;
+  const average = modelResult?.generalAverage ?? null;
   const weak = useMemo(() => {
-    if (!averages) return [];
-    return Object.entries(averages.subjectAverages)
+    if (!modelResult) return [];
+    return Object.entries(modelResult.subjectAverages)
       .filter(([name, avg]) => {
         if (avg === null || avg >= PASS_THRESHOLD) return false;
         const sub = subjects.find((x) => x.name === name);
@@ -138,7 +139,7 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
       })
       .map(([name, avg]) => ({ id: name, name, average: avg as number }))
       .sort((a, b) => a.average - b.average);
-  }, [averages, subjects, bySubject]);
+  }, [modelResult, subjects, bySubject]);
 
   const gradedSubjects = subjects.filter((s) => bySubject.has(s.id));
 
@@ -150,28 +151,27 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
         </CardTitle>
         <Button variant="ghost" size="sm" className="press h-8" asChild>
           <Link to="/eleves/$studentId/notes" params={{ studentId }}>
-            <BookOpen className="mr-1 h-3.5 w-3.5" /> Notes de l'eleve
+            <BookOpen className="mr-1 h-3.5 w-3.5" /> Notes de l'élève
           </Link>
         </Button>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         {!classId ? (
-          <p className="text-muted-foreground">Eleve non assigne a une classe.</p>
+          <p className="text-muted-foreground">Élève non assigné à une classe.</p>
         ) : loading || !templateReady ? (
           <p className="text-muted-foreground">Chargement…</p>
+        ) : templateError && !templateBuffer ? (
+          <p className="text-muted-foreground text-xs">
+            {templateError} Importez un modèle de bulletin pour afficher les moyennes (formules Excel).
+          </p>
         ) : !activePeriod ? (
-          <p className="text-muted-foreground">Aucune periode ouverte.</p>
+          <p className="text-muted-foreground">Aucune période ouverte.</p>
         ) : bySubject.size === 0 ? (
-          <p className="text-muted-foreground">Aucune note sur cette periode.</p>
+          <p className="text-muted-foreground">Aucune note sur cette période.</p>
         ) : (
           <>
-            {templateError && !templateBuffer && (
-              <p className="text-[11px] text-muted-foreground">
-                Pas de modèle Excel actif — moyennes calculées depuis les notes (aperçu live).
-              </p>
-            )}
             <div className="flex items-center justify-between rounded-lg border border-border bg-muted/40 px-3 py-2">
-              <span className="text-muted-foreground text-xs">Moyenne générale</span>
+              <span className="text-muted-foreground text-xs">Moyenne (formules modèle)</span>
               <Badge
                 variant={average !== null && average < PASS_THRESHOLD ? "destructive" : "default"}
                 className="tabular-nums"
@@ -184,7 +184,7 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
               <CollapsibleTrigger asChild>
                 <Button variant="outline" size="sm" className="w-full justify-between">
                   <span>
-                    {gradedSubjects.length} matiere{gradedSubjects.length > 1 ? "s" : ""} notee
+                    {gradedSubjects.length} matière{gradedSubjects.length > 1 ? "s" : ""} notée
                     {gradedSubjects.length > 1 ? "s" : ""}
                   </span>
                   <ChevronDown className={`h-4 w-4 transition ${listOpen ? "rotate-180" : ""}`} />
@@ -194,11 +194,11 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
                 <ul className="mt-2 divide-y divide-border rounded-lg border border-border">
                   {gradedSubjects.map((s) => {
                     const list = bySubject.get(s.id) ?? [];
-                    const avg = averages?.subjectAverages[s.name] ?? null;
+                    const avg = modelResult?.subjectAverages[s.name] ?? null;
                     return (
                       <li key={s.id} className="flex items-center justify-between gap-2 px-3 py-1.5">
                         <div className="min-w-0">
-                          <p className="truncate font-medium text-foreground text-sm">{s.name}</p>
+                          <p className="truncate text-sm font-medium text-foreground">{s.name}</p>
                           <p className="text-[11px] text-muted-foreground">
                             {list.length} note{list.length > 1 ? "s" : ""}
                           </p>
@@ -220,7 +220,7 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
             {weak.length > 0 && (
               <div>
                 <p className="mb-1 flex items-center gap-1 text-xs font-medium text-foreground">
-                  <AlertTriangle className="h-3.5 w-3.5 text-warning" /> A travailler
+                  <AlertTriangle className="h-3.5 w-3.5 text-warning" /> À travailler
                 </p>
                 <div className="flex flex-wrap gap-1">
                   {weak.map((w) => (
@@ -236,7 +236,7 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
 
         <Button className="press w-full" variant="outline" asChild>
           <Link to="/eleves/$studentId/notes" params={{ studentId }}>
-            <BookOpen className="mr-1.5 h-4 w-4" /> Notes de l'eleve
+            <BookOpen className="mr-1.5 h-4 w-4" /> Notes de l'élève
           </Link>
         </Button>
       </CardContent>
