@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Clock, Download, Eye, Trash2 } from "lucide-react";
+import { Clock, Trash2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { formatDateTime } from "@/lib/format";
 import { canvasToPdfBlob, downloadBlob } from "@/lib/pdf-export";
 import type { ClassReport, GradePeriod } from "@/lib/grades";
 import { describeError } from "@/lib/errors";
+import { PeriodComparisonChart } from "@/components/school/period-comparison-chart";
 
 type StudentRef = { id: string; first_name: string; last_name: string };
 type AveragedStudent = { student: StudentRef; average: number; weakSubjects: string[] };
@@ -37,12 +38,9 @@ export function StudentGroupCard({
   emptyLabel = "Aucun classement pour le moment",
 }: {
   title: string;
-  /** Liste classée (fiche classe) */
   students?: { id: string; name: string; value: string; rank: number }[];
-  /** Liste AveragedStudent (autres vues) */
   rows?: AveragedStudent[];
   tone?: "destructive" | "success";
-  /** Message affiché quand la liste est vide (au lieu de masquer la carte). */
   emptyLabel?: string;
 }) {
   if (Array.isArray(students)) {
@@ -210,43 +208,50 @@ export function ClassReportsSection({ classId }: { classId: string }) {
   };
 
   return (
-    <Card className="mb-6">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base flex items-center gap-2">
-          <Clock className="h-4 w-4" /> Rapports de classe
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2 text-sm">
-        {activeReports.length === 0 ? (
-          <p className="text-muted-foreground text-xs">Aucun rapport enregistré pour cette classe.</p>
-        ) : (
-          <ul className="divide-y divide-border rounded-lg border border-border">
-            {activeReports.map((r) => {
-              const period = periodsQuery.data.find((p) => p.id === r.period_id);
-              return (
-                <li key={r.id} className="flex items-center justify-between gap-2 px-3 py-2">
-                  <div className="min-w-0">
-                    <p className="font-medium truncate">{r.title ?? `Rapport P${period?.period_number ?? "?"}`}</p>
-                    <p className="text-[11px] text-muted-foreground">{formatDateTime(r.created_at)}</p>
-                  </div>
-                  <div className="flex shrink-0 gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
-                      disabled={busyId === r.id}
-                      onClick={() => void remove(r.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </CardContent>
-    </Card>
+    <div className="mb-6 space-y-4">
+      <PeriodComparisonChart
+        classId={classId}
+        title="Comparaison des périodes"
+        subtitle="La classe a-t-elle progressé, stagné ou régressé ?"
+      />
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Clock className="h-4 w-4" /> Rapports de classe
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          {activeReports.length === 0 ? (
+            <p className="text-muted-foreground text-xs">Aucun rapport enregistré pour cette classe.</p>
+          ) : (
+            <ul className="divide-y divide-border rounded-lg border border-border">
+              {activeReports.map((r) => {
+                const period = periodsQuery.data.find((p) => p.id === r.period_id);
+                return (
+                  <li key={r.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{r.title ?? `Rapport P${period?.period_number ?? "?"}`}</p>
+                      <p className="text-[11px] text-muted-foreground">{formatDateTime(r.created_at)}</p>
+                    </div>
+                    <div className="flex shrink-0 gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        disabled={busyId === r.id}
+                        onClick={() => void remove(r.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
