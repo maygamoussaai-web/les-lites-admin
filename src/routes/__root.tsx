@@ -1,5 +1,4 @@
-import { QueryClient } from "@tanstack/react-query";
-import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,
   Link,
@@ -15,7 +14,6 @@ import { Button } from "@/components/ui/button";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
-import { queryPersister, QUERY_PERSIST_MAX_AGE } from "../lib/query-persist";
 
 function NotFoundComponent() {
   return (
@@ -65,11 +63,16 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
             Page temporairement indisponible
           </h1>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-            Le chargement n'a pas abouti. Réessayez ou revenez à l'accueil pour continuer votre
-            travail.
+            Un problème est survenu lors du chargement. Réessayez ou revenez à l'accueil.
           </p>
+          {import.meta.env.DEV && error?.message ? (
+            <pre className="mt-4 max-h-32 overflow-auto rounded-lg bg-muted p-3 text-left text-xs text-muted-foreground">
+              {error.message}
+            </pre>
+          ) : null}
           <div className="mt-6 flex flex-wrap gap-2">
             <Button
+              type="button"
               className="press"
               onClick={() => {
                 router.invalidate();
@@ -79,17 +82,14 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
               <RotateCcw className="mr-1.5 h-4 w-4" />
               Réessayer
             </Button>
-            <Button variant="outline" className="press" asChild>
-              <a href="/">
+            <Button asChild variant="outline" className="press">
+              <Link to="/">
                 <Home className="mr-1.5 h-4 w-4" />
                 Accueil
-              </a>
+              </Link>
             </Button>
           </div>
         </div>
-        <p className="mt-4 text-center text-xs text-muted-foreground">
-          Les Élites de Gao — Administration
-        </p>
       </div>
     </div>
   );
@@ -99,18 +99,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: "Les Élites de Gao – Administration" },
       {
         name: "description",
-        content:
-          "Administration du complexe scolaire Les Élites de Gao : élèves, enseignants, notes, scolarité et paiements.",
+        content: "Gestion administrative unifiée du complexe scolaire Les Élites de Gao.",
       },
-      { name: "author", content: "Les Élites de Gao" },
-      { name: "theme-color", content: "#0f2a63" },
-      { name: "apple-mobile-web-app-capable", content: "yes" },
-      { name: "apple-mobile-web-app-title", content: "Élites de Gao" },
-      { name: "apple-mobile-web-app-status-bar-style", content: "default" },
+      { name: "theme-color", content: "#0f172a" },
       { property: "og:title", content: "Les Élites de Gao – Administration" },
       {
         property: "og:description",
@@ -173,34 +168,11 @@ function RootComponent() {
       .catch((err) => console.error("[SW] Échec d'enregistrement :", err));
   }, []);
 
+  // Persist désactivé : évite les deps optionnelles qui cassent le build Lovable
+  // et force des données fraîches (notes, bulletins).
   return (
-    <PersistQueryClientProvider
-      client={queryClient}
-      persistOptions={{
-        persister: queryPersister,
-        maxAge: QUERY_PERSIST_MAX_AGE,
-        dehydrateOptions: {
-          shouldDehydrateQuery: (query) => {
-            const key = query.queryKey[0];
-            if (
-              typeof key === "string" &&
-              [
-                "grades",
-                "grade_periods",
-                "student_documents",
-                "student_report_cards",
-                "class_reports",
-                "active-report-template",
-              ].includes(key)
-            ) {
-              return false;
-            }
-            return query.state.status === "success";
-          },
-        },
-      }}
-    >
+    <QueryClientProvider client={queryClient}>
       <Outlet />
-    </PersistQueryClientProvider>
+    </QueryClientProvider>
   );
 }
