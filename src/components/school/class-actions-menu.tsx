@@ -32,6 +32,7 @@ import type { SchoolData } from "@/lib/school-data";
 import type { ClassRow } from "@/lib/school";
 import { describeError } from "@/lib/errors";
 import { checkOpenPeriodBulletins, closeAndStartNextPeriod } from "@/lib/period-lifecycle";
+import { renewEnrollmentsForClass, snapshotFromPlan } from "@/lib/enrollment";
 
 export function ClassActionsMenu({
   klass,
@@ -72,59 +73,56 @@ export function ClassActionsMenu({
     qc.invalidateQueries({ queryKey: ["grade_periods"] });
   };
 
+  /**
+   * Renouvellement d'année : les élèves restent dans la même classe.
+   * Chaque période active est fermée (historique conservé), puis une nouvelle
+   * période démarre à zéro avec le modèle de scolarité *actuel* de la classe.
+   */
   const renewClass = async (force = false) => {
     setRenewBusy(true);
     try {
       const check = await checkOpenPeriodBulletins(klass.id);
       if (check.missingBulletins && !force) {
         setWarnMissing(true);
-        toast.message("Des notes existent sans bulletin. Générez-les ou confirmez.");
+        toast.message("Des notes existent sans bulletin. Générez-les ou confirmez le renouvellement.");
         return;
       }
+      // Clôturer la période de notes ouverte (bulletins) si besoin
       if (check.hasOpenPeriod) {
         await closeAndStartNextPeriod(klass.id, klass.establishment_id);
       }
 
-      const year = new Date().getFullYear();
-      const archivedName = `${klass.name} · génération ${year}`;
-      const { error: archErr } = await supabase
-        .from("classes")
-        .update({ is_active: false, name: archivedName })
-        .eq("id", klass.id);
-      if (archErr) throw archErr;
-
-      const { data: created, error: creErr } = await supabase
-        .from("classes")
-        .insert({
-          establishment_id: klass.establishment_id,
-          name: klass.name,
-          capacity: klass.capacity,
-          fee_plan_id: klass.fee_plan_id,
-          is_active: true,
-        })
-        .select("id")
-        .single();
-      if (creErr || !created) throw creErr ?? new Error("Création génération impossible");
+      const establishment = data.establishments.find((e) => e.id === klass.establishment_id);
+      const plan = data.feePlans.find((p) => p.id === klass.fee_plan_id);
+      const planInstallments = data.installments.filter((i) => i.fee_plan_id === klass.fee_plan_id);
+      const snap = snapshotFromPlan(planInstallments);
 
       if (studentIds.length) {
-        await supabase
-          .from("student_enrollments")
-          .update({ ended_at: new Date().toISOString() })
-          .in("student_id", studentIds)
-          .is("ended_at", null);
-        await supabase.from("students").update({ class_id: null }).in("id", studentIds);
+        await renewEnrollmentsForClass({
+          studentIds,
+          establishmentId: klass.establishment_id,
+          establishmentName: establishment?.name ?? "",
+          classId: klass.id,
+          className: klass.name,
+          feePlanId: klass.fee_plan_id,
+          totalAmount: plan ? Number(plan.total_amount) : 0,
+          installments: snap,
+        });
       }
 
       await writeAudit("update", "classes", klass.id, {
         renewed: true,
-        archived_as: archivedName,
-        new_class_id: created.id,
+        students: studentIds.length,
+        fee_plan_id: klass.fee_plan_id,
       });
       invalidateAll();
-      toast.success(`Classe renouvelée — « ${archivedName} » archivée`);
+      toast.success(
+        studentIds.length
+          ? `Année renouvelée — ${studentIds.length} nouvelle(s) période(s) de scolarité ouvertes`
+          : "Année renouvelée (aucun élève dans la classe)",
+      );
       setRenewOpen(false);
       setWarnMissing(false);
-      navigate({ to: "/classes/$classId", params: { classId: created.id } });
     } catch (e) {
       toast.error(describeError(e, "Renouvellement impossible"));
     } finally {
@@ -214,8 +212,11 @@ export function ClassActionsMenu({
             <AlertDialogTitle>Renouveler la classe « {klass.name} » ?</AlertDialogTitle>
             <AlertDialogDescription className="space-y-2">
               <span className="block">
-                La génération actuelle est archivée. Une nouvelle classe active est créée.
-                Les {studentIds.length} élève(s) passent en non assignés.
+                Les {studentIds.length} élève(s) <strong>restent dans cette classe</strong>. Leur
+                période de scolarité en cours est fermée (historique conservé) et une nouvelle
+                période démarre à zéro avec le <strong>modèle de scolarité actuel</strong> de la
+                classe. Vérifiez les échéances du modèle avant de confirmer, sinon tous
+                pourraient apparaître « en retard ».
               </span>
               {warnMissing && (
                 <span className="block rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
