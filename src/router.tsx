@@ -1,15 +1,13 @@
 import { QueryClient } from "@tanstack/react-query";
 import { createRouter } from "@tanstack/react-router";
 import { routeTree } from "./routeTree.gen";
-import { QUERY_PERSIST_MAX_AGE } from "./lib/query-persist";
 
 export const getRouter = () => {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
-        // Cache mémoire long (gcTime) pour le hors-ligne, mais données
-        // considérées fraîches seulement 45s — puis refetch au focus / montage.
-        gcTime: QUERY_PERSIST_MAX_AGE,
+        // Cache mémoire 7 jours (hors-ligne) ; fraîcheur 45s puis refetch focus/mount.
+        gcTime: 1000 * 60 * 60 * 24 * 7,
         staleTime: 45_000,
         refetchOnWindowFocus: true,
         refetchOnMount: true,
