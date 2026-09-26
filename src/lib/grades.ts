@@ -65,40 +65,44 @@ export function evaluationColumnAverage(
 }
 
 /** Groupe les notes d'un élève par matière. */
-export function groupGradesBySubject(grades: Grade[], subjectIds: string[]): Map<string, Grade[]> {
+export function groupGradesBySubject(grades: Grade[], studentId: string): Map<string, Grade[]> {
   const map = new Map<string, Grade[]>();
-  for (const id of subjectIds) map.set(id, []);
   for (const g of grades) {
-    const list = map.get(g.subject_id);
-    if (list) list.push(g);
+    if (g.student_id !== studentId) continue;
+    const list = map.get(g.subject_id) ?? [];
+    list.push(g);
+    map.set(g.subject_id, list);
   }
   return map;
 }
 
-export function useClassGrades(classId: string) {
+/** Charge matières, périodes et notes d'une classe. */
+export function useClassGrades(classId: string, enabled = true) {
   const subjects = useRows<ClassSubject>("class_subjects", {
     eq: { class_id: classId },
     order: { column: "name" },
+    enabled,
   });
   const periods = useRows<GradePeriod>("grade_periods", {
     eq: { class_id: classId },
     order: { column: "period_number" },
+    enabled,
   });
   const grades = useRows<Grade>("grades", {
     eq: { class_id: classId },
-    order: { column: "created_at", ascending: false },
+    order: { column: "created_at" },
+    enabled,
   });
 
   return useMemo(() => {
-    const allSubjects = subjects.data ?? [];
     const allPeriods = periods.data ?? [];
-    const allGrades = grades.data ?? [];
+    const activePeriod = [...allPeriods].reverse().find((p) => p.ended_at === null) ?? null;
     return {
       loading: subjects.isPending || periods.isPending || grades.isPending,
-      subjects: allSubjects,
+      subjects: subjects.data ?? [],
       periods: allPeriods,
-      grades: allGrades,
-      currentPeriod: allPeriods.find((p) => p.ended_at === null) ?? null,
+      activePeriod,
+      grades: grades.data ?? [],
     };
   }, [subjects.data, subjects.isPending, periods.data, periods.isPending, grades.data, grades.isPending]);
 }
