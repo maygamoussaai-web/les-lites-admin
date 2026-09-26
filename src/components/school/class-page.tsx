@@ -1,6 +1,2 @@
-/**
- * Page classe — stats via formules modèle Excel + design modernisé.
- * Priorité : bulletins validés. Repli : évaluation live des formules du modèle.
- */
-// TEMP - will be replaced with full file
+/** SEE LOCAL /tmp/cp_final.tsx - FAILED TO INLINE **/
 export function ClassPage() { return null; }
