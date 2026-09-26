@@ -63,6 +63,7 @@ export function TeacherScheduleSection({
   const [addOpen, setAddOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [subjects, setSubjects] = useState<{ id: string; name: string }[]>([]);
+  const [subjectsLoading, setSubjectsLoading] = useState(false);
   const [form, setForm] = useState({
     class_id: "",
     subject_id: "",
@@ -74,14 +75,25 @@ export function TeacherScheduleSection({
   const loadSubjects = async (classId: string) => {
     if (!classId) {
       setSubjects([]);
+      setSubjectsLoading(false);
       return;
     }
-    const { data: rows } = await supabase
-      .from("class_subjects")
-      .select("id, name")
-      .eq("class_id", classId)
-      .order("name");
-    setSubjects(rows ?? []);
+    setSubjectsLoading(true);
+    try {
+      const { data: rows, error } = await supabase
+        .from("class_subjects")
+        .select("id, name")
+        .eq("class_id", classId)
+        .order("name");
+      if (error) throw error;
+      setSubjects(rows ?? []);
+    } catch (e) {
+      console.error(e);
+      setSubjects([]);
+      toast.error(describeError(e, "Impossible de charger les matières"));
+    } finally {
+      setSubjectsLoading(false);
+    }
   };
 
   const toggleSession = async (session: TeacherSession, checked: boolean) => {
@@ -134,7 +146,9 @@ export function TeacherScheduleSection({
     const minutes = Math.round(hoursNum * 60);
     const klass = classes.find((c) => c.id === form.class_id);
     const sub = subjects.find((s) => s.id === form.subject_id);
-    const label = form.name.trim() || `${sub?.name ?? "Cours"} — ${klass?.name ?? ""}`.trim();
+    const label =
+      form.name.trim() ||
+      `${sub?.name ?? "Cours"} \u2014 ${klass?.name ?? ""}`.trim();
     setBusy("add");
     try {
       const { error } = await supabase.from("teacher_sessions").insert({
@@ -170,12 +184,12 @@ export function TeacherScheduleSection({
             Emploi du temps
           </CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">
-            Semaine du {weekStart} · cases réinitialisées chaque lundi
+            Semaine du {weekStart} \u00b7 cases réinitialisées chaque lundi
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline" className="tabular-nums">
-            {formatNumberHours(hours)} h validées · {formatFCFA(due)}
+            {formatNumberHours(hours)} h validées \u00b7 {formatFCFA(due)}
           </Badge>
           <Button size="sm" className="press" onClick={() => setAddOpen(true)}>
             <Plus className="mr-1.5 h-4 w-4" /> Séance
@@ -203,9 +217,9 @@ export function TeacherScheduleSection({
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{s.name}</p>
                     <p className="text-[11px] text-muted-foreground">
-                      {weekdayLabel(s.weekday)} · {formatDuration(s.duration_minutes)}
-                      {klass ? ` · ${klass.name}` : ""}
-                      {done ? " · validée cette semaine" : ""}
+                      {weekdayLabel(s.weekday)} \u00b7 {formatDuration(s.duration_minutes)}
+                      {klass ? ` \u00b7 ${klass.name}` : ""}
+                      {done ? " \u00b7 validée cette semaine" : ""}
                     </p>
                   </div>
                   <Badge variant={done ? "default" : "outline"} className="shrink-0 tabular-nums text-[10px]">
@@ -233,11 +247,17 @@ export function TeacherScheduleSection({
           </ul>
         )}
         <p className="text-[11px] text-muted-foreground">
-          Tarif : {formatFCFA(rate)} / h · Dû cumulé (toutes semaines validées) : {formatFCFA(due)}
+          Tarif : {formatFCFA(rate)} / h \u00b7 Dû cumulé (toutes semaines validées) : {formatFCFA(due)}
         </p>
       </CardContent>
 
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+      <Dialog open={addOpen} onOpenChange={(open) => {
+        setAddOpen(open);
+        if (!open) {
+          setForm({ class_id: "", subject_id: "", weekday: "1", hours: "2", name: "" });
+          setSubjects([]);
+        }
+      }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Nouvelle séance</DialogTitle>
@@ -246,7 +266,7 @@ export function TeacherScheduleSection({
             <div>
               <Label className="mb-1.5 block text-sm">Classe</Label>
               <Select
-                value={form.class_id}
+                value={form.class_id || undefined}
                 onValueChange={(v) => {
                   setForm((f) => ({ ...f, class_id: v, subject_id: "" }));
                   void loadSubjects(v);
@@ -256,32 +276,65 @@ export function TeacherScheduleSection({
                   <SelectValue placeholder="Choisir une classe" />
                 </SelectTrigger>
                 <SelectContent>
-                  {classes.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.name}
-                    </SelectItem>
-                  ))}
+                  {classes.length === 0 ? (
+                    <div className="px-2 py-3 text-center text-sm text-muted-foreground">
+                      Aucune classe active
+                    </div>
+                  ) : (
+                    classes.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
             <div>
               <Label className="mb-1.5 block text-sm">Matière</Label>
               <Select
-                value={form.subject_id}
+                value={form.subject_id || undefined}
                 onValueChange={(v) => setForm((f) => ({ ...f, subject_id: v }))}
-                disabled={!form.class_id}
+                disabled={!form.class_id || subjectsLoading}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Matière de la classe" />
+                  <SelectValue
+                    placeholder={
+                      !form.class_id
+                        ? "Choisir d'abord une classe"
+                        : subjectsLoading
+                          ? "Chargement…"
+                          : subjects.length === 0
+                            ? "Aucune matière (optionnel)"
+                            : "Matière de la classe"
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
-                  {subjects.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name}
-                    </SelectItem>
-                  ))}
+                  {subjectsLoading ? (
+                    <div className="px-2 py-3 text-center text-sm text-muted-foreground">
+                      Chargement des matières…
+                    </div>
+                  ) : subjects.length === 0 ? (
+                    <div className="px-2 py-3 text-center text-sm text-muted-foreground">
+                      {form.class_id
+                        ? "Aucune matière définie pour cette classe. Vous pouvez renseigner un libellé ci-dessous."
+                        : "Sélectionnez une classe"}
+                    </div>
+                  ) : (
+                    subjects.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.name}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
+              {form.class_id && !subjectsLoading && subjects.length === 0 && (
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  Ajoutez des matières sur la page de la classe, ou utilisez le libellé libre.
+                </p>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -315,7 +368,7 @@ export function TeacherScheduleSection({
               <Input
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Ex. Maths TSE — lundi"
+                placeholder="Ex. Maths TSE \u2014 lundi"
               />
             </div>
           </div>
