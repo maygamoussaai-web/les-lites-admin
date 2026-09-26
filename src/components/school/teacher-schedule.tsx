@@ -148,7 +148,7 @@ export function TeacherScheduleSection({
     const sub = subjects.find((s) => s.id === form.subject_id);
     const label =
       form.name.trim() ||
-      `${sub?.name ?? "Cours"} \u2014 ${klass?.name ?? ""}`.trim();
+      `${sub?.name ?? "Cours"} — ${klass?.name ?? ""}`.trim();
     setBusy("add");
     try {
       const { error } = await supabase.from("teacher_sessions").insert({
@@ -184,12 +184,12 @@ export function TeacherScheduleSection({
             Emploi du temps
           </CardTitle>
           <p className="mt-1 text-xs text-muted-foreground">
-            Semaine du {weekStart} \u00b7 cases réinitialisées chaque lundi
+            Semaine du {weekStart} · cases réinitialisées chaque lundi
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline" className="tabular-nums">
-            {formatNumberHours(hours)} h validées \u00b7 {formatFCFA(due)}
+            {formatNumberHours(hours)} h validées · {formatFCFA(due)}
           </Badge>
           <Button size="sm" className="press" onClick={() => setAddOpen(true)}>
             <Plus className="mr-1.5 h-4 w-4" /> Séance
@@ -217,9 +217,9 @@ export function TeacherScheduleSection({
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{s.name}</p>
                     <p className="text-[11px] text-muted-foreground">
-                      {weekdayLabel(s.weekday)} \u00b7 {formatDuration(s.duration_minutes)}
-                      {klass ? ` \u00b7 ${klass.name}` : ""}
-                      {done ? " \u00b7 validée cette semaine" : ""}
+                      {weekdayLabel(s.weekday)} · {formatDuration(s.duration_minutes)}
+                      {klass ? ` · ${klass.name}` : ""}
+                      {done ? " · validée cette semaine" : ""}
                     </p>
                   </div>
                   <Badge variant={done ? "default" : "outline"} className="shrink-0 tabular-nums text-[10px]">
@@ -247,7 +247,7 @@ export function TeacherScheduleSection({
           </ul>
         )}
         <p className="text-[11px] text-muted-foreground">
-          Tarif : {formatFCFA(rate)} / h \u00b7 Dû cumulé (toutes semaines validées) : {formatFCFA(due)}
+          Tarif : {formatFCFA(rate)} / h · Dû cumulé (toutes semaines validées) : {formatFCFA(due)}
         </p>
       </CardContent>
 
@@ -368,7 +368,7 @@ export function TeacherScheduleSection({
               <Input
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="Ex. Maths TSE \u2014 lundi"
+                placeholder="Ex. Maths TSE — lundi"
               />
             </div>
           </div>
