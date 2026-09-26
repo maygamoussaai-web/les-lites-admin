@@ -21,6 +21,9 @@ import { establishmentTypeLabel, formatFCFA } from "@/lib/format";
 import { ESTABLISHMENT_VISUALS } from "@/lib/school";
 import { cn } from "@/lib/utils";
 
+const tabTriggerClass =
+  "gap-1 rounded-lg px-1.5 py-2 text-[11px] sm:gap-1.5 sm:px-2 sm:text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm";
+
 export function EstablishmentPage() {
   const { id } = useParams({ from: "/_authenticated/etablissements/$id" });
   const { isDG, establishmentIds, establishmentIdsLoading } = useAdminProfile();
@@ -161,33 +164,22 @@ export function EstablishmentPage() {
         </div>
       )}
 
-      <Tabs defaultValue="classes" className="space-y-4">
-        <TabsList className="grid h-11 w-full grid-cols-2 gap-1 sm:grid-cols-4 rounded-xl border border-border/70 bg-muted/40 p-1">
-          <TabsTrigger
-            value="classes"
-            className="gap-1.5 rounded-lg px-2 py-2 text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm"
-          >
+      {/* Une seule rangée de 4 onglets — évite le chevauchement titre / onglet actif */}
+      <Tabs defaultValue="classes" className="space-y-5">
+        <TabsList className="grid h-11 w-full grid-cols-4 gap-0.5 rounded-xl border border-border/70 bg-muted/40 p-1 sm:gap-1">
+          <TabsTrigger value="classes" className={tabTriggerClass}>
             <GraduationCap className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">Classes</span>
           </TabsTrigger>
-          <TabsTrigger
-            value="enseignants"
-            className="gap-1.5 rounded-lg px-2 py-2 text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm"
-          >
+          <TabsTrigger value="enseignants" className={tabTriggerClass}>
             <UserCheck className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">Enseignants</span>
           </TabsTrigger>
-          <TabsTrigger
-            value="scolarite"
-            className="gap-1.5 rounded-lg px-2 py-2 text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm"
-          >
+          <TabsTrigger value="scolarite" className={tabTriggerClass}>
             <Banknote className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">Scolarité</span>
           </TabsTrigger>
-          <TabsTrigger
-            value="finance"
-            className="gap-1.5 rounded-lg px-2 py-2 text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm"
-          >
+          <TabsTrigger value="finance" className={tabTriggerClass}>
             <Wallet className="h-3.5 w-3.5 shrink-0" />
             <span className="truncate">Finance</span>
           </TabsTrigger>
@@ -198,7 +190,7 @@ export function EstablishmentPage() {
         <TabsContent value="enseignants" className="mt-0 focus-visible:outline-none">
           <TeachersTab establishmentId={id} data={data} isDG={isDG} />
         </TabsContent>
-        <TabsContent value="scolarite" className="mt-0 focus-visible:outline-none">
+        <TabsContent value="scolarite" className="mt-0 space-y-0 focus-visible:outline-none">
           <FeePlansTab establishmentId={id} data={data} />
         </TabsContent>
         <TabsContent value="finance" className="mt-0 focus-visible:outline-none">
