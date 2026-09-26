@@ -15,7 +15,6 @@ import { formatDateTime } from "@/lib/format";
 import { canvasToPdfBlob, downloadBlob } from "@/lib/pdf-export";
 import type { ClassReport, GradePeriod } from "@/lib/grades";
 import { describeError } from "@/lib/errors";
-import { PeriodComparisonChart } from "@/components/school/period-comparison-chart";
 
 type StudentRef = { id: string; first_name: string; last_name: string };
 type AveragedStudent = { student: StudentRef; average: number; weakSubjects: string[] };
@@ -152,7 +151,7 @@ function renderClassReportCanvas({
   ctx.fillText(establishmentName, 60, 80);
   ctx.fillStyle = "#1a1a1a";
   ctx.font = "bold 28px sans-serif";
-  ctx.fillText(`Rapport — ${className}`, 60, 140);
+  ctx.fillText(`Rapport \u2014 ${className}`, 60, 140);
   ctx.font = "20px sans-serif";
   ctx.fillStyle = "#444";
   ctx.fillText(`Période ${period.period_number}`, 60, 180);
@@ -162,7 +161,7 @@ function renderClassReportCanvas({
   const withAvg = stats.withAvg ?? [];
   const passing = stats.passing ?? [];
   ctx.fillText(
-    `Moyenne : ${stats.classAverage != null ? stats.classAverage.toFixed(2) : "—"}`,
+    `Moyenne : ${stats.classAverage != null ? stats.classAverage.toFixed(2) : "\u2014"}`,
     60,
     y,
   );
@@ -176,7 +175,7 @@ function renderClassReportCanvas({
   ctx.font = "18px sans-serif";
   for (const [i, r] of withAvg.slice(0, 20).entries()) {
     ctx.fillText(
-      `${i + 1}. ${r.student.last_name} ${r.student.first_name} — ${r.average.toFixed(2)}`,
+      `${i + 1}. ${r.student.last_name} ${r.student.first_name} \u2014 ${r.average.toFixed(2)}`,
       60,
       y,
     );
@@ -209,11 +208,6 @@ export function ClassReportsSection({ classId }: { classId: string }) {
 
   return (
     <div className="mb-6 space-y-4">
-      <PeriodComparisonChart
-        classId={classId}
-        title="Comparaison des périodes"
-        subtitle="La classe a-t-elle progressé, stagné ou régressé ?"
-      />
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center gap-2">
