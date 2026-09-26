@@ -98,6 +98,14 @@ export function PeriodComparisonChart({
       : "Moyenne de classe à chaque période (bulletins)");
 
   const maxAvg = points.reduce((m, p) => Math.max(m, p.moyenne ?? 0), 0) || 20;
+  const n = points.length;
+  const cols = Math.min(n, 6);
+  // Barres plus fines dès 5–6 périodes pour tenir sur une seule ligne
+  const barMaxW = n >= 6 ? "1.65rem" : n >= 5 ? "2rem" : n >= 4 ? "2.5rem" : "3rem";
+  const barH = n >= 5 ? "h-24" : "h-28";
+  const gapClass = n >= 5 ? "gap-2" : "gap-3";
+  const labelSize = n >= 5 ? "text-[10px]" : "text-[11px]";
+  const avgSize = n >= 5 ? "text-base" : "text-lg";
 
   return (
     <Card className="border-border/80">
@@ -121,32 +129,32 @@ export function PeriodComparisonChart({
           </p>
         ) : (
           <div
-            className="grid gap-3"
-            style={{ gridTemplateColumns: `repeat(${Math.min(points.length, 4)}, minmax(0, 1fr))` }}
+            className={`grid ${gapClass}`}
+            style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
           >
             {points.map((p, i) => {
               const prev = i > 0 ? (points[i - 1].moyenne as number) : null;
               const d = prev === null || p.moyenne === null ? null : (p.moyenne as number) - prev;
               const heightPct = p.moyenne === null ? 0 : Math.max(8, (p.moyenne / maxAvg) * 100);
               return (
-                <div key={p.label} className="flex flex-col items-center gap-2">
-                  <div className="flex h-28 w-full items-end justify-center rounded-lg bg-muted/30 px-2 pb-1">
+                <div key={p.label} className="flex flex-col items-center gap-1.5">
+                  <div className={`flex ${barH} w-full items-end justify-center rounded-lg bg-muted/30 px-1 pb-1`}>
                     <div
-                      className="w-full max-w-[3rem] rounded-t-md bg-primary/80 transition-all"
-                      style={{ height: `${heightPct}%` }}
+                      className="w-full rounded-t-md bg-primary/80 transition-all"
+                      style={{ height: `${heightPct}%`, maxWidth: barMaxW }}
                       title={p.moyenne === null ? "—" : formatNumber(p.moyenne, 2)}
                     />
                   </div>
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <p className={`${labelSize} font-medium uppercase tracking-wide text-muted-foreground`}>
                     {p.label}
                     {!p.closed ? " · en cours" : ""}
                   </p>
-                  <p className="text-lg font-semibold tabular-nums">
+                  <p className={`${avgSize} font-semibold tabular-nums`}>
                     {p.moyenne === null ? "—" : formatNumber(p.moyenne, 2)}
                   </p>
                   {d !== null && (
                     <p
-                      className={`text-[11px] tabular-nums ${
+                      className={`text-[10px] tabular-nums ${
                         d > 0 ? "text-emerald-600" : d < 0 ? "text-rose-600" : "text-muted-foreground"
                       }`}
                     >
