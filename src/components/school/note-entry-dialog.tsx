@@ -29,6 +29,7 @@ import { flushQueue } from "@/lib/offline-sync";
 import { isSubjectLabel } from "@/lib/xlsx-template";
 import { subjectsOfTemplate, type GradeNature } from "@/lib/report-template";
 import { evaluationColumnAverage, type ClassSubject, type GradePeriod, type Grade } from "@/lib/grades";
+import { ensureOpenPeriod } from "@/lib/period-lifecycle";
 
 type StudentRef = { id: string; first_name: string; last_name: string };
 
@@ -87,7 +88,6 @@ export function NoteEntryDialog({
   currentPeriod: GradePeriod | null;
   subjectLabels?: string[];
   allowedNatures?: GradeNature[];
-  /** Libellés du modèle Excel (évaluation / composition) */
   natureLabels?: Partial<Record<GradeNature, string>>;
   existingGrades?: Grade[];
 }) {
@@ -125,10 +125,6 @@ export function NoteEntryDialog({
   }, [open, realSubjects]);
 
   const onSubmit = async () => {
-    if (!currentPeriod) {
-      toast.error("Aucune période en cours");
-      return;
-    }
     if (!subjectId) {
       toast.error("Choisissez une matière");
       return;
@@ -164,6 +160,13 @@ export function NoteEntryDialog({
     }
     setSubmitting(true);
     try {
+      let period = currentPeriod;
+      if (!period) {
+        period = await ensureOpenPeriod(classId, establishmentId);
+        qc.invalidateQueries({ queryKey: ["grade_periods"] });
+        toast.message(`Période ${period.period_number} ouverte — enregistrement des notes.`);
+      }
+      const periodId = period.id;
       const rows: Record<string, unknown>[] = [];
       for (const { student, value } of entries) {
         const id = crypto.randomUUID();
@@ -173,7 +176,7 @@ export function NoteEntryDialog({
             (g) =>
               g.student_id === student.id &&
               g.subject_id === subjectId &&
-              g.period_id === currentPeriod.id &&
+              g.period_id === periodId &&
               g.nature === "composition",
           );
           sequence_number = prior.length + 1;
@@ -182,7 +185,7 @@ export function NoteEntryDialog({
             (g) =>
               g.student_id === student.id &&
               g.subject_id === subjectId &&
-              g.period_id === currentPeriod.id &&
+              g.period_id === periodId &&
               g.nature === "evaluation",
           );
           sequence_number = prior.length + 1;
@@ -193,7 +196,7 @@ export function NoteEntryDialog({
           establishment_id: establishmentId,
           student_id: student.id,
           subject_id: subjectId,
-          period_id: currentPeriod.id,
+          period_id: periodId,
           nature,
           value,
           scale: scaleNum,
@@ -223,7 +226,7 @@ export function NoteEntryDialog({
                     .in("id", gradeIds);
                   if (delErr) throw delErr;
                   for (const row of rows) {
-                    await writeAudit("delete", "grades" as never, row, null);
+                    await writeAudit("delete", "grades" as never, String(row.id), {});
                   }
                   removeOptimisticGrades(qc, gradeIds);
                   qc.invalidateQueries({ queryKey: ["grades"] });
@@ -367,7 +370,7 @@ export function NoteEntryDialog({
           <Button type="button" variant="outline" onClick={onClose}>
             Annuler
           </Button>
-          <Button type="button" disabled={submitting || !currentPeriod} onClick={() => void onSubmit()}>
+          <Button type="button" disabled={submitting} onClick={() => void onSubmit()}>
             {submitting ? "Enregistrement…" : "Enregistrer"}
           </Button>
         </DialogFooter>
