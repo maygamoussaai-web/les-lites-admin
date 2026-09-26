@@ -94,6 +94,8 @@ function Page() {
                   <div className="flex flex-wrap gap-1.5">
                     {closed ? (
                       <Badge className="bg-success text-success-foreground">Bouclé</Badge>
+                    ) : enrollment.ended_at ? (
+                      <Badge variant="outline">Non bouclé</Badge>
                     ) : late.isLate ? (
                       <Badge variant="destructive">
                         En retard · {late.overdueAmount.toLocaleString("fr-FR")} F

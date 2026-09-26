@@ -11,6 +11,7 @@ import { EmptyState } from "@/components/app/empty-state";
 import { ClassesTab } from "@/components/school/classes-tab";
 import { TeachersTab } from "@/components/school/teachers-tab";
 import { FinanceTab } from "@/components/school/finance-tab";
+import { FeePlansTab } from "@/components/school/fee-plans-tab";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -161,7 +162,7 @@ export function EstablishmentPage() {
       )}
 
       <Tabs defaultValue="classes" className="space-y-4">
-        <TabsList className="grid h-11 w-full grid-cols-3 gap-1 rounded-xl border border-border/70 bg-muted/40 p-1">
+        <TabsList className="grid h-11 w-full grid-cols-2 gap-1 sm:grid-cols-4 rounded-xl border border-border/70 bg-muted/40 p-1">
           <TabsTrigger
             value="classes"
             className="gap-1.5 rounded-lg px-2 py-2 text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm"
@@ -177,6 +178,13 @@ export function EstablishmentPage() {
             <span className="truncate">Enseignants</span>
           </TabsTrigger>
           <TabsTrigger
+            value="scolarite"
+            className="gap-1.5 rounded-lg px-2 py-2 text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm"
+          >
+            <Banknote className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">Scolarité</span>
+          </TabsTrigger>
+          <TabsTrigger
             value="finance"
             className="gap-1.5 rounded-lg px-2 py-2 text-sm data-[state=active]:bg-background data-[state=active]:shadow-sm"
           >
@@ -189,6 +197,9 @@ export function EstablishmentPage() {
         </TabsContent>
         <TabsContent value="enseignants" className="mt-0 focus-visible:outline-none">
           <TeachersTab establishmentId={id} data={data} isDG={isDG} />
+        </TabsContent>
+        <TabsContent value="scolarite" className="mt-0 focus-visible:outline-none">
+          <FeePlansTab establishmentId={id} data={data} />
         </TabsContent>
         <TabsContent value="finance" className="mt-0 focus-visible:outline-none">
           <FinanceTab establishmentId={id} data={data} />
