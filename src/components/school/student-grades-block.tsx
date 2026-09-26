@@ -18,7 +18,7 @@ export function StudentGradesCard({
           classId={classId}
           studentId={studentId}
           title="Comparaison des périodes"
-          subtitle="L'élève a-t-il progressé, stagné ou régressé ?"
+          subtitle="Moyenne de l'élève à chaque période (bulletins)"
         />
       </div>
     </>
