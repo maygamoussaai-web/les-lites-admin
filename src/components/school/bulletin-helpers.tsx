@@ -178,6 +178,7 @@ export function BulletinWalkthroughDialog({
           studentFirstName: student.first_name,
           studentLastName: student.last_name,
           periodNumber: periodSnap.period_number,
+          periodName: periodSnap.name ?? null,
           subjects: subjectsSnap,
           grades: gradesSnap,
           studentId: student.id,
@@ -214,6 +215,7 @@ export function BulletinWalkthroughDialog({
             studentFirstName: student.first_name,
             studentLastName: student.last_name,
             periodNumber: periodSnap.period_number,
+            periodName: periodSnap.name ?? null,
             subjects: subjectsSnap,
             grades: gradesSnap,
             studentId: student.id,
@@ -242,7 +244,7 @@ export function BulletinWalkthroughDialog({
               ? `${uploaded.bucket}:${uploaded.path}`
               : uploaded.path;
 
-          const docName = `Bulletin période ${periodSnap.period_number}`;
+          const docName = `Bulletin ${periodSnap.name?.trim() || `période ${periodSnap.period_number}`}`;
           const { data: docRow, error: docErr } = await supabase
             .from("student_documents")
             .insert({
