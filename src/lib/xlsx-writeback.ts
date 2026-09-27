@@ -13,6 +13,7 @@ import {
   colIndex,
   isSubjectLabel,
   normalize,
+  parseColumnTag,
   type TemplateMapping,
   type FillData,
   type ComputedAverages,
@@ -86,32 +87,40 @@ export function writeFilledWorkbook(
 
   const warnings: string[] = [];
 
-  // Rattrapage : "Note classe" souvent absente du mapping stocké
+  // Rattrapage : balises de colonnes + libellés absents du mapping stocké
   {
     const cols = { ...mapping.columns };
-    const hasEval = Object.values(cols).includes("evaluation");
-    const hasCompo = Object.values(cols).includes("composition");
-    if ((!hasEval || !hasCompo) && mapping.headerRow > 0) {
-      for (let c = 0; c < 20; c++) {
+    const periodCols = { ...(mapping.periodColumns ?? {}) };
+    if (mapping.headerRow > 0) {
+      for (let c = 0; c < 24; c++) {
         const letter = XLSX.utils.encode_col(c);
-        if (cols[letter] && cols[letter] !== "ignore") continue;
         const cell = ws[`${letter}${mapping.headerRow}`] as XLSX.CellObject | undefined;
-        const label = cell?.v != null ? normalize(String(cell.v)) : "";
+        const above = ws[`${letter}${mapping.headerRow - 1}`] as XLSX.CellObject | undefined;
+        const raw = cell?.v != null ? String(cell.v) : "";
+        const rawAbove = above?.v != null ? String(above.v) : "";
+        const tag = parseColumnTag(raw) ?? parseColumnTag(rawAbove);
+        if (tag) {
+          cols[letter] = tag.role;
+          if (tag.periodIndex != null) periodCols[letter] = tag.periodIndex;
+          continue;
+        }
+        if (cols[letter] && cols[letter] !== "ignore") continue;
+        const label = normalize(raw);
         if (!label) continue;
         if (
-          !hasEval &&
-          (label.includes("note classe") ||
-            label.includes("note de classe") ||
-            label === "eval" ||
-            label.includes("evaluation") ||
-            label.includes("interro"))
+          label.includes("note classe") ||
+          label.includes("note de classe") ||
+          label === "eval" ||
+          label.includes("evaluation") ||
+          label.includes("interro")
         ) {
           cols[letter] = "evaluation";
-        } else if (!hasCompo && (label.includes("compo") || label.includes("composition"))) {
+        } else if (label.includes("compo") || label.includes("composition")) {
           cols[letter] = "composition";
         }
       }
       mapping.columns = cols;
+      if (Object.keys(periodCols).length) mapping.periodColumns = periodCols;
     }
   }
 
