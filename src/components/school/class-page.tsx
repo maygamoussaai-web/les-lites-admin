@@ -41,4 +41,115 @@ import { describeError } from "@/lib/errors";
 import { computeLiveClassStats } from "@/lib/class-model-stats";
 import { downloadPeriodBulletinsZip } from "@/lib/bulletin-zip";
 
-// RESTORED_PLACEHOLDER_CONTINUE
+type AveragedStudent = {
+  student: { id: string; first_name: string; last_name: string };
+  average: number;
+  weakSubjects: string[];
+};
+
+interface ClassStats {
+  withAvg: AveragedStudent[];
+  passing: AveragedStudent[];
+  excellent: AveragedStudent[];
+  struggling: AveragedStudent[];
+  classAverage: number | null;
+  highest: AveragedStudent | null;
+  lowest: AveragedStudent | null;
+  bestSubject: { subject: ClassSubject; avg: number } | null;
+  worstSubject: { subject: ClassSubject; avg: number } | null;
+  source: "bulletin" | "modele_live" | "empty";
+}
+
+const EMPTY_STATS: ClassStats = {
+  withAvg: [],
+  passing: [],
+  excellent: [],
+  struggling: [],
+  classAverage: null,
+  highest: null,
+  lowest: null,
+  bestSubject: null,
+  worstSubject: null,
+  source: "empty",
+};
+
+function useSupabaseRows<T extends { id: string }>(
+  table: Parameters<typeof useRows>[0],
+  eq: Record<string, string> | null,
+  orderColumn: string,
+) {
+  const q = useRows<T>(table, { eq: eq ?? {}, enabled: !!eq, order: { column: orderColumn } });
+  return { data: q.data ?? [], isLoading: q.isLoading };
+}
+
+export function ClassPage() {
+  const { classId } = useParams({ from: "/_authenticated/classes/$classId" });
+  const { isDG, establishmentIds, establishmentIdsLoading } = useAdminProfile();
+  const data = useSchoolData();
+  const qc = useQueryClient();
+  const klass =
+    data.classes.find((c) => c.id === classId) ??
+    data.archivedClasses.find((c) => c.id === classId);
+  const isClassArchived = !!(klass && klass.is_active === false);
+  const allowed = klass && (isDG || (establishmentIds ?? []).includes(klass.establishment_id));
+  const establishment = klass ? data.establishments.find((e) => e.id === klass.establishment_id) : null;
+  const classStudents = useMemo(() => {
+    const active = (Array.isArray(data.students) ? data.students : []).filter(
+      (s) => s.class_id === classId,
+    );
+    if (active.length || !isClassArchived) {
+      return active.sort((a, b) =>
+        `${a.last_name}${a.first_name}`.localeCompare(`${b.last_name}${b.first_name}`),
+      );
+    }
+    const ids = new Set(
+      (data.enrollments ?? []).filter((e) => e.class_id === classId).map((e) => e.student_id),
+    );
+    const list: typeof active = [];
+    for (const id of ids) {
+      const s = data.studentsById?.get(id) ?? data.archivedStudents?.find((x) => x.id === id);
+      if (s) list.push(s as (typeof active)[number]);
+    }
+    return list.sort((a, b) =>
+      `${a.last_name}${a.first_name}`.localeCompare(`${b.last_name}${b.first_name}`),
+    );
+  }, [data.students, data.enrollments, data.studentsById, data.archivedStudents, classId, isClassArchived]);
+
+  const [studentsOpen, setStudentsOpen] = useState(false);
+  const [noteEntryOpen, setNoteEntryOpen] = useState(false);
+  const [bulletinsOpen, setBulletinsOpen] = useState(false);
+  const [zipBusy, setZipBusy] = useState(false);
+  const [annualOpen, setAnnualOpen] = useState(false);
+  const [pendingForcePeriod, setPendingForcePeriod] = useState(false);
+  const [stats, setStats] = useState<ClassStats>(EMPTY_STATS);
+
+  const periodsQuery = useSupabaseRows<GradePeriod>("grade_periods", { class_id: classId }, "period_number");
+  const subjectsQuery = useSupabaseRows<ClassSubject>("class_subjects", { class_id: classId }, "name");
+  const { template: activeTemplate } = useActiveReportTemplate(classId);
+  const currentPeriod = periodsQuery.data.find((p) => p.ended_at === null) ?? null;
+  const latestPeriod =
+    currentPeriod ??
+    [...(Array.isArray(periodsQuery.data) ? periodsQuery.data : [])].sort(
+      (a, b) => b.period_number - a.period_number,
+    )[0] ??
+    null;
+  const gradesPeriodQuery = useRows<Grade>("grades", {
+    eq: latestPeriod ? { class_id: classId, period_id: latestPeriod.id } : {},
+    enabled: !!latestPeriod,
+    order: { column: "created_at" },
+    limit: 5000,
+  });
+  const gradesForPeriod = gradesPeriodQuery.data ?? [];
+  const cardsQuery = useSupabaseRows<StudentReportCard>(
+    "student_report_cards",
+    latestPeriod ? { class_id: classId } : null,
+    "created_at",
+  );
+  const periodCards = useMemo(
+    () => (latestPeriod ? cardsQuery.data.filter((c) => c.period_id === latestPeriod.id) : []),
+    [cardsQuery.data, latestPeriod],
+  );
+
+  // NOTE: truncated restore - will complete in next commit
+  return null;
+}
