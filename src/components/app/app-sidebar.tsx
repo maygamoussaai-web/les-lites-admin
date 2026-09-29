@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { LayoutDashboard, Building2, ShieldCheck, Wallet, UserCircle, School, History, Users, GraduationCap, Archive } from "lucide-react";
+import { LayoutDashboard, Building2, ShieldCheck, Wallet, UserCircle, School, History, Users, GraduationCap, Archive, Bot } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -38,6 +38,7 @@ export function AppSidebar() {
         { title: "Finance", url: "/finance", icon: Wallet },
         { title: "Historique", url: "/historique", icon: History },
         { title: "Archives", url: "/archives", icon: Archive },
+        { title: "Mon assistant", url: "/mon-assistant", icon: Bot },
         { title: "Mon compte", url: "/mon-compte", icon: UserCircle },
       ],
     },
@@ -52,6 +53,7 @@ export function AppSidebar() {
         { title: "Enseignants", url: "/enseignants", icon: GraduationCap },
         { title: "Historique", url: "/historique", icon: History },
         { title: "Archives", url: "/archives", icon: Archive },
+        { title: "Mon assistant", url: "/mon-assistant", icon: Bot },
         { title: "Mon compte", url: "/mon-compte", icon: UserCircle },
       ],
     },

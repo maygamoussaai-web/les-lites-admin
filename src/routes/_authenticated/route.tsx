@@ -24,6 +24,7 @@ import { GlobalSearch } from "@/components/app/global-search";
 import { initials, roleLabel } from "@/lib/format";
 import { ThemeToggle } from "@/components/app/theme-toggle";
 import { AuroraBackground } from "@/components/app/aurora-background";
+import { AssistantFab } from "@/components/app/assistant-fab";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -108,6 +109,7 @@ function AuthenticatedLayout() {
           </main>
         </div>
       </div>
+      <AssistantFab />
     </SidebarProvider>
   );
 }
