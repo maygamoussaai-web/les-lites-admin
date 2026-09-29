@@ -16,6 +16,7 @@ import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedEtablissementsRouteImport } from './routes/_authenticated/etablissements'
 import { Route as AuthenticatedFinanceRouteImport } from './routes/_authenticated/finance'
 import { Route as AuthenticatedHistoriqueRouteImport } from './routes/_authenticated/historique'
+import { Route as AuthenticatedMonAssistantRouteImport } from './routes/_authenticated/mon-assistant'
 import { Route as AuthenticatedMonCompteRouteImport } from './routes/_authenticated/mon-compte'
 import { Route as AuthenticatedPersonnelRouteImport } from './routes/_authenticated/personnel'
 import { Route as AuthenticatedTableauDeBordRouteImport } from './routes/_authenticated/tableau-de-bord'
@@ -67,6 +68,11 @@ const AuthenticatedFinanceRoute = AuthenticatedFinanceRouteImport.update({
 const AuthenticatedHistoriqueRoute = AuthenticatedHistoriqueRouteImport.update({
   id: '/historique',
   path: '/historique',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedMonAssistantRoute = AuthenticatedMonAssistantRouteImport.update({
+  id: '/mon-assistant',
+  path: '/mon-assistant',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedMonCompteRoute = AuthenticatedMonCompteRouteImport.update({
@@ -176,6 +182,7 @@ export interface FileRoutesByFullPath {
   '/etablissements': typeof AuthenticatedEtablissementsRouteWithChildren
   '/finance': typeof AuthenticatedFinanceRoute
   '/historique': typeof AuthenticatedHistoriqueRoute
+  '/mon-assistant': typeof AuthenticatedMonAssistantRoute
   '/mon-compte': typeof AuthenticatedMonCompteRoute
   '/personnel': typeof AuthenticatedPersonnelRouteWithChildren
   '/tableau-de-bord': typeof AuthenticatedTableauDeBordRoute
@@ -200,6 +207,7 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/finance': typeof AuthenticatedFinanceRoute
   '/historique': typeof AuthenticatedHistoriqueRoute
+  '/mon-assistant': typeof AuthenticatedMonAssistantRoute
   '/mon-compte': typeof AuthenticatedMonCompteRoute
   '/tableau-de-bord': typeof AuthenticatedTableauDeBordRoute
   '/invitation/$token': typeof InvitationTokenRoute
@@ -225,6 +233,7 @@ export interface FileRoutesById {
   '/_authenticated/etablissements': typeof AuthenticatedEtablissementsRouteWithChildren
   '/_authenticated/finance': typeof AuthenticatedFinanceRoute
   '/_authenticated/historique': typeof AuthenticatedHistoriqueRoute
+  '/_authenticated/mon-assistant': typeof AuthenticatedMonAssistantRoute
   '/_authenticated/mon-compte': typeof AuthenticatedMonCompteRoute
   '/_authenticated/personnel': typeof AuthenticatedPersonnelRouteWithChildren
   '/_authenticated/tableau-de-bord': typeof AuthenticatedTableauDeBordRoute
@@ -252,6 +261,7 @@ export interface FileRouteTypes {
     | '/etablissements'
     | '/finance'
     | '/historique'
+    | '/mon-assistant'
     | '/mon-compte'
     | '/personnel'
     | '/tableau-de-bord'
@@ -276,6 +286,7 @@ export interface FileRouteTypes {
     | '/auth'
     | '/finance'
     | '/historique'
+    | '/mon-assistant'
     | '/mon-compte'
     | '/tableau-de-bord'
     | '/invitation/$token'
@@ -300,6 +311,7 @@ export interface FileRouteTypes {
     | '/_authenticated/etablissements'
     | '/_authenticated/finance'
     | '/_authenticated/historique'
+    | '/_authenticated/mon-assistant'
     | '/_authenticated/mon-compte'
     | '/_authenticated/personnel'
     | '/_authenticated/tableau-de-bord'
@@ -376,6 +388,13 @@ declare module '@tanstack/react-router' {
       path: '/historique'
       fullPath: '/historique'
       preLoaderRoute: typeof AuthenticatedHistoriqueRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/mon-assistant': {
+      id: '/_authenticated/mon-assistant'
+      path: '/mon-assistant'
+      fullPath: '/mon-assistant'
+      preLoaderRoute: typeof AuthenticatedMonAssistantRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/mon-compte': {
@@ -501,15 +520,15 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedEtablissementsRouteChildren {
-  AuthenticatedEtablissementsIdRoute: typeof AuthenticatedEtablissementsIdRoute
   AuthenticatedEtablissementsIndexRoute: typeof AuthenticatedEtablissementsIndexRoute
+  AuthenticatedEtablissementsIdRoute: typeof AuthenticatedEtablissementsIdRoute
 }
 
 const AuthenticatedEtablissementsRouteChildren: AuthenticatedEtablissementsRouteChildren =
   {
-    AuthenticatedEtablissementsIdRoute: AuthenticatedEtablissementsIdRoute,
     AuthenticatedEtablissementsIndexRoute:
       AuthenticatedEtablissementsIndexRoute,
+    AuthenticatedEtablissementsIdRoute: AuthenticatedEtablissementsIdRoute,
   }
 
 const AuthenticatedEtablissementsRouteWithChildren =
@@ -518,14 +537,14 @@ const AuthenticatedEtablissementsRouteWithChildren =
   )
 
 interface AuthenticatedPersonnelRouteChildren {
-  AuthenticatedPersonnelIdRoute: typeof AuthenticatedPersonnelIdRoute
   AuthenticatedPersonnelIndexRoute: typeof AuthenticatedPersonnelIndexRoute
+  AuthenticatedPersonnelIdRoute: typeof AuthenticatedPersonnelIdRoute
 }
 
 const AuthenticatedPersonnelRouteChildren: AuthenticatedPersonnelRouteChildren =
   {
-    AuthenticatedPersonnelIdRoute: AuthenticatedPersonnelIdRoute,
     AuthenticatedPersonnelIndexRoute: AuthenticatedPersonnelIndexRoute,
+    AuthenticatedPersonnelIdRoute: AuthenticatedPersonnelIdRoute,
   }
 
 const AuthenticatedPersonnelRouteWithChildren =
@@ -562,6 +581,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedFinanceRoute: typeof AuthenticatedFinanceRoute
   AuthenticatedHistoriqueRoute: typeof AuthenticatedHistoriqueRoute
   AuthenticatedMonCompteRoute: typeof AuthenticatedMonCompteRoute
+  AuthenticatedMonAssistantRoute: typeof AuthenticatedMonAssistantRoute
   AuthenticatedPersonnelRoute: typeof AuthenticatedPersonnelRouteWithChildren
   AuthenticatedTableauDeBordRoute: typeof AuthenticatedTableauDeBordRoute
   AuthenticatedClassesClassIdRoute: typeof AuthenticatedClassesClassIdRoute
@@ -577,6 +597,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedFinanceRoute: AuthenticatedFinanceRoute,
   AuthenticatedHistoriqueRoute: AuthenticatedHistoriqueRoute,
   AuthenticatedMonCompteRoute: AuthenticatedMonCompteRoute,
+  AuthenticatedMonAssistantRoute: AuthenticatedMonAssistantRoute,
   AuthenticatedPersonnelRoute: AuthenticatedPersonnelRouteWithChildren,
   AuthenticatedTableauDeBordRoute: AuthenticatedTableauDeBordRoute,
   AuthenticatedClassesClassIdRoute: AuthenticatedClassesClassIdRoute,
