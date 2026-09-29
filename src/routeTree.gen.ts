@@ -174,3 +174,30 @@ const AuthenticatedElevesStudentIdScolariteRoute =
     path: '/scolarite',
     getParentRoute: () => AuthenticatedElevesStudentIdRoute,
   } as any)
+
+export interface FileRoutesByFullPath {
+  '/': typeof IndexRoute
+  '/activation': typeof ActivationRoute
+  '/auth': typeof AuthRoute
+  '/etablissements': typeof AuthenticatedEtablissementsRouteWithChildren
+  '/finance': typeof AuthenticatedFinanceRoute
+  '/historique': typeof AuthenticatedHistoriqueRoute
+  '/mon-compte': typeof AuthenticatedMonCompteRoute
+  '/mon-assistant': typeof AuthenticatedMonAssistantRoute
+  '/personnel': typeof AuthenticatedPersonnelRouteWithChildren
+  '/tableau-de-bord': typeof AuthenticatedTableauDeBordRoute
+  '/invitation/$token': typeof InvitationTokenRoute
+  '/classes/$classId': typeof AuthenticatedClassesClassIdRoute
+  '/eleves/$studentId': typeof AuthenticatedElevesStudentIdRouteWithChildren
+  '/enseignants/$teacherId': typeof AuthenticatedEnseignantsTeacherIdRoute
+  '/etablissements/$id': typeof AuthenticatedEtablissementsIdRoute
+  '/personnel/$id': typeof AuthenticatedPersonnelIdRoute
+  '/eleves/': typeof AuthenticatedElevesIndexRoute
+  '/enseignants/': typeof AuthenticatedEnseignantsIndexRoute
+  '/etablissements/': typeof AuthenticatedEtablissementsIndexRoute
+  '/personnel/': typeof AuthenticatedPersonnelIndexRoute
+  '/eleves/$studentId/identite': typeof AuthenticatedElevesStudentIdIdentiteRoute
+  '/eleves/$studentId/notes': typeof AuthenticatedElevesStudentIdNotesRoute
+  '/eleves/$studentId/scolarite': typeof AuthenticatedElevesStudentIdScolariteRoute
+  '/eleves/$studentId/': typeof AuthenticatedElevesStudentIdIndexRoute
+}
