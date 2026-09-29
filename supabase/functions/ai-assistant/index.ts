@@ -1,7 +1,7 @@
 /**
  * ai-assistant — Edge Function v1
  *
- * User (JWT) → Gemini gemini-2.5-flash-lite → tools → Supabase (user JWT)
+ * User (JWT) → Gemini gemini-3.8-flash → tools → Supabase (user JWT)
  * → has_establishment_access → JSON → Gemini → reply
  *
  * Never service role. Never send JWT to Gemini. GEMINI_API_KEY from Deno.env only.
@@ -10,7 +10,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { assertActiveAdmin, runTool } from "./tools.ts";
 
-const MODEL = "gemini-2.5-flash-lite";
+const MODEL = "gemini-3.8-flash";
 const GEMINI_URL =
   `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 const MAX_TOOL_ROUNDS = 5;
@@ -106,29 +106,63 @@ function jsonResponse(body: unknown, status = 200): Response {
 type GeminiPart = Record<string, unknown>;
 type GeminiContent = { role: string; parts: GeminiPart[] };
 
+class GeminiHttpError extends Error {
+  constructor(
+    public readonly httpStatus: number,
+    public readonly code: "UPSTREAM_UNAVAILABLE" | "UPSTREAM_CONFIG" | "GEMINI_HTTP",
+  ) {
+    super(code);
+    this.name = "GeminiHttpError";
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** 1 tentative + 2 retries max pour 503/429. Délais 500ms puis 1000ms. */
+const GEMINI_MAX_ATTEMPTS = 3;
+
 async function callGemini(
   apiKey: string,
   contents: GeminiContent[],
 ): Promise<Record<string, unknown>> {
-  const res = await fetch(GEMINI_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": apiKey,
-    },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
-      contents,
-      tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
-      generationConfig: { temperature: 0.2 },
-    }),
+  const body = JSON.stringify({
+    systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+    contents,
+    tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
+    generationConfig: { temperature: 0.2 },
   });
-  if (!res.ok) {
-    const text = await res.text();
-    console.error("Gemini HTTP", res.status, text.slice(0, 300));
-    throw new Error("GEMINI_HTTP");
+  let lastStatus = 0;
+  for (let attempt = 0; attempt < GEMINI_MAX_ATTEMPTS; attempt++) {
+    const res = await fetch(GEMINI_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
+      body,
+    });
+    if (res.ok) {
+      return (await res.json()) as Record<string, unknown>;
+    }
+    const errText = await res.text();
+    console.error("Gemini HTTP", res.status, errText.slice(0, 300));
+    lastStatus = res.status;
+    const retriable = res.status === 503 || res.status === 429;
+    if (retriable && attempt < GEMINI_MAX_ATTEMPTS - 1) {
+      await sleep(500 * (attempt + 1));
+      continue;
+    }
+    if (res.status === 404) {
+      throw new GeminiHttpError(404, "UPSTREAM_CONFIG");
+    }
+    if (res.status === 503 || res.status === 429) {
+      throw new GeminiHttpError(res.status, "UPSTREAM_UNAVAILABLE");
+    }
+    throw new GeminiHttpError(res.status, "GEMINI_HTTP");
   }
-  return (await res.json()) as Record<string, unknown>;
+  throw new GeminiHttpError(lastStatus || 503, "UPSTREAM_UNAVAILABLE");
 }
 
 function extractModelParts(geminiJson: Record<string, unknown>): {
@@ -335,6 +369,35 @@ Deno.serve(async (req) => {
       data: { reply: finalText },
     });
   } catch (e) {
+    if (e instanceof GeminiHttpError) {
+      console.error("ai-assistant error", e.code, e.httpStatus);
+      if (e.code === "UPSTREAM_UNAVAILABLE") {
+        return jsonResponse(
+          {
+            ok: false,
+            error: {
+              code: "UPSTREAM_UNAVAILABLE",
+              message:
+                "Le service Gemini est temporairement indisponible. Réessayez dans quelques instants.",
+            },
+          },
+          503,
+        );
+      }
+      if (e.code === "UPSTREAM_CONFIG") {
+        return jsonResponse(
+          {
+            ok: false,
+            error: {
+              code: "UPSTREAM_CONFIG",
+              message:
+                "Configuration du modèle Gemini invalide ou indisponible.",
+            },
+          },
+          502,
+        );
+      }
+    }
     const msg = e instanceof Error ? e.message : "unknown";
     console.error("ai-assistant error", msg);
     return jsonResponse(
