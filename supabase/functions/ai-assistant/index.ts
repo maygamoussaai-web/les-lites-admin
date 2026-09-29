@@ -1,7 +1,7 @@
 /**
  * ai-assistant — Edge Function v1
  *
- * User (JWT) → Gemini gemini-3.8-flash → tools → Supabase (user JWT)
+ * User (JWT) → Gemini gemini-3.5-flash-lite → tools → Supabase (user JWT)
  * → has_establishment_access → JSON → Gemini → reply
  *
  * Never service role. Never send JWT to Gemini. GEMINI_API_KEY from Deno.env only.
@@ -10,7 +10,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { assertActiveAdmin, runTool } from "./tools.ts";
 
-const MODEL = "gemini-3.8-flash";
+const MODEL = "gemini-3.5-flash-lite";
 const GEMINI_URL =
   `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 const MAX_TOOL_ROUNDS = 5;
