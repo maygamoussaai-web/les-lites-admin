@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Bot, Maximize2, X } from "lucide-react";
+import { Bot, Maximize2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
