@@ -1,49 +1,32 @@
 /**
- * Chat assistant scolaire — style conversation LLM (timestamps, édition, annulation, copier, régénérer).
+ * Chat assistant — plein écran, sobre, standards LLM 2026.
+ * Timestamps, édition, annulation, copier, régénérer. 1 conversation / compte (localStorage).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Bot,
-  Check,
-  Copy,
-  Loader2,
-  Pencil,
-  RefreshCw,
-  Send,
-  Square,
-  Trash2,
-  User,
-  X,
+  Check, Copy, Loader2, Pencil, RefreshCw, Send, Square, Trash2, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { useAdminProfile } from "@/hooks/use-auth";
 import {
-  askAssistant,
-  clearAssistantMessages,
-  createMessage,
-  formatMessageTime,
-  loadAssistantMessages,
-  saveAssistantMessages,
-  type AssistantMessage,
+  askAssistant, clearAssistantMessages, createMessage, formatMessageTime,
+  loadAssistantMessages, saveAssistantMessages, type AssistantMessage,
 } from "@/lib/ai-assistant";
 import { cn } from "@/lib/utils";
 
-type Props = {
-  compact?: boolean;
-  className?: string;
-};
+type Props = { className?: string };
 
 const SUGGESTIONS = [
   "Liste les établissements",
   "Quelles classes sont disponibles ?",
-  "Moyenne d'une classe au dernier trimestre",
+  "Moyenne de la classe 6ème A",
   "Fiche d'un élève",
+  "Liste des enseignants",
 ];
 
-export function AssistantChat({ compact = false, className }: Props) {
+export function AssistantChat({ className }: Props) {
   const { user } = useAdminProfile();
   const userId = user?.id ?? "";
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
@@ -181,54 +164,27 @@ export function AssistantChat({ compact = false, className }: Props) {
   };
 
   return (
-    <div className={cn("flex h-full min-h-0 flex-col", className)}>
-      <div className="flex items-center justify-between gap-2 border-b border-border/60 px-1 pb-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <Bot className="h-4 w-4" />
-          </span>
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-foreground">Assistant scolaire</p>
-            <p className="truncate text-[11px] text-muted-foreground">
-              {sending ? "Réflexion en cours…" : "Classes · élèves · statistiques"}
-            </p>
-          </div>
-        </div>
-        {messages.length > 0 && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
-            onClick={clear}
-            disabled={sending}
-            aria-label="Effacer la conversation"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-        )}
-      </div>
-
-      <ScrollArea
-        className={cn(
-          "min-h-0 flex-1 pr-2",
-          compact ? "max-h-[min(420px,55vh)]" : "max-h-[min(640px,65vh)]",
-        )}
-      >
-        <div className="space-y-4 py-3">
+    <div className={cn("flex h-full min-h-0 flex-col bg-background", className)}>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-3xl space-y-5 px-3 py-4 sm:px-4 sm:py-6">
           {messages.length === 0 && !sending && (
-            <div className="space-y-3">
-              <div className="rounded-xl border border-dashed border-border/60 bg-muted/30 px-4 py-4 text-sm text-muted-foreground">
-                Bonjour ! Posez une question sur les classes, les élèves ou les résultats.
-                Une conversation par compte, enregistrée sur cet appareil.
+            <div className="flex flex-col items-center justify-center gap-6 py-10 sm:py-16">
+              <div className="max-w-md text-center">
+                <h2 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">
+                  Comment puis-je vous aider ?
+                </h2>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Posez une question sur les établissements, classes, élèves, enseignants ou
+                  résultats. Une conversation par compte, enregistrée sur cet appareil.
+                </p>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex max-w-lg flex-wrap justify-center gap-2">
                 {SUGGESTIONS.map((s) => (
                   <button
                     key={s}
                     type="button"
                     onClick={() => void send(s)}
-                    className="rounded-full border border-border/60 bg-card px-3 py-1.5 text-xs text-foreground shadow-sm transition hover:border-primary/40 hover:bg-primary/5"
+                    className="rounded-full border border-border/70 bg-card px-3.5 py-2 text-left text-xs text-foreground transition-colors hover:border-border hover:bg-muted/60 sm:text-sm"
                   >
                     {s}
                   </button>
@@ -240,31 +196,24 @@ export function AssistantChat({ compact = false, className }: Props) {
           {messages.map((m) => {
             const isUser = m.role === "user";
             const isEditing = editingId === m.id;
-
             return (
               <div
                 key={m.id}
-                className={cn("group flex gap-2.5", isUser ? "flex-row-reverse" : "flex-row")}
+                className={cn("group flex w-full gap-3", isUser ? "justify-end" : "justify-start")}
               >
-                <span
+                <div
                   className={cn(
-                    "mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs",
-                    isUser
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground",
+                    "flex min-w-0 max-w-[min(100%,42rem)] flex-col gap-1",
+                    isUser && "items-end",
                   )}
                 >
-                  {isUser ? <User className="h-3.5 w-3.5" /> : <Bot className="h-3.5 w-3.5" />}
-                </span>
-
-                <div className={cn("flex min-w-0 max-w-[85%] flex-col gap-1", isUser && "items-end")}>
                   {isEditing ? (
-                    <div className="w-full min-w-[220px] space-y-2 rounded-2xl border border-border/60 bg-card p-2 shadow-sm">
+                    <div className="w-full min-w-[min(100%,20rem)] space-y-2 rounded-2xl border border-border bg-card p-3">
                       <Textarea
                         value={editDraft}
                         onChange={(e) => setEditDraft(e.target.value)}
                         rows={3}
-                        className="min-h-[60px] resize-none text-sm"
+                        className="min-h-[72px] resize-none text-sm"
                         maxLength={2000}
                         autoFocus
                       />
@@ -287,19 +236,18 @@ export function AssistantChat({ compact = false, className }: Props) {
                   ) : (
                     <div
                       className={cn(
-                        "whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
+                        "whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed",
                         isUser
                           ? "bg-primary text-primary-foreground"
-                          : "border border-border/60 bg-card text-foreground shadow-sm",
+                          : "bg-muted/50 text-foreground",
                       )}
                     >
                       {m.content}
                     </div>
                   )}
-
                   <div
                     className={cn(
-                      "flex items-center gap-1 px-1 text-[10px] text-muted-foreground",
+                      "flex items-center gap-1 px-1 text-[11px] text-muted-foreground",
                       isUser && "flex-row-reverse",
                     )}
                   >
@@ -352,17 +300,14 @@ export function AssistantChat({ compact = false, className }: Props) {
           })}
 
           {sending && (
-            <div className="flex gap-2.5">
-              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-                <Bot className="h-3.5 w-3.5" />
-              </span>
-              <div className="inline-flex items-center gap-2 rounded-2xl border border-border/60 bg-card px-3.5 py-2 text-sm text-muted-foreground shadow-sm">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Réflexion…
+            <div className="flex justify-start gap-3">
+              <div className="inline-flex items-center gap-2.5 rounded-2xl bg-muted/50 px-4 py-2.5 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <span>Réflexion…</span>
                 <button
                   type="button"
                   onClick={cancel}
-                  className="ml-1 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                  className="ml-1 inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs hover:bg-muted hover:text-foreground"
                   aria-label="Arrêter"
                 >
                   <Square className="h-3 w-3 fill-current" />
@@ -373,43 +318,65 @@ export function AssistantChat({ compact = false, className }: Props) {
           )}
           <div ref={bottomRef} />
         </div>
-      </ScrollArea>
+      </div>
 
-      <div className="mt-auto flex gap-2 border-t border-border/60 pt-3">
-        <Textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={onKeyDown}
-          placeholder="Écrivez votre message… (Entrée pour envoyer)"
-          rows={compact ? 2 : 3}
-          disabled={!userId || !!editingId}
-          className="min-h-[44px] resize-none text-sm"
-          maxLength={2000}
-        />
-        {sending ? (
-          <Button
-            type="button"
-            size="icon"
-            variant="secondary"
-            className="h-11 w-11 shrink-0 self-end"
-            onClick={cancel}
-            aria-label="Arrêter"
-          >
-            <Square className="h-4 w-4 fill-current" />
-          </Button>
-        ) : (
-          <Button
-            type="button"
-            size="icon"
-            className="h-11 w-11 shrink-0 self-end"
-            onClick={() => void send()}
-            disabled={!input.trim() || !userId || !!editingId}
-            aria-label="Envoyer"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
-        )}
+      <div className="shrink-0 border-t border-border/50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <div className="mx-auto w-full max-w-3xl px-3 py-3 sm:px-4 sm:py-4">
+          <div className="flex items-end gap-2 rounded-2xl border border-border/70 bg-card p-2 shadow-sm focus-within:border-border">
+            <Textarea
+              ref={textareaRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={onKeyDown}
+              placeholder="Écrivez votre message…"
+              rows={1}
+              disabled={!userId || !!editingId}
+              className="min-h-[44px] max-h-[160px] flex-1 resize-none border-0 bg-transparent px-2 py-2.5 text-[15px] shadow-none focus-visible:ring-0"
+              maxLength={2000}
+            />
+            {sending ? (
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                className="h-10 w-10 shrink-0 rounded-xl"
+                onClick={cancel}
+                aria-label="Arrêter"
+              >
+                <Square className="h-4 w-4 fill-current" />
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                size="icon"
+                className="h-10 w-10 shrink-0 rounded-xl"
+                onClick={() => void send()}
+                disabled={!input.trim() || !userId || !!editingId}
+                aria-label="Envoyer"
+              >
+                <Send className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-2 px-1">
+            <p className="text-[11px] text-muted-foreground">
+              Entrée pour envoyer · Maj+Entrée pour une nouvelle ligne
+            </p>
+            {messages.length > 0 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1.5 px-2 text-[11px] text-muted-foreground hover:text-destructive"
+                onClick={clear}
+                disabled={sending}
+              >
+                <Trash2 className="h-3 w-3" />
+                Effacer
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
