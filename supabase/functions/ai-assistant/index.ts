@@ -1,8 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { P0 } from "./p0.ts";
-import { P1 } from "./p1.ts";
-import { P2 } from "./p2.ts";
-const B64 = P0 + P1 + P2;
+import { C0 } from "./c0.ts";
+import { C1 } from "./c1.ts";
+import { C2 } from "./c2.ts";
+import { C3 } from "./c3.ts";
+import { C4 } from "./c4.ts";
+import { C5 } from "./c5.ts";
+const B64 = C0 + C1 + C2 + C3 + C4 + C5;
 async function gunzipB64(b64: string): Promise<string> {
   const bin = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
   const ds = new DecompressionStream("gzip");
