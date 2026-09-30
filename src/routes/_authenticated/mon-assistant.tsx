@@ -1,19 +1,18 @@
 /**
- * Page dédiée « Mon assistant » — conversation plein écran.
+ * Assistant — interface conversationnelle plein écran, sobre.
+ * Accès via le menu latéral uniquement (pas de bouton flottant).
  */
 import { createFileRoute } from "@tanstack/react-router";
-import { PageHeader } from "@/components/app/page-header";
 import { AssistantChat } from "@/components/app/assistant-chat";
-import { Card, CardContent } from "@/components/ui/card";
 
 export const Route = createFileRoute("/_authenticated/mon-assistant")({
   head: () => ({
     meta: [
-      { title: "Mon assistant – Les Élites de Gao" },
+      { title: "Assistant – Les Élites de Gao" },
       {
         name: "description",
         content:
-          "Assistant scolaire : questions sur les classes, élèves et statistiques des Élites de Gao.",
+          "Assistant administratif : consultation des classes, élèves, enseignants et résultats.",
       },
     ],
   }),
@@ -22,16 +21,20 @@ export const Route = createFileRoute("/_authenticated/mon-assistant")({
 
 function Page() {
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
-      <PageHeader
-        title="Mon assistant"
-        description="Posez vos questions sur les classes, les élèves et les résultats. Une conversation par compte, enregistrée sur cet appareil."
-      />
-      <Card className="overflow-hidden border-border/60 shadow-sm">
-        <CardContent className="p-4 sm:p-5">
-          <AssistantChat className="min-h-[480px]" />
-        </CardContent>
-      </Card>
+    <div className="-mx-3 -mb-5 flex min-h-[calc(100svh-5.5rem)] flex-col sm:-mx-5 sm:-mb-6 lg:-mx-6 lg:-mb-6">
+      <div className="flex w-full flex-1 flex-col px-3 sm:px-5 lg:px-6">
+        <header className="shrink-0 border-b border-border/40 pb-3 pt-1">
+          <h1 className="font-display text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+            Assistant
+          </h1>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Consultation et aide à la gestion du complexe scolaire.
+          </p>
+        </header>
+        <div className="flex min-h-0 flex-1 flex-col pt-2">
+          <AssistantChat className="min-h-0 flex-1" />
+        </div>
+      </div>
     </div>
   );
 }
