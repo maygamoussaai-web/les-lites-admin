@@ -1,12 +1,16 @@
 # ai-assistant Edge Function (V41)
 
+## Structure
+
+- `index.ts` — chargeur gzip (importe c0…c5)
+- `c0.ts` … `c5.ts` — payload base64 gzip de la source monolithe
+- `tools.ts` — stub (logique dans le payload)
+
 ## Déploiement
 
-Le code source monolithe est trop volumineux pour un seul fichier Git sans chargeur.
+Via Supabase MCP / CLI avec tous les fichiers `index` + `c0`…`c5`.
 
-**Source de vérité :** déployer via Supabase MCP avec `V41_DEPLOY.json` (payload gzip multi-parts complet).
-
-## Outils exposés (V41)
+## Outils (V41)
 
 **Lecture :** search, list_establishments, list_classes, list_students (âge/DOB),
 get_student, list_teachers, get_teacher, list_periods, list_subjects,
@@ -21,9 +25,3 @@ upsert_grade, delete_grade, open/close_period,
 create/update class, add/remove_class_subject,
 create/update establishment, create/update/archive teacher,
 record_tuition_payment, record_teacher_payment
-
-## UI (déjà sur main)
-
-- `/mon-assistant` plein écran
-- Chat style Grok (timestamps, édition, annulation, copie, régénération)
-- Layout sans max-w-7xl
