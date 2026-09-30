@@ -54,7 +54,7 @@ async function listStudents(sb: SupabaseClient, className: string): Promise<TR> 
     return { ok: false, error: { code: "AMBIGUOUS", message: "Plusieurs classes correspondent.", candidates: accessible.map((c) => ({ id: c.id, name: c.name })) } };
   }
   const cid = accessible[0].id;
-  const { data: sts, error } = await sb.from("students").select("id,first_name,last_name,date_of_birth,gender,is_active").eq("class_id", cid).eq("is_active", true).limit(100);
+  const { data: sts, error } = await sb.from("students").select("id,first_name,last_name,date_of_birth,gender,term1_average,term2_average,term3_average,enrolled_at,parent_phone_1").eq("class_id", cid).is("archived_at", null).limit(100);
   if (error) return { ok: false, error: { code: "DB", message: error.message } };
   const age = (dob?: string | null) => {
     if (!dob) return null;
@@ -69,21 +69,81 @@ async function listStudents(sb: SupabaseClient, className: string): Promise<TR> 
   const students = (sts ?? []).map((st) => ({
     id: st.id,
     name: `${st.last_name || ""} ${st.first_name || ""}`.trim(),
+    first_name: st.first_name,
+    last_name: st.last_name,
     date_of_birth: st.date_of_birth,
     age: age(st.date_of_birth as string | null),
     gender: st.gender,
+    averages: { term1: st.term1_average, term2: st.term2_average, term3: st.term3_average },
+    enrolled_at: st.enrolled_at,
+    parent_phone: st.parent_phone_1,
   }));
   return { ok: true, data: { class: accessible[0].name, students, count: students.length } };
 }
 
+async function findStudent(sb: SupabaseClient, name: string, className: string): Promise<TR> {
+  const parts = name.split(/\s+/).filter(Boolean);
+  let q = sb.from("students").select("id,first_name,last_name,date_of_birth,gender,class_id,term1_average,term2_average,term3_average,enrolled_at,parent_phone_1,parent_phone_2,establishment_id,archived_at").is("archived_at", null).limit(20);
+  if (parts.length >= 2) {
+    const a = parts[0], b = parts.slice(1).join(" ");
+    q = q.or(`last_name.ilike.%${a}%,first_name.ilike.%${a}%,last_name.ilike.%${b}%,first_name.ilike.%${b}%`);
+  } else if (parts.length === 1) {
+    q = q.or(`last_name.ilike.%${parts[0]}%,first_name.ilike.%${parts[0]}%`);
+  } else {
+    return { ok: false, error: { code: "VALIDATION", message: "Nom requis." } };
+  }
+  const { data: sts, error } = await q;
+  if (error) return { ok: false, error: { code: "DB", message: error.message } };
+  const age = (dob?: string | null) => {
+    if (!dob) return null;
+    const d = new Date(dob);
+    if (Number.isNaN(d.getTime())) return null;
+    const n = new Date();
+    let a = n.getFullYear() - d.getFullYear();
+    const m = n.getMonth() - d.getMonth();
+    if (m < 0 || (m === 0 && n.getDate() < d.getDate())) a--;
+    return a >= 0 && a < 120 ? a : null;
+  };
+  const out: Record<string, unknown>[] = [];
+  for (const st of sts ?? []) {
+    const { data: ok } = await sb.rpc("has_establishment_access", { target_establishment_id: st.establishment_id });
+    if (ok !== true) continue;
+    let classNameResolved: string | null = null;
+    if (st.class_id) {
+      const { data: cl } = await sb.from("classes").select("name").eq("id", st.class_id).maybeSingle();
+      classNameResolved = cl?.name ?? null;
+      if (className && classNameResolved && !classNameResolved.toLowerCase().includes(className.toLowerCase())) continue;
+    }
+    out.push({
+      id: st.id,
+      name: `${st.last_name || ""} ${st.first_name || ""}`.trim(),
+      first_name: st.first_name,
+      last_name: st.last_name,
+      date_of_birth: st.date_of_birth,
+      age: age(st.date_of_birth as string | null),
+      gender: st.gender,
+      class: classNameResolved,
+      averages: { term1: st.term1_average, term2: st.term2_average, term3: st.term3_average },
+      enrolled_at: st.enrolled_at,
+      parent_phone_1: st.parent_phone_1,
+      parent_phone_2: st.parent_phone_2,
+    });
+  }
+  if (!out.length) return { ok: false, error: { code: "NOT_FOUND", message: `Aucun élève trouvé pour « ${name} ».` } };
+  return { ok: true, data: { students: out, count: out.length } };
+}
+
 const TOOLS = [
   { name: "list_classes", description: "Liste les classes disponibles.", parameters: { type: "object", properties: { query: { type: "string" } }, required: [] } },
-  { name: "list_students", description: "Liste les élèves d'une classe avec âge.", parameters: { type: "object", properties: { class_name: { type: "string" } }, required: ["class_name"] } },
+  { name: "list_students", description: "Liste les élèves actifs d'une classe avec âge et moyennes.", parameters: { type: "object", properties: { class_name: { type: "string" } }, required: ["class_name"] } },
+  { name: "find_student", description: "Cherche un élève par nom (optionnellement filtré par classe).", parameters: { type: "object", properties: { name: { type: "string" }, class_name: { type: "string" } }, required: ["name"] } },
 ];
 
 const SYSTEM = `Tu es l'assistant scolaire Les Élites de Gao. Réponds en français clairement.
 Utilise les tools fournis. Pour une liste de classes, appelle immédiatement list_classes.
-Pour les élèves / âges d'une classe, appelle list_students avec class_name.
+Pour les élèves / âges / moyennes d'une classe, appelle list_students avec class_name.
+Pour les infos d'un élève nommé, appelle find_student avec name (et class_name si connu).
+Tu n'as PAS d'outil d'archivage ni de modification : si on te demande d'archiver ou modifier, dis clairement que tu peux seulement consulter pour l'instant et propose les infos pertinentes.
 Ne invente jamais de données.`;
 
 async function callGemini(key: string, contents: unknown[]) {
@@ -166,6 +226,7 @@ Deno.serve(async (req) => {
         let result: TR;
         if (fc.name === "list_classes") result = await listClasses(sb, s(fc.args.query));
         else if (fc.name === "list_students") result = await listStudents(sb, s(fc.args.class_name));
+        else if (fc.name === "find_student") result = await findStudent(sb, s(fc.args.name), s(fc.args.class_name));
         else result = { ok: false, error: { code: "UNKNOWN", message: `Outil inconnu: ${fc.name}` } };
         frParts.push({ functionResponse: { name: fc.name, response: result } });
       }
