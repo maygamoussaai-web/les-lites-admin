@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as ActivationRouteImport } from './routes/activation'
 import { Route as AuthRouteImport } from './routes/auth'
+import { Route as AuthenticatedArchivesRouteImport } from './routes/_authenticated/archives'
 import { Route as AuthenticatedEtablissementsRouteImport } from './routes/_authenticated/etablissements'
 import { Route as AuthenticatedFinanceRouteImport } from './routes/_authenticated/finance'
 import { Route as AuthenticatedHistoriqueRouteImport } from './routes/_authenticated/historique'
@@ -31,6 +32,7 @@ import { Route as AuthenticatedEtablissementsIdRouteImport } from './routes/_aut
 import { Route as AuthenticatedPersonnelIndexRouteImport } from './routes/_authenticated/personnel.index'
 import { Route as AuthenticatedPersonnelIdRouteImport } from './routes/_authenticated/personnel.$id'
 import { Route as AuthenticatedElevesStudentIdIndexRouteImport } from './routes/_authenticated/eleves.$studentId.index'
+import { Route as AuthenticatedElevesStudentIdBibliothequeRouteImport } from './routes/_authenticated/eleves.$studentId.bibliotheque'
 import { Route as AuthenticatedElevesStudentIdIdentiteRouteImport } from './routes/_authenticated/eleves.$studentId.identite'
 import { Route as AuthenticatedElevesStudentIdNotesRouteImport } from './routes/_authenticated/eleves.$studentId.notes'
 import { Route as AuthenticatedElevesStudentIdScolariteRouteImport } from './routes/_authenticated/eleves.$studentId.scolarite'
@@ -54,6 +56,11 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedArchivesRoute = AuthenticatedArchivesRouteImport.update({
+  id: '/archives',
+  path: '/archives',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedEtablissementsRoute =
   AuthenticatedEtablissementsRouteImport.update({
     id: '/etablissements',
@@ -70,11 +77,12 @@ const AuthenticatedHistoriqueRoute = AuthenticatedHistoriqueRouteImport.update({
   path: '/historique',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedMonAssistantRoute = AuthenticatedMonAssistantRouteImport.update({
-  id: '/mon-assistant',
-  path: '/mon-assistant',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
+const AuthenticatedMonAssistantRoute =
+  AuthenticatedMonAssistantRouteImport.update({
+    id: '/mon-assistant',
+    path: '/mon-assistant',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedMonCompteRoute = AuthenticatedMonCompteRouteImport.update({
   id: '/mon-compte',
   path: '/mon-compte',
@@ -156,6 +164,12 @@ const AuthenticatedElevesStudentIdIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedElevesStudentIdRoute,
   } as any)
+const AuthenticatedElevesStudentIdBibliothequeRoute =
+  AuthenticatedElevesStudentIdBibliothequeRouteImport.update({
+    id: '/bibliotheque',
+    path: '/bibliotheque',
+    getParentRoute: () => AuthenticatedElevesStudentIdRoute,
+  } as any)
 const AuthenticatedElevesStudentIdIdentiteRoute =
   AuthenticatedElevesStudentIdIdentiteRouteImport.update({
     id: '/identite',
@@ -179,6 +193,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/activation': typeof ActivationRoute
   '/auth': typeof AuthRoute
+  '/archives': typeof AuthenticatedArchivesRoute
   '/etablissements': typeof AuthenticatedEtablissementsRouteWithChildren
   '/finance': typeof AuthenticatedFinanceRoute
   '/historique': typeof AuthenticatedHistoriqueRoute
@@ -196,6 +211,7 @@ export interface FileRoutesByFullPath {
   '/enseignants/': typeof AuthenticatedEnseignantsIndexRoute
   '/etablissements/': typeof AuthenticatedEtablissementsIndexRoute
   '/personnel/': typeof AuthenticatedPersonnelIndexRoute
+  '/eleves/$studentId/bibliotheque': typeof AuthenticatedElevesStudentIdBibliothequeRoute
   '/eleves/$studentId/identite': typeof AuthenticatedElevesStudentIdIdentiteRoute
   '/eleves/$studentId/notes': typeof AuthenticatedElevesStudentIdNotesRoute
   '/eleves/$studentId/scolarite': typeof AuthenticatedElevesStudentIdScolariteRoute
@@ -205,6 +221,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/activation': typeof ActivationRoute
   '/auth': typeof AuthRoute
+  '/archives': typeof AuthenticatedArchivesRoute
   '/finance': typeof AuthenticatedFinanceRoute
   '/historique': typeof AuthenticatedHistoriqueRoute
   '/mon-assistant': typeof AuthenticatedMonAssistantRoute
@@ -219,6 +236,7 @@ export interface FileRoutesByTo {
   '/enseignants': typeof AuthenticatedEnseignantsIndexRoute
   '/etablissements': typeof AuthenticatedEtablissementsIndexRoute
   '/personnel': typeof AuthenticatedPersonnelIndexRoute
+  '/eleves/$studentId/bibliotheque': typeof AuthenticatedElevesStudentIdBibliothequeRoute
   '/eleves/$studentId/identite': typeof AuthenticatedElevesStudentIdIdentiteRoute
   '/eleves/$studentId/notes': typeof AuthenticatedElevesStudentIdNotesRoute
   '/eleves/$studentId/scolarite': typeof AuthenticatedElevesStudentIdScolariteRoute
@@ -230,6 +248,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/activation': typeof ActivationRoute
   '/auth': typeof AuthRoute
+  '/_authenticated/archives': typeof AuthenticatedArchivesRoute
   '/_authenticated/etablissements': typeof AuthenticatedEtablissementsRouteWithChildren
   '/_authenticated/finance': typeof AuthenticatedFinanceRoute
   '/_authenticated/historique': typeof AuthenticatedHistoriqueRoute
@@ -247,6 +266,7 @@ export interface FileRoutesById {
   '/_authenticated/enseignants/': typeof AuthenticatedEnseignantsIndexRoute
   '/_authenticated/etablissements/': typeof AuthenticatedEtablissementsIndexRoute
   '/_authenticated/personnel/': typeof AuthenticatedPersonnelIndexRoute
+  '/_authenticated/eleves/$studentId/bibliotheque': typeof AuthenticatedElevesStudentIdBibliothequeRoute
   '/_authenticated/eleves/$studentId/identite': typeof AuthenticatedElevesStudentIdIdentiteRoute
   '/_authenticated/eleves/$studentId/notes': typeof AuthenticatedElevesStudentIdNotesRoute
   '/_authenticated/eleves/$studentId/scolarite': typeof AuthenticatedElevesStudentIdScolariteRoute
@@ -258,6 +278,7 @@ export interface FileRouteTypes {
     | '/'
     | '/activation'
     | '/auth'
+    | '/archives'
     | '/etablissements'
     | '/finance'
     | '/historique'
@@ -275,6 +296,7 @@ export interface FileRouteTypes {
     | '/enseignants/'
     | '/etablissements/'
     | '/personnel/'
+    | '/eleves/$studentId/bibliotheque'
     | '/eleves/$studentId/identite'
     | '/eleves/$studentId/notes'
     | '/eleves/$studentId/scolarite'
@@ -284,6 +306,7 @@ export interface FileRouteTypes {
     | '/'
     | '/activation'
     | '/auth'
+    | '/archives'
     | '/finance'
     | '/historique'
     | '/mon-assistant'
@@ -298,6 +321,7 @@ export interface FileRouteTypes {
     | '/enseignants'
     | '/etablissements'
     | '/personnel'
+    | '/eleves/$studentId/bibliotheque'
     | '/eleves/$studentId/identite'
     | '/eleves/$studentId/notes'
     | '/eleves/$studentId/scolarite'
@@ -308,6 +332,7 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/activation'
     | '/auth'
+    | '/_authenticated/archives'
     | '/_authenticated/etablissements'
     | '/_authenticated/finance'
     | '/_authenticated/historique'
@@ -325,6 +350,7 @@ export interface FileRouteTypes {
     | '/_authenticated/enseignants/'
     | '/_authenticated/etablissements/'
     | '/_authenticated/personnel/'
+    | '/_authenticated/eleves/$studentId/bibliotheque'
     | '/_authenticated/eleves/$studentId/identite'
     | '/_authenticated/eleves/$studentId/notes'
     | '/_authenticated/eleves/$studentId/scolarite'
@@ -368,6 +394,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/auth'
       preLoaderRoute: typeof AuthRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/archives': {
+      id: '/_authenticated/archives'
+      path: '/archives'
+      fullPath: '/archives'
+      preLoaderRoute: typeof AuthenticatedArchivesRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/etablissements': {
       id: '/_authenticated/etablissements'
@@ -495,6 +528,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedElevesStudentIdIndexRouteImport
       parentRoute: typeof AuthenticatedElevesStudentIdRoute
     }
+    '/_authenticated/eleves/$studentId/bibliotheque': {
+      id: '/_authenticated/eleves/$studentId/bibliotheque'
+      path: '/bibliotheque'
+      fullPath: '/eleves/$studentId/bibliotheque'
+      preLoaderRoute: typeof AuthenticatedElevesStudentIdBibliothequeRouteImport
+      parentRoute: typeof AuthenticatedElevesStudentIdRoute
+    }
     '/_authenticated/eleves/$studentId/identite': {
       id: '/_authenticated/eleves/$studentId/identite'
       path: '/identite'
@@ -520,15 +560,15 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedEtablissementsRouteChildren {
-  AuthenticatedEtablissementsIndexRoute: typeof AuthenticatedEtablissementsIndexRoute
   AuthenticatedEtablissementsIdRoute: typeof AuthenticatedEtablissementsIdRoute
+  AuthenticatedEtablissementsIndexRoute: typeof AuthenticatedEtablissementsIndexRoute
 }
 
 const AuthenticatedEtablissementsRouteChildren: AuthenticatedEtablissementsRouteChildren =
   {
+    AuthenticatedEtablissementsIdRoute: AuthenticatedEtablissementsIdRoute,
     AuthenticatedEtablissementsIndexRoute:
       AuthenticatedEtablissementsIndexRoute,
-    AuthenticatedEtablissementsIdRoute: AuthenticatedEtablissementsIdRoute,
   }
 
 const AuthenticatedEtablissementsRouteWithChildren =
@@ -537,14 +577,14 @@ const AuthenticatedEtablissementsRouteWithChildren =
   )
 
 interface AuthenticatedPersonnelRouteChildren {
-  AuthenticatedPersonnelIndexRoute: typeof AuthenticatedPersonnelIndexRoute
   AuthenticatedPersonnelIdRoute: typeof AuthenticatedPersonnelIdRoute
+  AuthenticatedPersonnelIndexRoute: typeof AuthenticatedPersonnelIndexRoute
 }
 
 const AuthenticatedPersonnelRouteChildren: AuthenticatedPersonnelRouteChildren =
   {
-    AuthenticatedPersonnelIndexRoute: AuthenticatedPersonnelIndexRoute,
     AuthenticatedPersonnelIdRoute: AuthenticatedPersonnelIdRoute,
+    AuthenticatedPersonnelIndexRoute: AuthenticatedPersonnelIndexRoute,
   }
 
 const AuthenticatedPersonnelRouteWithChildren =
@@ -553,6 +593,7 @@ const AuthenticatedPersonnelRouteWithChildren =
   )
 
 interface AuthenticatedElevesStudentIdRouteChildren {
+  AuthenticatedElevesStudentIdBibliothequeRoute: typeof AuthenticatedElevesStudentIdBibliothequeRoute
   AuthenticatedElevesStudentIdIdentiteRoute: typeof AuthenticatedElevesStudentIdIdentiteRoute
   AuthenticatedElevesStudentIdNotesRoute: typeof AuthenticatedElevesStudentIdNotesRoute
   AuthenticatedElevesStudentIdScolariteRoute: typeof AuthenticatedElevesStudentIdScolariteRoute
@@ -561,6 +602,8 @@ interface AuthenticatedElevesStudentIdRouteChildren {
 
 const AuthenticatedElevesStudentIdRouteChildren: AuthenticatedElevesStudentIdRouteChildren =
   {
+    AuthenticatedElevesStudentIdBibliothequeRoute:
+      AuthenticatedElevesStudentIdBibliothequeRoute,
     AuthenticatedElevesStudentIdIdentiteRoute:
       AuthenticatedElevesStudentIdIdentiteRoute,
     AuthenticatedElevesStudentIdNotesRoute:
@@ -577,11 +620,12 @@ const AuthenticatedElevesStudentIdRouteWithChildren =
   )
 
 interface AuthenticatedRouteRouteChildren {
+  AuthenticatedArchivesRoute: typeof AuthenticatedArchivesRoute
   AuthenticatedEtablissementsRoute: typeof AuthenticatedEtablissementsRouteWithChildren
   AuthenticatedFinanceRoute: typeof AuthenticatedFinanceRoute
   AuthenticatedHistoriqueRoute: typeof AuthenticatedHistoriqueRoute
-  AuthenticatedMonCompteRoute: typeof AuthenticatedMonCompteRoute
   AuthenticatedMonAssistantRoute: typeof AuthenticatedMonAssistantRoute
+  AuthenticatedMonCompteRoute: typeof AuthenticatedMonCompteRoute
   AuthenticatedPersonnelRoute: typeof AuthenticatedPersonnelRouteWithChildren
   AuthenticatedTableauDeBordRoute: typeof AuthenticatedTableauDeBordRoute
   AuthenticatedClassesClassIdRoute: typeof AuthenticatedClassesClassIdRoute
@@ -592,12 +636,13 @@ interface AuthenticatedRouteRouteChildren {
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedArchivesRoute: AuthenticatedArchivesRoute,
   AuthenticatedEtablissementsRoute:
     AuthenticatedEtablissementsRouteWithChildren,
   AuthenticatedFinanceRoute: AuthenticatedFinanceRoute,
   AuthenticatedHistoriqueRoute: AuthenticatedHistoriqueRoute,
-  AuthenticatedMonCompteRoute: AuthenticatedMonCompteRoute,
   AuthenticatedMonAssistantRoute: AuthenticatedMonAssistantRoute,
+  AuthenticatedMonCompteRoute: AuthenticatedMonCompteRoute,
   AuthenticatedPersonnelRoute: AuthenticatedPersonnelRouteWithChildren,
   AuthenticatedTableauDeBordRoute: AuthenticatedTableauDeBordRoute,
   AuthenticatedClassesClassIdRoute: AuthenticatedClassesClassIdRoute,
