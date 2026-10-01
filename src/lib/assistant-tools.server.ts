@@ -15,7 +15,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 
 type Sb = SupabaseClient<Database>;
-type Args = Record<string, any>;
+type Args = any; // arguments JSON libres du modèle
 export type ToolCtx = { sb: Sb; userId: string; isDG: boolean; userConfirmed: boolean };
 
 class ToolError extends Error {}
