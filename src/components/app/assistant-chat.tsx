@@ -15,6 +15,9 @@ import {
   loadAssistantMessages, saveAssistantMessages, type AssistantMessage,
 } from "@/lib/ai-assistant";
 import { cn } from "@/lib/utils";
+import { useQueryClient } from "@tanstack/react-query";
+import { ConfirmDialog } from "@/components/app/confirm-dialog";
+import { setAssistantInvalidator } from "@/lib/ai-assistant";
 
 type Props = { className?: string };
 
@@ -207,6 +210,10 @@ export function AssistantChat({ className }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  const qc = useQueryClient();
+  // NOTE POUR CLAUDE: après une écriture de l'IA, les écrans se rafraîchissent.
+  useEffect(() => setAssistantInvalidator(() => qc.invalidateQueries()), [qc]);
+
   useEffect(() => {
     if (!userId) return;
     setMessages(loadAssistantMessages(userId));
@@ -274,9 +281,9 @@ export function AssistantChat({ className }: Props) {
     const idx = messages.findIndex((m) => m.id === assistantMsgId);
     if (idx < 1) return;
     let userIdx = idx - 1;
-    while (userIdx >= 0 && messages[userIdx].role !== "user") userIdx--;
+    while (userIdx >= 0 && messages[userIdx]?.role !== "user") userIdx--;
     if (userIdx < 0) return;
-    const userText = messages[userIdx].content;
+    const userText = messages[userIdx]!.content;
     const base = messages.slice(0, userIdx + 1);
     persist(base);
     await runAsk(userText, base);
@@ -328,7 +335,7 @@ export function AssistantChat({ className }: Props) {
     if (!userId || sending) return;
     clearAssistantMessages(userId);
     setMessages([]);
-    toast.success("Conversation effacée");
+    toast.success("Conversation réinitialisée");
   };
 
   return (
@@ -343,7 +350,7 @@ export function AssistantChat({ className }: Props) {
                 </h2>
                 <p className="mt-2.5 text-[15px] leading-relaxed text-muted-foreground">
                   Classes, élèves, enseignants, établissements et résultats.
-                  Une conversation par compte, enregistrée sur cet appareil.
+                  Je consulte et j'agis dans la limite de vos droits. Toute modification vous est soumise avant exécution.
                 </p>
               </div>
               <div className="flex max-w-lg flex-wrap justify-center gap-2">
@@ -471,7 +478,7 @@ export function AssistantChat({ className }: Props) {
             <div className="flex justify-start">
               <div className="inline-flex items-center gap-2.5 rounded-2xl bg-muted/40 px-4 py-3 text-sm text-muted-foreground ring-1 ring-border/40">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Réflexion…</span>
+                <span>Analyse en cours…</span>
                 <button
                   type="button"
                   onClick={cancel}
@@ -531,17 +538,18 @@ export function AssistantChat({ className }: Props) {
               Entrée pour envoyer · Maj+Entrée pour une nouvelle ligne
             </p>
             {messages.length > 0 && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1.5 px-2 text-[11px] text-muted-foreground hover:text-destructive"
-                onClick={clear}
-                disabled={sending}
-              >
-                <Trash2 className="h-3 w-3" />
-                Effacer
-              </Button>
+              <ConfirmDialog
+                title="Réinitialiser la conversation ?"
+                description="L'historique des échanges en cours sera définitivement effacé. Les actions déjà effectuées restent enregistrées dans l'Historique."
+                confirmLabel="Réinitialiser"
+                onConfirm={clear}
+                trigger={
+                  <Button type="button" variant="ghost" size="sm" className="h-7 gap-1.5 px-2 text-[11px] text-muted-foreground hover:text-destructive" disabled={sending}>
+                    <Trash2 className="h-3 w-3" />
+                    Réinitialiser
+                  </Button>
+                }
+              />
             )}
           </div>
         </div>
