@@ -44,3 +44,5 @@
 - Ajouter des dépendances non demandées
 - Changer le stack (Next, Firebase, etc.)
 - Prétendre qu’une génération a réussi sans fichier en bibliothèque
+
+- Assistant IA : orchestration dans src/lib/assistant.functions.ts (createServerFn + requireSupabaseAuth) et outils dans src/lib/assistant-tools.server.ts — l IA agit avec le client RLS de l utilisateur pour hériter de ses restrictions ; l ancienne Edge Function ai-assistant n est plus appelée.
