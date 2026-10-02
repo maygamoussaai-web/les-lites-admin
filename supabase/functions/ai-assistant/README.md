@@ -1,17 +1,21 @@
-# AI Assistant — Les Élites de Gao (v82)
+# AI Assistant — Les Élites de Gao (plan de base)
 
-Edge Function autonome pour l'admin scolaire.
+Edge Function autonome : **Gemini** (`GEMINI_API_KEY` dans Secrets Supabase) + **43 outils**.
+
+## Secrets requis
+- `GEMINI_API_KEY` (obligatoire)
+- Optionnel : `GEMINI_MODEL` (défaut `gemini-3.5-flash-lite`)
 
 ## Déploiement
-- `index.ts` + `c0.ts`…`c7.ts` : loader gzip (code compressé)
-- Source lisible : `AI_ASSISTANT_V82_MINI.ts`
+```bash
+supabase functions deploy ai-assistant --project-ref <REF>
+```
 
-## Capacités
-**Lecture** : list_capabilities, list_establishments, list_classes, list_students, find_student, rank_students, list_teachers, student_payments, list_fee_plans, global_stats
-
-**Écriture** (confirmation « oui » → confirmed=true) : create/update/archive/transfer student, record_tuition_payment
+## Client
+`src/lib/ai-assistant.ts` → `supabase.functions.invoke("ai-assistant")`  
+**Aucun** appel à la gateway Lovable / LOVABLE_API_KEY / gpt-6-astra.
 
 ## Règles
-- Accès à TOUTES les données RLS du compte admin
-- Jamais inventer de données
-- Toujours appeler list_capabilities si doute
+- RLS de l'utilisateur connecté (JWT)
+- Écritures : confirmation « oui » puis `confirmed=true`
+- Réponses FR, concises, professionnelles
