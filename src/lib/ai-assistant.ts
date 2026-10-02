@@ -3,6 +3,7 @@
  * Conversation en localStorage par userId. Historique multi-turn envoyé au backend.
  */
 import { supabase } from "@/integrations/supabase/client";
+import { askAssistantFn } from "@/lib/assistant.functions";
 
 export type AssistantMessage = {
   id: string;
@@ -206,56 +207,22 @@ export async function askAssistant(
     };
   }
 
+  // NOTE POUR CLAUDE: appel de la fonction serveur askAssistantFn (droits = ceux de l'utilisateur).
   try {
-    const { data: sess, error: sessErr } = await supabase.auth.getSession();
-    if (sessErr || !sess.session?.access_token) {
-      return {
-        ok: false,
-        error: {
-          code: "UNAUTHENTICATED",
-          message: "Session introuvable. Reconnectez-vous puis réessayez.",
-        },
-      };
-    }
-  } catch {
-    return {
-      ok: false,
-      error: {
-        code: "UNAUTHENTICATED",
-        message: "Impossible de lire la session. Reconnectez-vous.",
-      },
-    };
-  }
-
-  try {
-    const { data, error } = await supabase.functions.invoke("ai-assistant", {
-      body: {
+    const res = await askAssistantFn({
+      data: {
         message: trimmed,
-        history: history.slice(-20).map((h) => ({
-          role: h.role,
-          content: h.content.slice(0, 2000),
-        })),
+        history: history.slice(-30).map((h) => ({ role: h.role, content: h.content.slice(0, 8000) })),
       },
     });
-
     if (signal?.aborted) {
       return { ok: false, error: { code: "ABORTED", message: "Requête annulée." } };
     }
-
-    if (error) {
-      const parsed = await parseFunctionsError(error);
-      const mapped = mapInvokeError(error.message || "", parsed);
-      return { ok: false, error: mapped };
+    if (res.ok) {
+      if (res.actions.length) void queryClientInvalidate?.();
+      return { ok: true, data: { reply: res.reply } };
     }
-
-    if (data && typeof data === "object" && "ok" in data) {
-      return data as AssistantResponse;
-    }
-
-    return {
-      ok: false,
-      error: { code: "INTERNAL", message: "Réponse inattendue de l'assistant." },
-    };
+    return { ok: false, error: { code: "UPSTREAM", message: res.error } };
   } catch (e) {
     if (signal?.aborted) {
       return { ok: false, error: { code: "ABORTED", message: "Requête annulée." } };
@@ -263,6 +230,12 @@ export async function askAssistant(
     const msg = e instanceof Error ? e.message : "Erreur inattendue";
     return { ok: false, error: mapInvokeError(msg, null) };
   }
+}
+
+/** Branché par le chat pour rafraîchir les écrans après une action de l'IA. */
+let queryClientInvalidate: (() => unknown) | null = null;
+export function setAssistantInvalidator(fn: () => unknown) {
+  queryClientInvalidate = fn;
 }
 
 export function formatMessageTime(at: number): string {

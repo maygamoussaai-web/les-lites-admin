@@ -91,6 +91,11 @@ function Page() {
                   <p className="text-xs text-muted-foreground">
                     {actor ? `${actor.last_name} ${actor.first_name}` : "Direction générale"}
                     {isDG && est ? ` · ${est.name}` : ""}
+                    {(log.metadata as { via_ai?: boolean } | null)?.via_ai && (
+                      <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary" title="Effectué via l'Assistant IA">
+                        🤖 via l'Assistant IA
+                      </span>
+                    )}
                   </p>
                 </div>
                 <Badge variant="outline" className="shrink-0 text-xs font-normal text-muted-foreground">
