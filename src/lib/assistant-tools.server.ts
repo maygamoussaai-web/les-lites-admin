@@ -258,7 +258,7 @@ const WRITE: Tool[] = [
       const s = await one(ctx.sb, "students", a.student_id, "Élève"); await assertAccess(ctx, s.establishment_id);
       const patch = pick(a, ["first_name", "last_name", "gender", "date_of_birth", "parent_phone_1", "parent_phone_2"]); if (!Object.keys(patch).length) fail("Aucune modification fournie.");
       const c = needConfirm(ctx, a, `Modifier ${s.last_name} ${s.first_name} : ${JSON.stringify(patch)}.`); if (c) return c;
-      await rows(ctx.sb.from("students").update(patch).eq("id", s.id)); await audit(ctx, "update", "students", s.id, s.establishment_id, "update_student", a); return { ok: true };
+      await rows(ctx.sb.from("students").update(patch as any).eq("id", s.id)); await audit(ctx, "update", "students", s.id, s.establishment_id, "update_student", a); return { ok: true };
     } },
   ...(["archive_student", "unarchive_student"] as const).map((name): Tool => ({ name, write: true, description: name === "archive_student" ? "Archiver un élève." : "Désarchiver un élève.",
     parameters: S({ student_id: str("ID"), ...confirmedP }, ["student_id"]),
@@ -335,7 +335,7 @@ const WRITE: Tool[] = [
       const cls = await one(ctx.sb, "classes", a.class_id, "Classe"); await assertAccess(ctx, cls.establishment_id);
       const patch = pick(a, ["name", "capacity", "is_active", "fee_plan_id"]); if (!Object.keys(patch).length) fail("Aucune modification fournie.");
       const c = needConfirm(ctx, a, `Modifier la classe ${cls.name} : ${JSON.stringify(patch)}.`); if (c) return c;
-      await rows(ctx.sb.from("classes").update(patch).eq("id", cls.id)); await audit(ctx, "update", "classes", cls.id, cls.establishment_id, "update_class", a); return { ok: true };
+      await rows(ctx.sb.from("classes").update(patch as any).eq("id", cls.id)); await audit(ctx, "update", "classes", cls.id, cls.establishment_id, "update_class", a); return { ok: true };
     } },
   { name: "add_class_subject", description: "Ajouter une matière à une classe.", write: true, parameters: S({ class_id: str("ID"), name: str("Matière"), ...confirmedP }, ["class_id", "name"]),
     run: async (ctx, a) => {
@@ -367,7 +367,7 @@ const WRITE: Tool[] = [
       const e = await one(ctx.sb, "establishments", a.establishment_id, "Établissement");
       const patch = pick(a, ["name", "description", "phone", "address", "is_active"]); if (!Object.keys(patch).length) fail("Aucune modification fournie.");
       const c = needConfirm(ctx, a, `Modifier ${e.name} : ${JSON.stringify(patch)}.`); if (c) return c;
-      await rows(ctx.sb.from("establishments").update(patch).eq("id", e.id)); await audit(ctx, "update", "establishments", e.id, e.id, "update_establishment", a); return { ok: true };
+      await rows(ctx.sb.from("establishments").update(patch as any).eq("id", e.id)); await audit(ctx, "update", "establishments", e.id, e.id, "update_establishment", a); return { ok: true };
     } },
   { name: "create_teacher", description: "Créer un enseignant.", write: true, parameters: S({ first_name: str(""), last_name: str(""), phone: str(""), domain: str("Spécialité"), ...confirmedP }, ["first_name", "last_name"]),
     run: async (ctx, a) => {
@@ -380,7 +380,7 @@ const WRITE: Tool[] = [
       const t = await one(ctx.sb, "teachers", a.teacher_id, "Enseignant");
       const patch = pick(a, ["first_name", "last_name", "phone", "domain"]); if (!Object.keys(patch).length) fail("Aucune modification fournie.");
       const c = needConfirm(ctx, a, `Modifier ${t.last_name} ${t.first_name} : ${JSON.stringify(patch)}.`); if (c) return c;
-      await rows(ctx.sb.from("teachers").update(patch).eq("id", t.id)); await audit(ctx, "update", "teachers", t.id, null, "update_teacher", a); return { ok: true };
+      await rows(ctx.sb.from("teachers").update(patch as any).eq("id", t.id)); await audit(ctx, "update", "teachers", t.id, null, "update_teacher", a); return { ok: true };
     } },
   { name: "archive_teacher", description: "Archiver un enseignant.", write: true, parameters: S({ teacher_id: str("ID"), ...confirmedP }, ["teacher_id"]),
     run: async (ctx, a) => {
