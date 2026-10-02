@@ -26,130 +26,169 @@ const SUGGESTIONS = [
   "Établissements du complexe",
 ];
 
-/** Rendu markdown léger : **gras**, *italique*, listes, retours ligne. */
+/**
+ * Rendu Markdown sans dépendance : titres, **gras**, *italique*, ~~barré~~, `code`,
+ * blocs de code, listes, tableaux, citations, séparateurs, liens.
+ * NOTE POUR CLAUDE: volontairement sans bibliothèque (règle « pas de dépendance non demandée »).
+ */
 function renderInline(text: string, keyBase: string): ReactNode[] {
   const nodes: ReactNode[] = [];
-  const re = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;
+  const re = /(\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*\s][^*]*\*|`[^`]+`|\[[^\]]+\]\([^)\s]+\))/g;
   let last = 0;
   let m: RegExpExecArray | null;
   let i = 0;
   while ((m = re.exec(text)) !== null) {
-    if (m.index > last) {
-      nodes.push(<span key={`${keyBase}-t${i++}`}>{text.slice(last, m.index)}</span>);
-    }
-    const token = m[0];
-    if (token.startsWith("**") && token.endsWith("**")) {
+    if (m.index > last) nodes.push(text.slice(last, m.index));
+    const t = m[0];
+    const k = `${keyBase}-${i++}`;
+    if (t.startsWith("**") || t.startsWith("__"))
+      nodes.push(<strong key={k} className="font-semibold text-foreground">{renderInline(t.slice(2, -2), k)}</strong>);
+    else if (t.startsWith("~~")) nodes.push(<del key={k} className="opacity-70">{t.slice(2, -2)}</del>);
+    else if (t.startsWith("`"))
+      nodes.push(<code key={k} className="rounded-md border border-border/60 bg-muted/70 px-1.5 py-0.5 font-mono text-[0.85em]">{t.slice(1, -1)}</code>);
+    else if (t.startsWith("[")) {
+      const mm = t.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      const href = mm?.[2] ?? "#";
       nodes.push(
-        <strong key={`${keyBase}-b${i++}`} className="font-semibold text-foreground">
-          {token.slice(2, -2)}
-        </strong>,
+        <a key={k} href={/^(https?:|\/)/.test(href) ? href : "#"} target={href.startsWith("/") ? undefined : "_blank"} rel="noreferrer" className="font-medium text-primary underline underline-offset-4">
+          {mm?.[1] ?? t}
+        </a>,
       );
-    } else if (token.startsWith("*") && token.endsWith("*")) {
-      nodes.push(
-        <em key={`${keyBase}-i${i++}`} className="italic">
-          {token.slice(1, -1)}
-        </em>,
-      );
-    } else if (token.startsWith("`") && token.endsWith("`")) {
-      nodes.push(
-        <code
-          key={`${keyBase}-c${i++}`}
-          className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em]"
-        >
-          {token.slice(1, -1)}
-        </code>,
-      );
-    }
-    last = m.index + token.length;
+    } else nodes.push(<em key={k} className="italic">{t.slice(1, -1)}</em>);
+    last = m.index + t.length;
   }
-  if (last < text.length) {
-    nodes.push(<span key={`${keyBase}-t${i++}`}>{text.slice(last)}</span>);
-  }
+  if (last < text.length) nodes.push(text.slice(last));
   return nodes;
 }
 
-function MessageContent({ content, isUser }: { content: string; isUser: boolean }) {
-  const blocks = useMemo(() => {
-    const lines = content.replace(/\r\n/g, "\n").split("\n");
-    const out: { type: "p" | "ul" | "ol"; items: string[] }[] = [];
-    let buf: string[] = [];
-    let listType: "ul" | "ol" | null = null;
-    let listItems: string[] = [];
+type Block =
+  | { type: "p" | "quote"; text: string }
+  | { type: "h"; level: number; text: string }
+  | { type: "ul" | "ol"; items: string[] }
+  | { type: "code"; lang: string; text: string }
+  | { type: "table"; head: string[]; rows: string[][] }
+  | { type: "hr" };
 
-    const flushP = () => {
-      if (buf.length) {
-        out.push({ type: "p", items: [buf.join("\n")] });
-        buf = [];
-      }
-    };
-    const flushList = () => {
-      if (listType && listItems.length) {
-        out.push({ type: listType, items: [...listItems] });
-      }
-      listType = null;
-      listItems = [];
-    };
+const cells = (l: string) => l.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
 
-    for (const raw of lines) {
-      const ul = raw.match(/^\s*[-•]\s+(.+)$/);
-      const ol = raw.match(/^\s*(\d+)[.)]\s+(.+)$/);
-      if (ul) {
-        flushP();
-        if (listType && listType !== "ul") flushList();
-        listType = "ul";
-        listItems.push(ul[1]);
-      } else if (ol) {
-        flushP();
-        if (listType && listType !== "ol") flushList();
-        listType = "ol";
-        listItems.push(ol[2]);
-      } else if (raw.trim() === "") {
-        flushP();
-        flushList();
-      } else {
-        if (listType) flushList();
-        buf.push(raw);
-      }
+function parseMarkdown(src: string): Block[] {
+  const lines = src.replace(/\r\n/g, "\n").split("\n");
+  const out: Block[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i] ?? "";
+    if (!line.trim()) { i++; continue; }
+    const fence = line.match(/^\s*```(\w*)/);
+    if (fence) {
+      const buf: string[] = [];
+      i++;
+      while (i < lines.length && !/^\s*```/.test(lines[i] ?? "")) buf.push(lines[i++] ?? "");
+      i++;
+      out.push({ type: "code", lang: fence[1] ?? "", text: buf.join("\n") });
+      continue;
     }
-    flushP();
-    flushList();
-    return out;
-  }, [content]);
-
-  if (isUser) {
-    return (
-      <div className="whitespace-pre-wrap text-[15px] leading-relaxed tracking-[-0.01em]">
-        {content}
-      </div>
-    );
+    const h = line.match(/^(#{1,4})\s+(.+)$/);
+    if (h) { out.push({ type: "h", level: h[1]!.length, text: h[2]! }); i++; continue; }
+    if (/^\s*([-*_])\s*\1\s*\1[\s\-*_]*$/.test(line)) { out.push({ type: "hr" }); i++; continue; }
+    if (line.includes("|") && /^\s*\|?\s*:?-{2,}/.test(lines[i + 1] ?? "")) {
+      const head = cells(line);
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && (lines[i] ?? "").includes("|") && (lines[i] ?? "").trim()) rows.push(cells(lines[i++] ?? ""));
+      out.push({ type: "table", head, rows });
+      continue;
+    }
+    if (/^\s*>/.test(line)) {
+      const buf: string[] = [];
+      while (i < lines.length && /^\s*>/.test(lines[i] ?? "")) buf.push((lines[i++] ?? "").replace(/^\s*>\s?/, ""));
+      out.push({ type: "quote", text: buf.join("\n") });
+      continue;
+    }
+    const listRe = /^\s*([-*•]|\d+[.)])\s+(.+)$/;
+    const lm = line.match(listRe);
+    if (lm) {
+      const ordered = /\d/.test(lm[1]!);
+      const items: string[] = [];
+      while (i < lines.length) {
+        const x = (lines[i] ?? "").match(listRe);
+        if (!x || /\d/.test(x[1]!) !== ordered) break;
+        items.push(x[2]!);
+        i++;
+      }
+      out.push({ type: ordered ? "ol" : "ul", items });
+      continue;
+    }
+    const buf: string[] = [];
+    while (i < lines.length && (lines[i] ?? "").trim() && !listRe.test(lines[i] ?? "") && !/^(#{1,4}\s|\s*>|\s*```)/.test(lines[i] ?? "")) buf.push(lines[i++] ?? "");
+    out.push({ type: "p", text: buf.join("\n") });
   }
+  return out;
+}
 
+function CodeBlock({ lang, text }: { lang: string; text: string }) {
+  const [copied, setCopied] = useState(false);
   return (
-    <div className="space-y-2.5 text-[15px] leading-[1.65] tracking-[-0.01em] text-foreground">
+    <div className="overflow-hidden rounded-xl border border-border/60 bg-muted/50">
+      <div className="flex items-center justify-between border-b border-border/50 px-3 py-1.5 text-[11px] text-muted-foreground">
+        <span className="font-mono">{lang || "texte"}</span>
+        <button type="button" className="inline-flex items-center gap-1 hover:text-foreground" onClick={() => { void navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1200); }}>
+          {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />} {copied ? "Copié" : "Copier"}
+        </button>
+      </div>
+      <pre className="overflow-x-auto p-3 font-mono text-[13px] leading-relaxed"><code>{text}</code></pre>
+    </div>
+  );
+}
+
+function MessageContent({ content, isUser }: { content: string; isUser: boolean }) {
+  const blocks = useMemo(() => (isUser ? [] : parseMarkdown(content)), [content, isUser]);
+  if (isUser) {
+    return <div className="whitespace-pre-wrap text-[15px] leading-relaxed tracking-[-0.01em]">{content}</div>;
+  }
+  return (
+    <div className="space-y-3 text-[15px] leading-[1.7] tracking-[-0.005em] text-foreground">
       {blocks.map((b, bi) => {
-        if (b.type === "p") {
-          return (
-            <p key={bi} className="whitespace-pre-wrap">
-              {renderInline(b.items[0], `p${bi}`)}
-            </p>
-          );
+        const k = `b${bi}`;
+        switch (b.type) {
+          case "h": {
+            const cls = b.level <= 2 ? "font-display text-lg font-semibold mt-4 first:mt-0" : "text-[15.5px] font-semibold mt-3 first:mt-0";
+            return <h3 key={k} className={cn("tracking-tight text-foreground", cls)}>{renderInline(b.text, k)}</h3>;
+          }
+          case "p":
+            return <p key={k} className="whitespace-pre-wrap">{renderInline(b.text, k)}</p>;
+          case "quote":
+            return <blockquote key={k} className="rounded-r-lg border-l-[3px] border-primary/60 bg-primary/5 py-2 pl-4 pr-3 text-foreground/90 whitespace-pre-wrap">{renderInline(b.text, k)}</blockquote>;
+          case "hr":
+            return <hr key={k} className="border-border/60" />;
+          case "code":
+            return <CodeBlock key={k} lang={b.lang} text={b.text} />;
+          case "ul":
+          case "ol": {
+            const L = b.type === "ul" ? "ul" : "ol";
+            return (
+              <L key={k} className={cn("space-y-1.5 pl-5 marker:text-primary/70", b.type === "ul" ? "list-disc" : "list-decimal marker:font-semibold")}>
+                {b.items.map((it, ii) => <li key={ii} className="pl-1">{renderInline(it, `${k}-${ii}`)}</li>)}
+              </L>
+            );
+          }
+          case "table":
+            return (
+              <div key={k} className="overflow-x-auto rounded-xl border border-border/60">
+                <table className="w-full border-collapse text-[13.5px]">
+                  <thead className="bg-muted/60">
+                    <tr>{b.head.map((h, hi) => <th key={hi} className="whitespace-nowrap px-3 py-2 text-left font-semibold text-foreground">{renderInline(h, `${k}h${hi}`)}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {b.rows.map((r, ri) => (
+                      <tr key={ri} className="border-t border-border/50 even:bg-muted/20">
+                        {r.map((c, ci) => <td key={ci} className="px-3 py-2 align-top tabular-nums">{renderInline(c, `${k}r${ri}c${ci}`)}</td>)}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
         }
-        if (b.type === "ul") {
-          return (
-            <ul key={bi} className="list-disc space-y-1 pl-5 marker:text-muted-foreground">
-              {b.items.map((it, ii) => (
-                <li key={ii}>{renderInline(it, `u${bi}-${ii}`)}</li>
-              ))}
-            </ul>
-          );
-        }
-        return (
-          <ol key={bi} className="list-decimal space-y-1 pl-5 marker:text-muted-foreground">
-            {b.items.map((it, ii) => (
-              <li key={ii}>{renderInline(it, `o${bi}-${ii}`)}</li>
-            ))}
-          </ol>
-        );
       })}
     </div>
   );
