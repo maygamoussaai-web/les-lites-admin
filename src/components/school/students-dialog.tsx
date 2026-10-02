@@ -12,9 +12,9 @@ import { DataTable, type Column } from "@/components/app/data-table";
 import { RecordDialog, type Field } from "@/components/app/record-dialog";
 import { EmptyState } from "@/components/app/empty-state";
 import { supabase } from "@/integrations/supabase/client";
-import { useArchiveRow, writeAudit } from "@/lib/data";
-import { formatDate, formatNumber, formatFCFA } from "@/lib/format";
-import { annualAverage, lateStatus, sum, type ClassRow, type Installment, type Student } from "@/lib/school";
+import { writeAudit } from "@/lib/data";
+import { formatFCFA } from "@/lib/format";
+import { lateStatus, sum, type ClassRow, type Installment, type Student } from "@/lib/school";
 import type { SchoolData } from "@/lib/school-data";
 import { describeError } from "@/lib/errors";
 
@@ -22,20 +22,41 @@ export function StudentsDialog({
   klass,
   data,
   onClose,
+  readOnly = false,
 }: {
   klass: ClassRow | null;
   data: SchoolData;
   onClose: () => void;
+  /** Classe archivée : consultation seule, pas d'ajout d'élève. */
+  readOnly?: boolean;
 }) {
   const qc = useQueryClient();
-  const archive = useArchiveRow("students", "Élève");
   const [open, setOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const students = useMemo(
-    () => data.students.filter((s) => s.class_id === klass?.id),
-    [data.students, klass?.id],
-  );
+  const isClassArchived = !!(klass && klass.is_active === false);
+  const locked = readOnly || isClassArchived;
+
+  const students = useMemo(() => {
+    if (!klass) return [];
+    if (isClassArchived) {
+      const ids = new Set(
+        (data.enrollments ?? []).filter((e) => e.class_id === klass.id).map((e) => e.student_id),
+      );
+      const list: Student[] = [];
+      for (const id of ids) {
+        const s =
+          data.students.find((x) => x.id === id) ??
+          data.archivedStudents?.find((x) => x.id === id) ??
+          (data.studentsById?.get(id) as Student | undefined);
+        if (s) list.push(s);
+      }
+      return list.sort((a, b) =>
+        `${a.last_name}${a.first_name}`.localeCompare(`${b.last_name}${b.first_name}`),
+      );
+    }
+    return data.students.filter((s) => s.class_id === klass.id);
+  }, [data.students, data.archivedStudents, data.studentsById, data.enrollments, klass, isClassArchived]);
 
   const fields: Field[] = [
     { name: "first_name", label: "Prénom", required: true },
@@ -57,7 +78,7 @@ export function StudentsDialog({
   ];
 
   const createStudent = async (values: Record<string, any>) => {
-    if (!klass) return;
+    if (!klass || locked) return;
     setSubmitting(true);
     try {
       const { data: created, error } = await supabase
@@ -161,32 +182,42 @@ export function StudentsDialog({
         <DialogHeader>
           <DialogTitle className="font-display">Élèves — {klass?.name}</DialogTitle>
           <DialogDescription>
-            {students.length} élève(s) sur une capacité de {klass?.capacity ?? 0}. Cliquez sur la flèche pour ouvrir la
-            fiche complète d'un élève (modifier, transférer, supprimer, résultats, scolarité).
+            {students.length} élève(s)
+            {!locked ? ` sur une capacité de ${klass?.capacity ?? 0}` : " (classe archivée — consultation)"}.
+            {" "}
+            Cliquez sur la flèche pour ouvrir la fiche.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex justify-end">
-          <Button className="press" size="sm" onClick={() => setOpen(true)}>
-            <Plus className="mr-1.5 h-4 w-4" /> Ajouter un élève
-          </Button>
-        </div>
+        {!locked && (
+          <div className="flex justify-end">
+            <Button className="press" size="sm" onClick={() => setOpen(true)}>
+              <Plus className="mr-1.5 h-4 w-4" /> Ajouter un élève
+            </Button>
+          </div>
+        )}
 
         {students.length === 0 ? (
-          <EmptyState icon={Users} title="Aucun élève dans cette classe" description="Ajoutez le premier élève pour démarrer." />
+          <EmptyState
+            icon={Users}
+            title="Aucun élève dans cette classe"
+            description={locked ? "Aucun élève associé à cette classe archivée." : "Ajoutez le premier élève pour démarrer."}
+          />
         ) : (
           <DataTable columns={columns} rows={students} />
         )}
 
-        <RecordDialog
-          open={open}
-          onOpenChange={setOpen}
-          title="Nouvel élève"
-          description="La fiche complète (résultats, scolarité, transfert) est accessible depuis la liste après création."
-          fields={fields}
-          submitting={submitting}
-          onSubmit={createStudent}
-        />
+        {!locked && (
+          <RecordDialog
+            open={open}
+            onOpenChange={setOpen}
+            title="Nouvel élève"
+            description="La fiche complète (résultats, scolarité, transfert) est accessible depuis la liste après création."
+            fields={fields}
+            submitting={submitting}
+            onSubmit={createStudent}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

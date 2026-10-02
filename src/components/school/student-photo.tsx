@@ -17,6 +17,7 @@ export function StudentPhoto({
   firstName,
   lastName,
   compact = false,
+  readOnly = false,
 }: {
   studentId: string;
   establishmentId: string;
@@ -24,6 +25,8 @@ export function StudentPhoto({
   firstName: string;
   lastName: string;
   compact?: boolean;
+  /** Si true : affichage uniquement, pas d'upload ni suppression (dossier archive). */
+  readOnly?: boolean;
 }) {
   const qc = useQueryClient();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -33,10 +36,9 @@ export function StudentPhoto({
   const refresh = () => qc.invalidateQueries({ queryKey: ["students"] });
 
   const upload = async (file: File | undefined) => {
-    if (!file) return;
+    if (!file || readOnly) return;
     setBusy(true);
     try {
-      // Recadrage centre en carre : pas d'etirement dans l'avatar rond
       const compressed = await compressImage(file, {
         squareCrop: true,
         squareSize: 512,
@@ -61,6 +63,7 @@ export function StudentPhoto({
   };
 
   const remove = async () => {
+    if (readOnly) return;
     setBusy(true);
     try {
       await supabase.storage.from("student-photos").remove([`${establishmentId}/${studentId}.jpg`]);
@@ -94,7 +97,7 @@ export function StudentPhoto({
           <AvatarFallback>{initials(firstName, lastName)}</AvatarFallback>
         </Avatar>
       </button>
-      {!compact && (
+      {!compact && !readOnly && (
         <div className="flex flex-col gap-1.5">
           <Button variant="outline" size="sm" className="press" disabled={busy} onClick={() => inputRef.current?.click()}>
             {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Camera className="mr-1.5 h-4 w-4" />}
@@ -107,16 +110,18 @@ export function StudentPhoto({
           ) : null}
         </div>
       )}
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(e) => {
-          void upload(e.target.files?.[0]);
-          e.target.value = "";
-        }}
-      />
+      {!readOnly && (
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            void upload(e.target.files?.[0]);
+            e.target.value = "";
+          }}
+        />
+      )}
       <Dialog open={zoom} onOpenChange={setZoom}>
         <DialogContent className="max-w-md p-2">
           <DialogTitle className="sr-only">
