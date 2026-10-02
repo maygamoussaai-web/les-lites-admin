@@ -71,7 +71,7 @@ export function ClassPageView(m: ClassPageModel) {
 
       {!currentPeriod && latestPeriod && !isClassArchived && (
         <div className="mb-4 rounded-xl border border-border/70 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-          Période {latestPeriod.period_number} clôturée. La prochaine période s&apos;ouvrira automatiquement
+          Période {latestPeriod.period_number} clôturée. La prochaine période s'ouvrira automatiquement
           à la <strong className="text-foreground">première note</strong> enregistrée.
         </div>
       )}
@@ -366,6 +366,7 @@ export function ClassPageView(m: ClassPageModel) {
         klass={studentsOpen ? klass : null}
         data={data}
         onClose={() => setStudentsOpen(false)}
+        readOnly={isClassArchived}
       />
 
       <BulletinWalkthroughDialog
@@ -397,7 +398,7 @@ export function ClassPageView(m: ClassPageModel) {
             <AlertDialogTitle>Clôturer sans tous les bulletins ?</AlertDialogTitle>
             <AlertDialogDescription>
               Des élèves ont des notes sans bulletin généré. Vous pouvez générer les bulletins
-              d&apos;abord, ou forcer la nouvelle période.
+              d'abord, ou forcer la nouvelle période.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
