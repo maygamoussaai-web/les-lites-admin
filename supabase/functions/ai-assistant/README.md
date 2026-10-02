@@ -1,21 +1,25 @@
-# AI Assistant — Les Élites de Gao (plan de base)
+# Edge Function `ai-assistant`
 
-Edge Function autonome : **Gemini** (`GEMINI_API_KEY` dans Secrets Supabase) + **43 outils**.
+Assistant admin Les Élites de Gao — **plan de base**.
 
-## Secrets requis
-- `GEMINI_API_KEY` (obligatoire)
-- Optionnel : `GEMINI_MODEL` (défaut `gemini-3.5-flash-lite`)
+## Stack
+- **Gemini** via secret Supabase `GEMINI_API_KEY` (jamais Lovable / GPT / Astra / AI Gateway).
+- Modèles (fallback automatique) : `GEMINI_MODEL` env ou `gemini-2.0-flash-lite` → `gemini-2.0-flash` → `gemini-1.5-flash`.
+- **43 outils** lecture + écriture (RLS via JWT admin).
 
 ## Déploiement
 ```bash
-supabase functions deploy ai-assistant --project-ref <REF>
+supabase secrets set GEMINI_API_KEY=your_key
+# optionnel :
+# supabase secrets set GEMINI_MODEL=gemini-2.0-flash-lite
+supabase functions deploy ai-assistant
 ```
 
-## Client
-`src/lib/ai-assistant.ts` → `supabase.functions.invoke("ai-assistant")`  
-**Aucun** appel à la gateway Lovable / LOVABLE_API_KEY / gpt-6-astra.
+## Confirmation écriture
+1. L'IA décrit l'action et demande « Confirmez par oui ».
+2. L'utilisateur répond « oui » (ou ok / d'accord…).
+3. Le serveur force `confirmed=true` sur les outils d'écriture — **une seule confirmation**.
 
-## Règles
-- RLS de l'utilisateur connecté (JWT)
-- Écritures : confirmation « oui » puis `confirmed=true`
-- Réponses FR, concises, professionnelles
+## Client
+`src/lib/ai-assistant.ts` → `supabase.functions.invoke("ai-assistant")`.
+Aucun chemin Lovable actif.
