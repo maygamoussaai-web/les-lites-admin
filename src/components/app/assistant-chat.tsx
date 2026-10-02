@@ -22,11 +22,11 @@ import { setAssistantInvalidator } from "@/lib/ai-assistant";
 type Props = { className?: string };
 
 const SUGGESTIONS = [
-  "Quelles classes sont disponibles ?",
-  "Liste les élèves de TSE",
-  "Infos sur un élève",
-  "Liste des enseignants",
-  "Établissements du complexe",
+  "Fais-moi une synthèse du complexe",
+  "Classement de la dernière période d'une classe",
+  "Quels élèves ont un reste à payer ?",
+  "Statistiques de réussite par classe",
+  "Liste des enseignants et leurs séances",
 ];
 
 /**
