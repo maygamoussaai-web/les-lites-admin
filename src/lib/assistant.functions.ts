@@ -20,14 +20,29 @@ const Input = z.object({
     .default([]),
 });
 
-const CONFIRM_RE = /^(oui|ouais|ok|okay|d'accord|daccord|confirme|confirme|je confirme|vas-y|vas y|go|valide|valide|yes|yep|c'est bon|cest bon|execute|execute|applique|fait|fais-le|fais le)\b/i;
+const CONFIRM_RE =
+  /^(oui|ouais|ok|okay|d'accord|daccord|confirme|je confirme|vas-y|vas y|go|valide|yes|yep|c'est bon|cest bon|execute|applique|fait|fais-le|fais le)\b/i;
 
-function systemPrompt(p: { name: string; role: string; isDG: boolean; establishments: string; today: string }) {
+function systemPrompt(p: {
+  name: string;
+  role: string;
+  isDG: boolean;
+  establishments: string;
+  today: string;
+}) {
   const scope = p.isDG
     ? "- Directeur Général : accès à tout le complexe."
-    : "- Accès STRICTEMENT limité à : " + p.establishments + ". Toute demande portant sur un autre établissement doit être refusée poliment, sans fournir aucune donnée ni tenter l'action.";
+    : "- Accès STRICTEMENT limité à : " +
+      p.establishments +
+      ". Toute demande portant sur un autre établissement doit être refusée poliment, sans fournir aucune donnée ni tenter l'action.";
   return [
-    "Tu es l'Assistant administratif des Élites de Gao, au service du personnel de direction du complexe scolaire Les Élites de Gao (Mali). Tu travailles pour " + p.name + " (" + p.role + "). Date du jour : " + p.today + ".",
+    "Tu es l'Assistant administratif des Élites de Gao, au service du personnel de direction du complexe scolaire Les Élites de Gao (Mali). Tu travailles pour " +
+      p.name +
+      " (" +
+      p.role +
+      "). Date du jour : " +
+      p.today +
+      ".",
     "",
     "# Périmètre d'accès (non négociable)",
     scope,
@@ -84,7 +99,7 @@ async function callModel(apiKey: string, runId: string | undefined, body: unknow
     const status = res.status;
     if (status === 402) throw new Error(msg || "Crédits IA épuisés pour l'espace de travail.");
     if (status === 429) throw new Error("L'assistant est très sollicité. Réessayez dans quelques secondes.");
-    throw new Error(msg || ("Assistant indisponible (code " + status + ")."));
+    throw new Error(msg || "Assistant indisponible (code " + status + ").");
   }
   const reader = res.body.getReader();
   const dec = new TextDecoder();
@@ -171,7 +186,11 @@ export const askAssistantFn = createServerFn({ method: "POST" })
             .map((c: Item) => c.text)
             .join("\n")
             .trim();
-          return { ok: true as const, reply: text || "Je n'ai pas pu formuler de réponse. Pouvez-vous reformuler ?", actions };
+          return {
+            ok: true as const,
+            reply: text || "Je n'ai pas pu formuler de réponse. Pouvez-vous reformuler ?",
+            actions,
+          };
         }
         for (const c of calls) {
           let toolArgs = c.arguments;
@@ -187,14 +206,19 @@ export const askAssistantFn = createServerFn({ method: "POST" })
             }
           }
           const out = await runTool(ctx, c.name, toolArgs);
-          if (ALL_TOOLS.find((t) => t.name === c.name)?.write && out.includes('"ok":true')) actions.push(c.name);
+          if (ALL_TOOLS.find((t) => t.name === c.name)?.write && out.includes('"ok":true')) {
+            actions.push(c.name);
+          }
           input.push({ type: "function_call_output", call_id: c.call_id, output: out });
         }
       }
-      return { ok: true as const, reply: "La demande nécessite trop d'étapes. Pouvez-vous la préciser ?", actions };
+      return {
+        ok: true as const,
+        reply: "La demande nécessite trop d'étapes. Pouvez-vous la préciser ?",
+        actions,
+      };
     } catch (e) {
       console.error("[assistant]", e);
       return { ok: false as const, error: e instanceof Error ? e.message : "Erreur inattendue." };
     }
   });
-}
