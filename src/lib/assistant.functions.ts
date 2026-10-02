@@ -76,7 +76,6 @@ async function callModel(apiKey: string, runId: string | undefined, body: unknow
     if (status === 429) throw new Error("L'assistant est très sollicité. Réessayez dans quelques secondes.");
     throw new Error(msg || `Assistant indisponible (code ${status}).`);
   }
-  // Lecture du flux SSE jusqu'à response.completed.
   const reader = res.body.getReader();
   const dec = new TextDecoder();
   let buf = "";
@@ -155,7 +154,18 @@ export const askAssistantFn = createServerFn({ method: "POST" })
           return { ok: true as const, reply: text || "Je n'ai pas pu formuler de réponse. Pouvez-vous reformuler ?", actions };
         }
         for (const c of calls) {
-          const out = await runTool(ctx, c.name, c.arguments);
+          let toolArgs = c.arguments;
+          // Force confirmed=true when user just said oui (évite les boucles de confirmation)
+          if (ctx.userConfirmed) {
+            try {
+              const parsed = toolArgs ? JSON.parse(toolArgs) : {};
+              if (typeof parsed === "object" && parsed) {
+                parsed.confirmed = true;
+                toolArgs = JSON.stringify(parsed);
+              }
+            } catch { /* keep original args */ }
+          }
+          const out = await runTool(ctx, c.name, toolArgs);
           if (ALL_TOOLS.find((t) => t.name === c.name)?.write && out.includes('"ok":true')) actions.push(c.name);
           input.push({ type: "function_call_output", call_id: c.call_id, output: out });
         }
@@ -166,3 +176,4 @@ export const askAssistantFn = createServerFn({ method: "POST" })
       return { ok: false as const, error: e instanceof Error ? e.message : "Erreur inattendue." };
     }
   });
+}
