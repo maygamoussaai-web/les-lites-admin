@@ -3,6 +3,7 @@
  * Conversation en localStorage par userId. Historique multi-turn envoyé au backend.
  */
 import { supabase } from "@/integrations/supabase/client";
+import { askAssistantFn } from "@/lib/assistant.functions";
 
 export type AssistantMessage = {
   id: string;
