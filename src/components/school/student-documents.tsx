@@ -630,11 +630,17 @@ export function StudentDocuments({
               {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
               Ajouter
             </Button>
-          </div>
+          </div>}
         </div>
       )}
 
-      {compact && (
+      {readOnly && (
+        <p className="rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          Dossier archivé — bibliothèque en lecture seule (consultation et téléchargement uniquement).
+        </p>
+      )}
+
+      {compact && !readOnly && (
         <div className="flex justify-end">
           <input
             ref={fileInputRef}

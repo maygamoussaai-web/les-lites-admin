@@ -30,6 +30,7 @@ function BibliothequePage() {
   const data = useSchoolData();
   const resolved =
     data.students.find((s) => s.id === studentId) ??
+    data.archivedStudents.find((s) => s.id === studentId) ??
     data.studentsById.get(studentId) ??
     null;
 
