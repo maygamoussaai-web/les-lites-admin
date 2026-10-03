@@ -838,16 +838,22 @@ const TOOLS = [
   { name: "list_audit_logs", description: "Historique d'actions.", parameters: { type: "object", properties: { entity_type: { type: "string" }, limit: { type: "integer" } }, required: [] } },
   { name: "list_invitations", description: "Invitations admin.", parameters: { type: "object", properties: {}, required: [] } },
   { name: "list_teacher_payments", description: "Paiements d'un enseignant.", parameters: { type: "object", properties: { teacher_id: { type: "string" }, query: { type: "string" } }, required: [] } },
-  { name: "create_student", description: "Créer élève. REQUIRES confirmed=true.", parameters: { type: "object", properties: { confirmed: { type: "boolean" }, first_name: { type: "string" }, last_name: { type: "string" }, gender: { type: "string" }, class_name: { type: "string" }, class_id: { type: "string" }, date_of_birth: { type: "string" }, parent_phone_1: { type: "string" } }, required: ["first_name", "last_name"] } },
-  { name: "update_student", description: "Modifier élève. REQUIRES confirmed=true.", parameters: { type: "object", properties: { confirmed: { type: "boolean" }, student_id: { type: "string" }, query: { type: "string" }, first_name: { type: "string" }, last_name: { type: "string" }, gender: { type: "string" }, date_of_birth: { type: "string" } }, required: [] } },
-  { name: "archive_student", description: "Archiver/désarchiver élève. REQUIRES confirmed=true. unarchive=true pour restaurer.", parameters: { type: "object", properties: { confirmed: { type: "boolean" },
+ { name: "create_student", description: "Créer élève. REQUIRES confirmed=true.", parameters: { type: "object", properties: { confirmed: { type: "boolean" }, first_name: { type: "string" }, last_name: { type: "string" }, gender: { type: "string" }, class_name: { type: "string" }, class_id: { type: "string" }, date_of_birth: { type: "string" }, parent_phone_1: { type: "string" } }, required: ["first_name", "last_name"] } },
 
-  { name: "unarchive_student", description: "Désarchiver un élève. REQUIRES confirmed=true.", parameters: { type: "object", properties: { confirmed: { type: "boolean" }, student_id: { type: "string" }, query: { type: "string" } }, required: [] } },
-  { name: "open_period", description: "Ouvrir une nouvelle période de notes. REQUIRES confirmed=true.", parameters: { type: "object", properties: { confirmed: { type: "boolean" }, class_id: { type: "string" }, class_name: { type: "string" } }, required: [] } },
-  { name: "list_tuition_payments", description: "Liste paiements de scolarité.", parameters: { type: "object", properties: { student_id: { type: "string" }, query: { type: "string" } }, required: [] } },
-  { name: "list_teacher_sessions", description: "Séances et affectations enseignant.", parameters: { type: "object", properties: { teacher_id: { type: "string" }, query: { type: "string" } }, required: [] } },
- student_id: { type: "string" }, query: { type: "string" }, unarchive: { type: "boolean" } }, required: [] } },
-  { name: "transfer_student", description: "Transférer élève vers une classe. REQUIRES confirmed=true.", parameters: { type: "object", properties: { confirmed: { type: "boolean" }, student_id: { type: "string" }, query: { type: "string" }, to_class_name: { type: "string" }, to_class_id: { type: "string" } }, required: [] } },
+{ name: "update_student", description: "Modifier élève. REQUIRES confirmed=true.", parameters: { type: "object", properties: { confirmed: { type: "boolean" }, student_id: { type: "string" }, query: { type: "string" }, first_name: { type: "string" }, last_name: { type: "string" }, gender: { type: "string" }, date_of_birth: { type: "string" } }, required: [] } },
+
+{ name: "archive_student", description: "Archiver/désarchiver élève. REQUIRES confirmed=true. unarchive=true pour restaurer.", parameters: { type: "object", properties: { confirmed: { type: "boolean" }, student_id: { type: "string" }, query: { type: "string" }, unarchive: { type: "boolean" } }, required: [] } },
+
+{ name: "unarchive_student", description: "Désarchiver un élève. REQUIRES confirmed=true.", parameters: { type: "object", properties: { confirmed: { type: "boolean" }, student_id: { type: "string" }, query: { type: "string" } }, required: [] } },
+
+{ name: "open_period", description: "Ouvrir une nouvelle période de notes. REQUIRES confirmed=true.", parameters: { type: "object", properties: { confirmed: { type: "boolean" }, class_id: { type: "string" }, class_name: { type: "string" } }, required: [] } },
+
+{ name: "list_tuition_payments", description: "Liste paiements de scolarité.", parameters: { type: "object", properties: { student_id: { type: "string" }, query: { type: "string" } }, required: [] } },
+
+{ name: "list_teacher_sessions", description: "Séances et affectations enseignant.", parameters: { type: "object", properties: { teacher_id: { type: "string" }, query: { type: "string" } }, required: [] } },
+
+{ name: "transfer_student", description: "Transférer élève vers une classe. REQUIRES confirmed=true.", parameters: { type: "object", properties: { confirmed: { type: "boolean" }, student_id: { type: "string" }, query: { type: "string" }, to_class_name: { type: "string" }, to_class_id: { type: "string" } }, required: [] } },
+
   { name: "upsert_grade", description: "Saisir note. REQUIRES confirmed=true.", parameters: { type: "object", properties: { confirmed: { type: "boolean" }, student_id: { type: "string" }, query: { type: "string" }, subject_name: { type: "string" }, nature: { type: "string" }, value: { type: "number" }, scale: { type: "number" } }, required: ["value"] } },
   { name: "delete_grade", description: "Supprimer une note. REQUIRES confirmed=true.", parameters: { type: "object", properties: { confirmed: { type: "boolean" }, grade_id: { type: "string" } }, required: ["grade_id"] } },
   { name: "close_period", description: "Clôturer/rouvrir période. REQUIRES confirmed=true. reopen=true pour rouvrir.", parameters: { type: "object", properties: { confirmed: { type: "boolean" }, class_name: { type: "string" }, class_id: { type: "string" }, period_id: { type: "string" }, period_number: { type: "integer" }, reopen: { type: "boolean" } }, required: [] } },
