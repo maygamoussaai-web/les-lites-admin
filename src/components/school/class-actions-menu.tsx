@@ -7,6 +7,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { MoreHorizontal, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,6 +53,11 @@ export function ClassActionsMenu({
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [password, setPassword] = useState("");
   const [warnMissing, setWarnMissing] = useState(false);
+  // Année académique : sept→août (ex. octobre 2026 → « 2026-2027 »).
+  const now = new Date();
+  const startYear = now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1;
+  const defaultGenerationName = `${klass.name} — ${startYear}-${startYear + 1}`;
+  const [generationName, setGenerationName] = useState(defaultGenerationName);
 
   const plans = data.feePlans.filter((p) => p.establishment_id === klass.establishment_id);
   const studentIds = data.students.filter((s) => s.class_id === klass.id).map((s) => s.id);
@@ -96,8 +103,18 @@ export function ClassActionsMenu({
       const plan = data.feePlans.find((p) => p.id === klass.fee_plan_id);
       const planInstallments = data.installments.filter((i) => i.fee_plan_id === klass.fee_plan_id);
       const snap = snapshotFromPlan(planInstallments);
+      const generation = generationName.trim() || defaultGenerationName;
 
       if (studentIds.length) {
+        // NOTE POUR CLAUDE: la période de scolarité qui se termine garde le nom de
+        // génération saisi (ex. « 9e A — 2025-2026 ») pour l'historique des élèves.
+        const { error: genErr } = await supabase
+          .from("student_enrollments")
+          .update({ class_name: generation })
+          .eq("class_id", klass.id)
+          .in("student_id", studentIds)
+          .is("ended_at", null);
+        if (genErr) throw genErr;
         await renewEnrollmentsForClass({
           studentIds,
           establishmentId: klass.establishment_id,
@@ -112,6 +129,7 @@ export function ClassActionsMenu({
 
       await writeAudit("update", "classes", klass.id, {
         renewed: true,
+        generation_name: generation,
         students: studentIds.length,
         fee_plan_id: klass.fee_plan_id,
       });
@@ -217,6 +235,20 @@ export function ClassActionsMenu({
                 période démarre à zéro avec le <strong>modèle de scolarité actuel</strong> de la
                 classe. Vérifiez les échéances du modèle avant de confirmer, sinon tous
                 pourraient apparaître « en retard ».
+              </span>
+              <span className="block space-y-1.5 pt-1">
+                <Label htmlFor="generation-name" className="text-foreground">
+                  Nom de la génération archivée
+                </Label>
+                <Input
+                  id="generation-name"
+                  value={generationName}
+                  onChange={(e) => setGenerationName(e.target.value)}
+                  placeholder={defaultGenerationName}
+                />
+                <span className="block text-xs">
+                  Ce nom identifiera l'année qui se termine dans l'historique des élèves.
+                </span>
               </span>
               {warnMissing && (
                 <span className="block rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
