@@ -215,7 +215,8 @@ export function StudentFichePage() {
       />
       <div className="flex flex-wrap items-center gap-4 rounded-xl border border-border/70 bg-card p-4">
         <StudentPhoto studentId={student.id} establishmentId={student.establishment_id}
-          photoUrl={student.photo_url ?? null} firstName={student.first_name} lastName={student.last_name} compact />
+          photoUrl={student.photo_url ?? null} firstName={student.first_name} lastName={student.last_name} compact
+          readOnly={isArchived} />
         <div className="min-w-0 flex-1">
           <p className="font-display text-lg font-semibold">{student.last_name} {student.first_name}</p>
           <p className="text-sm text-muted-foreground">

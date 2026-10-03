@@ -5,7 +5,10 @@
 import { useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { FileSpreadsheet, Loader2, Upload, Check, AlertTriangle, ChevronDown } from "lucide-react";
+import { FileSpreadsheet, Loader2, Upload, Check, AlertTriangle, ChevronDown, FlaskConical } from "lucide-react";
+import { writeFilledWorkbook } from "@/lib/xlsx-writeback";
+import { buildSampleFillData } from "@/lib/model-averages";
+import { downloadBlob } from "@/lib/pdf-export";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -241,6 +244,30 @@ export function ReportTemplateManager({
     }
   };
 
+  // NOTE POUR CLAUDE: bulletin test (élève fictif) avant activation, période ET annuel.
+  // Rien n'est enregistré : le .xlsx rempli est seulement téléchargé pour contrôle visuel.
+  const testTemplate = () => {
+    if (!buffer || !mapping) return;
+    try {
+      const fill = buildSampleFillData({
+        kind: templateKind,
+        subjectLabels,
+        className,
+        scale: Number(scale) || 20,
+        periods: Math.max(3, mapping.periodGroupLabels?.length ?? 0),
+      });
+      const { buffer: out, warnings: w } = writeFilledWorkbook(buffer, mapping, fill);
+      downloadBlob(
+        new Blob([out], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+        `TEST - ${templateName || className}.xlsx`,
+      );
+      if (w.length) toast.warning(`Bulletin test généré avec ${w.length} avertissement(s) : ${w.slice(0, 2).join(" ; ")}`);
+      else toast.success("Bulletin test téléchargé — ouvrez-le pour vérifier le remplissage.");
+    } catch (e) {
+      toast.error(describeError(e, "Test du modèle impossible"));
+    }
+  };
+
   return (
     <div className="rounded-xl border border-border/70 bg-card p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -470,9 +497,13 @@ export function ReportTemplateManager({
                 </CollapsibleContent>
               </Collapsible>
 
-              <DialogFooter>
+              <DialogFooter className="flex-wrap gap-2">
                 <Button variant="outline" onClick={() => { setOpen(false); reset(); }} disabled={busy}>
                   Annuler
+                </Button>
+                <Button variant="secondary" disabled={busy} onClick={testTemplate}>
+                  <FlaskConical className="mr-1.5 h-4 w-4" />
+                  Tester avec un élève fictif
                 </Button>
                 <Button className="press" disabled={busy} onClick={() => void save()}>
                   {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Check className="mr-1.5 h-4 w-4" />}
