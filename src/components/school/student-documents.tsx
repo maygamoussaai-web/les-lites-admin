@@ -146,6 +146,10 @@ export function StudentDocuments({
 }) {
   const qc = useQueryClient();
   const school = useSchoolData();
+  // NOTE POUR CLAUDE: élève ou classe archivé(e) → bibliothèque figée (consultation/téléchargement seuls).
+  const readOnly =
+    school.archivedStudents.some((s) => s.id === studentId) ||
+    (!!classId && school.archivedClasses.some((c) => c.id === classId));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const purgedRef = useRef(false);
 
@@ -541,7 +545,7 @@ export function StudentDocuments({
             <Download className="h-3.5 w-3.5" />
             Télécharger
           </Button>
-          {docRow && (
+          {docRow && !readOnly && (
             <>
               <Button
                 type="button"
@@ -605,7 +609,7 @@ export function StudentDocuments({
               Bulletins et documents, classés par classe — les plus récents en premier.
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          {!readOnly && <div className="flex items-center gap-2">
             <input
               ref={fileInputRef}
               type="file"
