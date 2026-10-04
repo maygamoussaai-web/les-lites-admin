@@ -152,6 +152,39 @@ export function GlobalSearch() {
             </CommandGroup>
           )}
 
+          {teachers.length > 0 && (
+            <CommandGroup heading={`Enseignants · ${teachers.length}`}>
+              {teachers.map((t) => {
+                const estNames = (data.assignments ?? [])
+                  .filter((a) => a.teacher_id === t.id)
+                  .map((a) => estName(a.establishment_id))
+                  .filter(Boolean);
+                return (
+                  <CommandItem
+                    key={t.id}
+                    value={`enseignant ${t.last_name} ${t.first_name} ${t.domain ?? ""} ${estNames.join(" ")}`}
+                    className="gap-3 rounded-lg py-2"
+                    onSelect={() =>
+                      go(() => navigate({ to: "/enseignants/$teacherId", params: { teacherId: t.id } }))
+                    }
+                  >
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/40 text-[11px] font-semibold text-foreground">
+                      {(t.last_name[0] ?? "") + (t.first_name[0] ?? "")}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-foreground">
+                        {t.last_name} {t.first_name}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {[t.domain, estNames.join(" · ")].filter(Boolean).join(" · ") || "—"}
+                      </span>
+                    </span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          )}
+
           {classes.length > 0 && (
             <CommandGroup heading={`Classes · ${classes.length}`}>
               {classes.map((c) => (
