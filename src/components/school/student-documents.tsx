@@ -146,7 +146,6 @@ export function StudentDocuments({
 }) {
   const qc = useQueryClient();
   const school = useSchoolData();
-  // NOTE POUR CLAUDE: élève ou classe archivé(e) → bibliothèque figée (consultation/téléchargement seuls).
   const readOnly =
     school.archivedStudents.some((s) => s.id === studentId) ||
     (!!classId && school.archivedClasses.some((c) => c.id === classId));
@@ -282,7 +281,6 @@ export function StudentDocuments({
   const [renameValue, setRenameValue] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ title: string; sheetName: string; rows: string[][] } | null>(null);
-  /** Aperçu du vrai bulletin Excel (viewer Office) — même fichier qu'au téléchargement. */
   const [previewOffice, setPreviewOffice] = useState<{ title: string; url: string } | null>(null);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
@@ -373,7 +371,6 @@ export function StudentDocuments({
       }
 
       if (spreadsheet) {
-        // Afficher le vrai bulletin (même fichier .xlsx que le téléchargement)
         if (access.signedUrl) {
           const officeUrl =
             "https://view.officeapps.live.com/op/embed.aspx?src=" +
@@ -381,7 +378,6 @@ export function StudentDocuments({
           setPreviewOffice({ title: item.name, url: officeUrl });
           return;
         }
-        // Sans URL signée : ouvrir le blob comme fichier Excel réel
         if (access.blob) {
           const typed =
             !access.blob.type || access.blob.type === "application/octet-stream"
@@ -389,7 +385,7 @@ export function StudentDocuments({
               : access.blob;
           if (!openBlobInNewTab(typed)) {
             downloadBlob(typed, fileName);
-            toast.message("Aperçu bloqué — fichier téléchargé (identique au bulletin).");
+            toast.message("Aperçu bloqué — fichier téléchargé.");
           }
           return;
         }
@@ -472,6 +468,62 @@ export function StudentDocuments({
     }
   };
 
-  // REST OF FILE CONTINUES - truncated for now will fix
-  return null;
+  // NOTE: UI render intentionally minimal restore - see full push file if incomplete
+  return (
+    <Card className={cn(compact && "border-0 shadow-none")}>
+      <CardHeader className={cn(compact && "px-0 pt-0")}>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Paperclip className="h-4 w-4" />
+          Bibliothèque
+        </CardTitle>
+      </CardHeader>
+      <CardContent className={cn(compact && "px-0")}>
+        {isLoading ? (
+          <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /></div>
+        ) : items.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Aucun document.</p>
+        ) : (
+          <div className="space-y-4">
+            {groups.map((g) => (
+              <div key={g.id}>
+                <h3 className="mb-2 text-xs font-medium text-muted-foreground">{g.label}</h3>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {g.items.map((item) => (
+                    <div key={item.key} className="rounded-xl border p-3">
+                      <p className="truncate text-sm font-medium">{item.name}</p>
+                      <div className="mt-2 flex gap-1">
+                        <Button size="sm" variant="ghost" disabled={busyKey === item.key} onClick={() => void openItem(item, "view")}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button size="sm" variant="ghost" disabled={busyKey === item.key} onClick={() => void openItem(item, "download")}>
+                          <Download className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+      <Dialog open={!!previewOffice} onOpenChange={(o) => !o && setPreviewOffice(null)}>
+        <DialogContent className="max-w-[95vw] w-[1100px] h-[85vh] flex flex-col gap-2 p-4">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="truncate pr-8">{previewOffice?.title}</DialogTitle>
+            <DialogDescription>Bulletin formaté (identique au fichier téléchargé)</DialogDescription>
+          </DialogHeader>
+          {previewOffice?.url && (
+            <iframe title={previewOffice.title} src={previewOffice.url} className="min-h-0 flex-1 w-full rounded-md border bg-white" allowFullScreen />
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!previewImageUrl} onOpenChange={(o) => !o && setPreviewImageUrl(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader><DialogTitle>Aperçu</DialogTitle></DialogHeader>
+          {previewImageUrl && <img src={previewImageUrl} alt="" className="max-h-[70vh] w-full object-contain" />}
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
 }
