@@ -57,6 +57,19 @@ export function GlobalSearch() {
     return list.filter((s) => establishmentIds.includes(s.establishment_id));
   }, [data.students, isDG, establishmentIds]);
 
+  // NOTE POUR CLAUDE: enseignants limités au périmètre via leurs affectations
+  // (un enseignant n'a pas d'establishment_id propre, on passe par teacher_assignments).
+  const teachers = useMemo(() => {
+    const list = data.teachers ?? [];
+    if (isDG) return list;
+    const visibleTeacherIds = new Set(
+      (data.assignments ?? [])
+        .filter((a) => establishmentIds.includes(a.establishment_id))
+        .map((a) => a.teacher_id),
+    );
+    return list.filter((t) => visibleTeacherIds.has(t.id));
+  }, [data.teachers, data.assignments, isDG, establishmentIds]);
+
   const go = (fn: () => void) => {
     setOpen(false);
     fn();
