@@ -28,7 +28,7 @@ function norm(s: string) {
     .replace(/\p{M}/gu, "");
 }
 
-/** Score de pertinence : plus élevé = meilleur match. 0 = pas de match. */
+/** Score de ressemblance du nom : plus élevé = plus proche. 0 = pas de match. */
 function scoreMatch(query: string, ...parts: (string | null | undefined)[]): number {
   if (!query) return 1;
   const tokens = query.split(/\s+/).filter(Boolean);
@@ -37,35 +37,52 @@ function scoreMatch(query: string, ...parts: (string | null | undefined)[]): num
   const fields = parts.filter(Boolean).map((p) => norm(String(p)));
   if (!fields.length) return 0;
 
-  const primary = fields[0] ?? "";
+  const primary = fields[0] ?? ""; // nom principal (ex. "Diallo Amadou")
   const full = fields.join(" ");
 
-  let score = 0;
+  // Tous les tokens doivent apparaître quelque part
   for (const token of tokens) {
-    let best = 0;
-    for (let i = 0; i < fields.length; i++) {
-      const field = fields[i];
-      const weight = i === 0 ? 100 : 40; // nom principal prioritaire
-      if (field === token) best = Math.max(best, weight + 50);
-      else if (field.startsWith(token)) best = Math.max(best, weight + 30);
-      else if (field.split(/\s+/).some((w) => w.startsWith(token))) best = Math.max(best, weight + 20);
-      else if (field.includes(token)) best = Math.max(best, weight + 5);
-    }
-    if (best === 0) return 0; // tous les tokens doivent matcher
-    score += best;
+    if (!full.includes(token) && !fields.some((f) => f.includes(token))) return 0;
   }
 
-  // Bonus si le nom principal commence par la requête entière
-  if (primary.startsWith(query)) score += 25;
-  if (primary === query) score += 40;
-  if (full.startsWith(query)) score += 10;
+  let score = 0;
+
+  // 1) Correspondance exacte du nom complet
+  if (primary === query) score += 1000;
+  // 2) Le nom commence par la requête
+  else if (primary.startsWith(query)) score += 800;
+  // 3) Un mot du nom commence par la requête
+  else if (primary.split(/\s+/).some((w) => w.startsWith(query))) score += 600;
+  // 4) Le nom contient la requête
+  else if (primary.includes(query)) score += 400;
+
+  // Tokens individuels sur le nom principal (poids fort)
+  for (const token of tokens) {
+    if (primary === token) score += 200;
+    else if (primary.startsWith(token)) score += 150;
+    else if (primary.split(/\s+/).some((w) => w === token)) score += 120;
+    else if (primary.split(/\s+/).some((w) => w.startsWith(token))) score += 90;
+    else if (primary.includes(token)) score += 50;
+    else {
+      // Match uniquement hors nom principal (classe, établissement…)
+      for (const field of fields.slice(1)) {
+        if (field === token) score += 30;
+        else if (field.startsWith(token)) score += 20;
+        else if (field.includes(token)) score += 10;
+      }
+    }
+  }
+
+  // Plus le nom est court et proche, mieux c'est (pénalité légère longueur)
+  score += Math.max(0, 40 - primary.length);
 
   return score;
 }
 
 /**
  * Recherche globale (Ctrl/Cmd+K) : élèves, enseignants, classes, établissements.
- * Les résultats les plus pertinents apparaissent en haut de chaque groupe.
+ * Ordre des groupes : établissements → classes → élèves → enseignants.
+ * Dans chaque groupe, le nom le plus ressemblant est en premier.
  */
 export function GlobalSearch() {
   const [open, setOpen] = useState(false);
@@ -220,7 +237,7 @@ export function GlobalSearch() {
 
       <CommandDialog open={open} onOpenChange={setOpen}>
         <CommandInput
-          placeholder="Élève, enseignant, classe, établissement…"
+          placeholder="Établissement, classe, élève, enseignant…"
           value={query}
           onValueChange={setQuery}
         />
@@ -232,6 +249,51 @@ export function GlobalSearch() {
                 Aucun résultat dans votre périmètre.
               </div>
             </CommandEmpty>
+          )}
+
+          {filteredEstablishments.length > 0 && (
+            <CommandGroup heading={`Établissements · ${filteredEstablishments.length}`}>
+              {filteredEstablishments.map((e) => (
+                <CommandItem
+                  key={e.id}
+                  value={`etab ${e.name}`}
+                  className="gap-3 rounded-lg py-2"
+                  onSelect={() =>
+                    go(() => navigate({ to: "/etablissements/$id", params: { id: e.id } }))
+                  }
+                >
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted">
+                    <Building2 className="h-4 w-4" />
+                  </span>
+                  <span className="truncate text-sm font-medium">{e.name}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
+
+          {filteredClasses.length > 0 && (
+            <CommandGroup heading={`Classes · ${filteredClasses.length}${classes.length > MAX_PER_GROUP && !q ? ` / ${classes.length}` : ""}`}>
+              {filteredClasses.map((c) => (
+                <CommandItem
+                  key={c.id}
+                  value={`classe ${c.name} ${estName(c.establishment_id)}`}
+                  className="gap-3 rounded-lg py-2"
+                  onSelect={() =>
+                    go(() => navigate({ to: "/classes/$classId", params: { classId: c.id } }))
+                  }
+                >
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/40 text-foreground">
+                    <GraduationCap className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{c.name}</span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {estName(c.establishment_id)} · {studentCount(c.id)} élève(s)
+                    </span>
+                  </span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
           )}
 
           {filteredStudents.length > 0 && (
@@ -295,51 +357,6 @@ export function GlobalSearch() {
                   </CommandItem>
                 );
               })}
-            </CommandGroup>
-          )}
-
-          {filteredClasses.length > 0 && (
-            <CommandGroup heading={`Classes · ${filteredClasses.length}${classes.length > MAX_PER_GROUP && !q ? ` / ${classes.length}` : ""}`}>
-              {filteredClasses.map((c) => (
-                <CommandItem
-                  key={c.id}
-                  value={`classe ${c.name} ${estName(c.establishment_id)}`}
-                  className="gap-3 rounded-lg py-2"
-                  onSelect={() =>
-                    go(() => navigate({ to: "/classes/$classId", params: { classId: c.id } }))
-                  }
-                >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/40 text-foreground">
-                    <GraduationCap className="h-4 w-4" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{c.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {estName(c.establishment_id)} · {studentCount(c.id)} élève(s)
-                    </span>
-                  </span>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          )}
-
-          {filteredEstablishments.length > 0 && (
-            <CommandGroup heading={`Établissements · ${filteredEstablishments.length}`}>
-              {filteredEstablishments.map((e) => (
-                <CommandItem
-                  key={e.id}
-                  value={`etab ${e.name}`}
-                  className="gap-3 rounded-lg py-2"
-                  onSelect={() =>
-                    go(() => navigate({ to: "/etablissements/$id", params: { id: e.id } }))
-                  }
-                >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted">
-                    <Building2 className="h-4 w-4" />
-                  </span>
-                  <span className="truncate text-sm font-medium">{e.name}</span>
-                </CommandItem>
-              ))}
             </CommandGroup>
           )}
 
