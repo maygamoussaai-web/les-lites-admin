@@ -171,7 +171,7 @@ export async function askAssistant(
           })),
         ],
       },
-      signal,
+      ...(signal ? { signal } : {}),
     });
 
     if (signal?.aborted) {
