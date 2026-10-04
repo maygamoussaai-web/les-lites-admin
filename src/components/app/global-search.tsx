@@ -28,17 +28,44 @@ function norm(s: string) {
     .replace(/\p{M}/gu, "");
 }
 
-function matches(query: string, ...parts: (string | null | undefined)[]) {
-  if (!query) return true;
-  const hay = norm(parts.filter(Boolean).join(" "));
-  return query
-    .split(/\s+/)
-    .filter(Boolean)
-    .every((token) => hay.includes(token));
+/** Score de pertinence : plus élevé = meilleur match. 0 = pas de match. */
+function scoreMatch(query: string, ...parts: (string | null | undefined)[]): number {
+  if (!query) return 1;
+  const tokens = query.split(/\s+/).filter(Boolean);
+  if (!tokens.length) return 1;
+
+  const fields = parts.filter(Boolean).map((p) => norm(String(p)));
+  if (!fields.length) return 0;
+
+  const primary = fields[0] ?? "";
+  const full = fields.join(" ");
+
+  let score = 0;
+  for (const token of tokens) {
+    let best = 0;
+    for (let i = 0; i < fields.length; i++) {
+      const field = fields[i];
+      const weight = i === 0 ? 100 : 40; // nom principal prioritaire
+      if (field === token) best = Math.max(best, weight + 50);
+      else if (field.startsWith(token)) best = Math.max(best, weight + 30);
+      else if (field.split(/\s+/).some((w) => w.startsWith(token))) best = Math.max(best, weight + 20);
+      else if (field.includes(token)) best = Math.max(best, weight + 5);
+    }
+    if (best === 0) return 0; // tous les tokens doivent matcher
+    score += best;
+  }
+
+  // Bonus si le nom principal commence par la requête entière
+  if (primary.startsWith(query)) score += 25;
+  if (primary === query) score += 40;
+  if (full.startsWith(query)) score += 10;
+
+  return score;
 }
 
 /**
  * Recherche globale (Ctrl/Cmd+K) : élèves, enseignants, classes, établissements.
+ * Les résultats les plus pertinents apparaissent en haut de chaque groupe.
  */
 export function GlobalSearch() {
   const [open, setOpen] = useState(false);
@@ -94,36 +121,56 @@ export function GlobalSearch() {
   const q = norm(query.trim());
 
   const filteredStudents = useMemo(() => {
-    const list = students.filter((s) => {
-      const cls = classes.find((c) => c.id === s.class_id)?.name ?? "";
-      const est = establishments.find((e) => e.id === s.establishment_id)?.name ?? "";
-      return matches(q, s.last_name, s.first_name, cls, est);
-    });
-    return list.slice(0, MAX_PER_GROUP);
+    const ranked = students
+      .map((s) => {
+        const cls = classes.find((c) => c.id === s.class_id)?.name ?? "";
+        const est = establishments.find((e) => e.id === s.establishment_id)?.name ?? "";
+        const fullName = `${s.last_name} ${s.first_name}`;
+        const score = scoreMatch(q, fullName, s.last_name, s.first_name, cls, est);
+        return { s, score };
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score || a.s.last_name.localeCompare(b.s.last_name));
+    return ranked.slice(0, MAX_PER_GROUP).map((x) => x.s);
   }, [students, classes, establishments, q]);
 
   const filteredTeachers = useMemo(() => {
-    const list = teachers.filter((t) => {
-      const estNames = (data.assignments ?? [])
-        .filter((a) => a.teacher_id === t.id)
-        .map((a) => establishments.find((e) => e.id === a.establishment_id)?.name ?? "")
-        .filter(Boolean);
-      return matches(q, t.last_name, t.first_name, t.domain, ...estNames);
-    });
-    return list.slice(0, MAX_PER_GROUP);
+    const ranked = teachers
+      .map((t) => {
+        const estNames = (data.assignments ?? [])
+          .filter((a) => a.teacher_id === t.id)
+          .map((a) => establishments.find((e) => e.id === a.establishment_id)?.name ?? "")
+          .filter(Boolean);
+        const fullName = `${t.last_name} ${t.first_name}`;
+        const score = scoreMatch(q, fullName, t.last_name, t.first_name, t.domain, ...estNames);
+        return { t, score };
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score || a.t.last_name.localeCompare(b.t.last_name));
+    return ranked.slice(0, MAX_PER_GROUP).map((x) => x.t);
   }, [teachers, data.assignments, establishments, q]);
 
   const filteredClasses = useMemo(() => {
-    const list = classes.filter((c) => {
-      const est = establishments.find((e) => e.id === c.establishment_id)?.name ?? "";
-      return matches(q, c.name, est);
-    });
-    return list.slice(0, MAX_PER_GROUP);
+    const ranked = classes
+      .map((c) => {
+        const est = establishments.find((e) => e.id === c.establishment_id)?.name ?? "";
+        const score = scoreMatch(q, c.name, est);
+        return { c, score };
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score || a.c.name.localeCompare(b.c.name));
+    return ranked.slice(0, MAX_PER_GROUP).map((x) => x.c);
   }, [classes, establishments, q]);
 
   const filteredEstablishments = useMemo(() => {
-    const list = establishments.filter((e) => matches(q, e.name));
-    return list.slice(0, MAX_PER_GROUP);
+    const ranked = establishments
+      .map((e) => {
+        const score = scoreMatch(q, e.name);
+        return { e, score };
+      })
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score || a.e.name.localeCompare(b.e.name));
+    return ranked.slice(0, MAX_PER_GROUP).map((x) => x.e);
   }, [establishments, q]);
 
   const go = (fn: () => void) => {
