@@ -19,11 +19,30 @@ import { Button } from "@/components/ui/button";
 import { useAdminProfile } from "@/hooks/use-auth";
 import { useSchoolData } from "@/lib/school-data";
 
+const MAX_PER_GROUP = 8;
+
+function norm(s: string) {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
+}
+
+function matches(query: string, ...parts: (string | null | undefined)[]) {
+  if (!query) return true;
+  const hay = norm(parts.filter(Boolean).join(" "));
+  return query
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((token) => hay.includes(token));
+}
+
 /**
- * Recherche globale (Ctrl/Cmd+K) : élèves, classes, établissements.
+ * Recherche globale (Ctrl/Cmd+K) : élèves, enseignants, classes, établissements.
  */
 export function GlobalSearch() {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const navigate = useNavigate();
   const data = useSchoolData();
   const { isDG, establishmentIds } = useAdminProfile();
@@ -38,6 +57,10 @@ export function GlobalSearch() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  useEffect(() => {
+    if (!open) setQuery("");
+  }, [open]);
 
   const establishments = useMemo(() => {
     const list = data.establishments ?? [];
@@ -57,8 +80,6 @@ export function GlobalSearch() {
     return list.filter((s) => establishmentIds.includes(s.establishment_id));
   }, [data.students, isDG, establishmentIds]);
 
-  // NOTE POUR CLAUDE: enseignants limités au périmètre via leurs affectations
-  // (un enseignant n'a pas d'establishment_id propre, on passe par teacher_assignments).
   const teachers = useMemo(() => {
     const list = data.teachers ?? [];
     if (isDG) return list;
@@ -69,6 +90,41 @@ export function GlobalSearch() {
     );
     return list.filter((t) => visibleTeacherIds.has(t.id));
   }, [data.teachers, data.assignments, isDG, establishmentIds]);
+
+  const q = norm(query.trim());
+
+  const filteredStudents = useMemo(() => {
+    const list = students.filter((s) => {
+      const cls = classes.find((c) => c.id === s.class_id)?.name ?? "";
+      const est = establishments.find((e) => e.id === s.establishment_id)?.name ?? "";
+      return matches(q, s.last_name, s.first_name, cls, est);
+    });
+    return list.slice(0, MAX_PER_GROUP);
+  }, [students, classes, establishments, q]);
+
+  const filteredTeachers = useMemo(() => {
+    const list = teachers.filter((t) => {
+      const estNames = (data.assignments ?? [])
+        .filter((a) => a.teacher_id === t.id)
+        .map((a) => establishments.find((e) => e.id === a.establishment_id)?.name ?? "")
+        .filter(Boolean);
+      return matches(q, t.last_name, t.first_name, t.domain, ...estNames);
+    });
+    return list.slice(0, MAX_PER_GROUP);
+  }, [teachers, data.assignments, establishments, q]);
+
+  const filteredClasses = useMemo(() => {
+    const list = classes.filter((c) => {
+      const est = establishments.find((e) => e.id === c.establishment_id)?.name ?? "";
+      return matches(q, c.name, est);
+    });
+    return list.slice(0, MAX_PER_GROUP);
+  }, [classes, establishments, q]);
+
+  const filteredEstablishments = useMemo(() => {
+    const list = establishments.filter((e) => matches(q, e.name));
+    return list.slice(0, MAX_PER_GROUP);
+  }, [establishments, q]);
 
   const go = (fn: () => void) => {
     setOpen(false);
@@ -81,6 +137,12 @@ export function GlobalSearch() {
     (id && classes.find((c) => c.id === id)?.name) || "";
   const studentCount = (classId: string) =>
     students.filter((s) => s.class_id === classId).length;
+
+  const hasAny =
+    filteredStudents.length > 0 ||
+    filteredTeachers.length > 0 ||
+    filteredClasses.length > 0 ||
+    filteredEstablishments.length > 0;
 
   return (
     <>
@@ -109,21 +171,25 @@ export function GlobalSearch() {
         <Search className="h-4 w-4" />
       </Button>
 
-      {/* NOTE POUR CLAUDE: résultats limités au périmètre de l'utilisateur (filtres ci-dessus) ;
-          chaque élève est sous-titré « classe · établissement ». */}
       <CommandDialog open={open} onOpenChange={setOpen}>
-        <CommandInput placeholder="Rechercher un élève, une classe, un établissement…" />
+        <CommandInput
+          placeholder="Élève, enseignant, classe, établissement…"
+          value={query}
+          onValueChange={setQuery}
+        />
         <CommandList className="max-h-[min(70vh,520px)]">
-          <CommandEmpty>
-            <div className="flex flex-col items-center gap-1 py-6 text-sm text-muted-foreground">
-              <Search className="h-5 w-5 opacity-50" />
-              Aucun résultat dans votre périmètre.
-            </div>
-          </CommandEmpty>
+          {!hasAny && (
+            <CommandEmpty>
+              <div className="flex flex-col items-center gap-1 py-6 text-sm text-muted-foreground">
+                <Search className="h-5 w-5 opacity-50" />
+                Aucun résultat dans votre périmètre.
+              </div>
+            </CommandEmpty>
+          )}
 
-          {students.length > 0 && (
-            <CommandGroup heading={`Élèves · ${students.length}`}>
-              {students.map((s) => {
+          {filteredStudents.length > 0 && (
+            <CommandGroup heading={`Élèves · ${filteredStudents.length}${students.length > MAX_PER_GROUP && !q ? ` / ${students.length}` : ""}`}>
+              {filteredStudents.map((s) => {
                 const cls = className(s.class_id);
                 const est = estName(s.establishment_id);
                 return (
@@ -152,9 +218,9 @@ export function GlobalSearch() {
             </CommandGroup>
           )}
 
-          {teachers.length > 0 && (
-            <CommandGroup heading={`Enseignants · ${teachers.length}`}>
-              {teachers.map((t) => {
+          {filteredTeachers.length > 0 && (
+            <CommandGroup heading={`Enseignants · ${filteredTeachers.length}${teachers.length > MAX_PER_GROUP && !q ? ` / ${teachers.length}` : ""}`}>
+              {filteredTeachers.map((t) => {
                 const estNames = (data.assignments ?? [])
                   .filter((a) => a.teacher_id === t.id)
                   .map((a) => estName(a.establishment_id))
@@ -185,9 +251,9 @@ export function GlobalSearch() {
             </CommandGroup>
           )}
 
-          {classes.length > 0 && (
-            <CommandGroup heading={`Classes · ${classes.length}`}>
-              {classes.map((c) => (
+          {filteredClasses.length > 0 && (
+            <CommandGroup heading={`Classes · ${filteredClasses.length}${classes.length > MAX_PER_GROUP && !q ? ` / ${classes.length}` : ""}`}>
+              {filteredClasses.map((c) => (
                 <CommandItem
                   key={c.id}
                   value={`classe ${c.name} ${estName(c.establishment_id)}`}
@@ -210,9 +276,9 @@ export function GlobalSearch() {
             </CommandGroup>
           )}
 
-          {establishments.length > 0 && (
-            <CommandGroup heading="Établissements">
-              {establishments.map((e) => (
+          {filteredEstablishments.length > 0 && (
+            <CommandGroup heading={`Établissements · ${filteredEstablishments.length}`}>
+              {filteredEstablishments.map((e) => (
                 <CommandItem
                   key={e.id}
                   value={`etab ${e.name}`}
@@ -236,6 +302,9 @@ export function GlobalSearch() {
             </CommandItem>
             <CommandItem className="gap-3" onSelect={() => go(() => navigate({ to: "/eleves" }))}>
               <User className="h-4 w-4" /> Tous les élèves
+            </CommandItem>
+            <CommandItem className="gap-3" onSelect={() => go(() => navigate({ to: "/enseignants" }))}>
+              <Users className="h-4 w-4" /> Tous les enseignants
             </CommandItem>
             <CommandItem className="gap-3" onSelect={() => go(() => navigate({ to: "/etablissements" }))}>
               <Building2 className="h-4 w-4" /> Établissements
