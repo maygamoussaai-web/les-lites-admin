@@ -81,7 +81,7 @@ function scoreMatch(query: string, ...parts: (string | null | undefined)[]): num
 
 /**
  * Recherche globale (Ctrl/Cmd+K) : élèves, enseignants, classes, établissements.
- * Ordre des groupes : établissements → classes → élèves → enseignants.
+ * Ordre des groupes : établissements → classes → enseignants → élèves.
  * Dans chaque groupe, le nom le plus ressemblant est en premier.
  */
 export function GlobalSearch() {
@@ -296,37 +296,6 @@ export function GlobalSearch() {
             </CommandGroup>
           )}
 
-          {filteredStudents.length > 0 && (
-            <CommandGroup heading={`Élèves · ${filteredStudents.length}${students.length > MAX_PER_GROUP && !q ? ` / ${students.length}` : ""}`}>
-              {filteredStudents.map((s) => {
-                const cls = className(s.class_id);
-                const est = estName(s.establishment_id);
-                return (
-                  <CommandItem
-                    key={s.id}
-                    value={`eleve ${s.last_name} ${s.first_name} ${cls} ${est}`}
-                    className="gap-3 rounded-lg py-2"
-                    onSelect={() =>
-                      go(() => navigate({ to: "/eleves/$studentId", params: { studentId: s.id } }))
-                    }
-                  >
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">
-                      {(s.last_name[0] ?? "") + (s.first_name[0] ?? "")}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium text-foreground">
-                        {s.last_name} {s.first_name}
-                      </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {[cls || "Sans classe", est].filter(Boolean).join(" · ")}
-                      </span>
-                    </span>
-                  </CommandItem>
-                );
-              })}
-            </CommandGroup>
-          )}
-
           {filteredTeachers.length > 0 && (
             <CommandGroup heading={`Enseignants · ${filteredTeachers.length}${teachers.length > MAX_PER_GROUP && !q ? ` / ${teachers.length}` : ""}`}>
               {filteredTeachers.map((t) => {
@@ -352,6 +321,37 @@ export function GlobalSearch() {
                       </span>
                       <span className="block truncate text-xs text-muted-foreground">
                         {[t.domain, estNames.join(" · ")].filter(Boolean).join(" · ") || "—"}
+                      </span>
+                    </span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          )}
+
+          {filteredStudents.length > 0 && (
+            <CommandGroup heading={`Élèves · ${filteredStudents.length}${students.length > MAX_PER_GROUP && !q ? ` / ${students.length}` : ""}`}>
+              {filteredStudents.map((s) => {
+                const cls = className(s.class_id);
+                const est = estName(s.establishment_id);
+                return (
+                  <CommandItem
+                    key={s.id}
+                    value={`eleve ${s.last_name} ${s.first_name} ${cls} ${est}`}
+                    className="gap-3 rounded-lg py-2"
+                    onSelect={() =>
+                      go(() => navigate({ to: "/eleves/$studentId", params: { studentId: s.id } }))
+                    }
+                  >
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">
+                      {(s.last_name[0] ?? "") + (s.first_name[0] ?? "")}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-foreground">
+                        {s.last_name} {s.first_name}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {[cls || "Sans classe", est].filter(Boolean).join(" · ")}
                       </span>
                     </span>
                   </CommandItem>
