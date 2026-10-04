@@ -4,6 +4,7 @@
  * Conversation en localStorage par userId.
  */
 import { supabase } from "@/integrations/supabase/client";
+import { ASSISTANT_PROTOCOL } from "@/lib/assistant-protocol";
 
 export type AssistantMessage = {
   id: string;
@@ -158,12 +159,19 @@ export async function askAssistant(
     const { data, error } = await supabase.functions.invoke("ai-assistant", {
       body: {
         message: trimmed,
-        history: history.slice(-20).map((h) => ({
-          role: h.role,
-          content: h.content.slice(0, 2000),
-        })),
+        // NOTE POUR CLAUDE: protocole + doc injectés en tête (voir assistant-protocol.ts).
+        history: [
+          ...ASSISTANT_PROTOCOL.flatMap((content) => [
+            { role: "user" as const, content: content.slice(0, 2000) },
+            { role: "assistant" as const, content: "Compris." },
+          ]),
+          ...history.slice(-(20 - ASSISTANT_PROTOCOL.length * 2)).map((h) => ({
+            role: h.role,
+            content: h.content.slice(0, 2000),
+          })),
+        ],
       },
-      signal,
+      ...(signal ? { signal } : {}),
     });
 
     if (signal?.aborted) {

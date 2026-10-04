@@ -64,6 +64,10 @@ export function GlobalSearch() {
 
   const estName = (id: string) =>
     establishments.find((e) => e.id === id)?.name ?? "";
+  const className = (id: string | null) =>
+    (id && classes.find((c) => c.id === id)?.name) || "";
+  const studentCount = (classId: string) =>
+    students.filter((s) => s.class_id === classId).length;
 
   return (
     <>
@@ -92,72 +96,67 @@ export function GlobalSearch() {
         <Search className="h-4 w-4" />
       </Button>
 
+      {/* NOTE POUR CLAUDE: résultats limités au périmètre de l'utilisateur (filtres ci-dessus) ;
+          chaque élève est sous-titré « classe · établissement ». */}
       <CommandDialog open={open} onOpenChange={setOpen}>
-        <CommandInput placeholder="Élève, classe, établissement…" />
-        <CommandList>
-          <CommandEmpty>Aucun résultat.</CommandEmpty>
+        <CommandInput placeholder="Rechercher un élève, une classe, un établissement…" />
+        <CommandList className="max-h-[min(70vh,520px)]">
+          <CommandEmpty>
+            <div className="flex flex-col items-center gap-1 py-6 text-sm text-muted-foreground">
+              <Search className="h-5 w-5 opacity-50" />
+              Aucun résultat dans votre périmètre.
+            </div>
+          </CommandEmpty>
 
-          <CommandGroup heading="Pages">
-            <CommandItem
-              onSelect={() => go(() => navigate({ to: "/tableau-de-bord" }))}
-            >
-              <Users className="mr-2 h-4 w-4" />
-              Tableau de bord
-            </CommandItem>
-            <CommandItem onSelect={() => go(() => navigate({ to: "/eleves" }))}>
-              <User className="mr-2 h-4 w-4" />
-              Tous les élèves
-            </CommandItem>
-            <CommandItem
-              onSelect={() => go(() => navigate({ to: "/etablissements" }))}
-            >
-              <Building2 className="mr-2 h-4 w-4" />
-              Établissements
-            </CommandItem>
-          </CommandGroup>
-
-          {establishments.length > 0 && (
-            <CommandGroup heading="Établissements">
-              {establishments.slice(0, 20).map((e) => (
-                <CommandItem
-                  key={e.id}
-                  value={`etab ${e.name}`}
-                  onSelect={() =>
-                    go(() =>
-                      navigate({
-                        to: "/etablissements/$id",
-                        params: { id: e.id },
-                      }),
-                    )
-                  }
-                >
-                  <Building2 className="mr-2 h-4 w-4 shrink-0" />
-                  <span className="truncate">{e.name}</span>
-                </CommandItem>
-              ))}
+          {students.length > 0 && (
+            <CommandGroup heading={`Élèves · ${students.length}`}>
+              {students.map((s) => {
+                const cls = className(s.class_id);
+                const est = estName(s.establishment_id);
+                return (
+                  <CommandItem
+                    key={s.id}
+                    value={`eleve ${s.last_name} ${s.first_name} ${cls} ${est}`}
+                    className="gap-3 rounded-lg py-2"
+                    onSelect={() =>
+                      go(() => navigate({ to: "/eleves/$studentId", params: { studentId: s.id } }))
+                    }
+                  >
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">
+                      {(s.last_name[0] ?? "") + (s.first_name[0] ?? "")}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-foreground">
+                        {s.last_name} {s.first_name}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {[cls || "Sans classe", est].filter(Boolean).join(" · ")}
+                      </span>
+                    </span>
+                  </CommandItem>
+                );
+              })}
             </CommandGroup>
           )}
 
           {classes.length > 0 && (
-            <CommandGroup heading="Classes">
-              {classes.slice(0, 40).map((c) => (
+            <CommandGroup heading={`Classes · ${classes.length}`}>
+              {classes.map((c) => (
                 <CommandItem
                   key={c.id}
                   value={`classe ${c.name} ${estName(c.establishment_id)}`}
+                  className="gap-3 rounded-lg py-2"
                   onSelect={() =>
-                    go(() =>
-                      navigate({
-                        to: "/classes/$classId",
-                        params: { classId: c.id },
-                      }),
-                    )
+                    go(() => navigate({ to: "/classes/$classId", params: { classId: c.id } }))
                   }
                 >
-                  <GraduationCap className="mr-2 h-4 w-4 shrink-0" />
-                  <span className="min-w-0 truncate">
-                    {c.name}
-                    <span className="ml-1.5 text-xs text-muted-foreground">
-                      {estName(c.establishment_id)}
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-accent/40 text-foreground">
+                    <GraduationCap className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">{c.name}</span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {estName(c.establishment_id)} · {studentCount(c.id)} élève(s)
                     </span>
                   </span>
                 </CommandItem>
@@ -165,30 +164,42 @@ export function GlobalSearch() {
             </CommandGroup>
           )}
 
-          {students.length > 0 && (
-            <CommandGroup heading="Élèves">
-              {students.slice(0, 50).map((s) => (
+          {establishments.length > 0 && (
+            <CommandGroup heading="Établissements">
+              {establishments.map((e) => (
                 <CommandItem
-                  key={s.id}
-                  value={`eleve ${s.last_name} ${s.first_name}`}
+                  key={e.id}
+                  value={`etab ${e.name}`}
+                  className="gap-3 rounded-lg py-2"
                   onSelect={() =>
-                    go(() =>
-                      navigate({
-                        to: "/eleves/$studentId",
-                        params: { studentId: s.id },
-                      }),
-                    )
+                    go(() => navigate({ to: "/etablissements/$id", params: { id: e.id } }))
                   }
                 >
-                  <User className="mr-2 h-4 w-4 shrink-0" />
-                  <span className="truncate">
-                    {s.last_name} {s.first_name}
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted">
+                    <Building2 className="h-4 w-4" />
                   </span>
+                  <span className="truncate text-sm font-medium">{e.name}</span>
                 </CommandItem>
               ))}
             </CommandGroup>
           )}
+
+          <CommandGroup heading="Accès rapide">
+            <CommandItem className="gap-3" onSelect={() => go(() => navigate({ to: "/tableau-de-bord" }))}>
+              <Users className="h-4 w-4" /> Tableau de bord
+            </CommandItem>
+            <CommandItem className="gap-3" onSelect={() => go(() => navigate({ to: "/eleves" }))}>
+              <User className="h-4 w-4" /> Tous les élèves
+            </CommandItem>
+            <CommandItem className="gap-3" onSelect={() => go(() => navigate({ to: "/etablissements" }))}>
+              <Building2 className="h-4 w-4" /> Établissements
+            </CommandItem>
+          </CommandGroup>
         </CommandList>
+        <div className="flex items-center justify-between border-t border-border/60 px-3 py-2 text-[11px] text-muted-foreground">
+          <span>↑↓ naviguer · Entrée ouvrir · Échap fermer</span>
+          <span>{isDG ? "Tout le complexe" : "Votre périmètre"}</span>
+        </div>
       </CommandDialog>
     </>
   );

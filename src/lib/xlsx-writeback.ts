@@ -340,7 +340,7 @@ export function writeFilledWorkbook(
     }
     ws[address] = next;
   }
-  wb.Workbook = { ...(wb.Workbook ?? {}), CalcPr: { ...((wb.Workbook as { CalcPr?: object })?.CalcPr ?? {}), fullCalcOnLoad: "1" } } as XLSX.WorkBook["Workbook"];
+  wb.Workbook = { ...(wb.Workbook ?? {}), CalcPr: { fullCalcOnLoad: "1" } } as unknown as NonNullable<XLSX.WorkBook["Workbook"]>;
 
   const readNumericNear = (address: string): number | null => {
     const direct = fromScale(values[address] ?? (ws[address] as XLSX.CellObject | undefined)?.v, data.scale);

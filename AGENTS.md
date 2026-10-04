@@ -46,3 +46,7 @@
 - Prétendre qu’une génération a réussi sans fichier en bibliothèque
 
 - Assistant IA : Edge Function Supabase ai-assistant (Gemini, secrets GEMINI_API_KEY + GEMINI_MODEL) appelée par src/lib/ai-assistant.ts ; le modèle se règle via GEMINI_MODEL pour suivre les retraits de modèles Google sans redéployer.
+
+- Bulletins Excel : les cellules à formule du modèle sont conservées (f + valeur calculée), seules les cellules d'entrée/balises sont écrites ; statistiques multi-périodes via balises indexées [mg:N], [rang:N], [premier:N], [dernier:N], [moy_classe:N], [effectif:N] (FillData.periodStats). Pourquoi : fidélité totale au modèle fourni par l'école.
+- Protocole/documentation de l'assistant IA : src/lib/assistant-protocol.ts, injecté en tête d'historique côté client. Pourquoi : le code de l'Edge Function déployée n'est pas modifiable depuis ce dépôt.
+- Élève ou classe archivé(e) = lecture seule partout dans l'UI. Pourquoi : les archives doivent rester figées.
