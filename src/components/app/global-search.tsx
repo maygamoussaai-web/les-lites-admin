@@ -57,6 +57,19 @@ export function GlobalSearch() {
     return list.filter((s) => establishmentIds.includes(s.establishment_id));
   }, [data.students, isDG, establishmentIds]);
 
+  // NOTE POUR CLAUDE: enseignants limités au périmètre via leurs affectations
+  // (un enseignant n'a pas d'establishment_id propre, on passe par teacher_assignments).
+  const teachers = useMemo(() => {
+    const list = data.teachers ?? [];
+    if (isDG) return list;
+    const visibleTeacherIds = new Set(
+      (data.assignments ?? [])
+        .filter((a) => establishmentIds.includes(a.establishment_id))
+        .map((a) => a.teacher_id),
+    );
+    return list.filter((t) => visibleTeacherIds.has(t.id));
+  }, [data.teachers, data.assignments, isDG, establishmentIds]);
+
   const go = (fn: () => void) => {
     setOpen(false);
     fn();
@@ -131,6 +144,39 @@ export function GlobalSearch() {
                       </span>
                       <span className="block truncate text-xs text-muted-foreground">
                         {[cls || "Sans classe", est].filter(Boolean).join(" · ")}
+                      </span>
+                    </span>
+                  </CommandItem>
+                );
+              })}
+            </CommandGroup>
+          )}
+
+          {teachers.length > 0 && (
+            <CommandGroup heading={`Enseignants · ${teachers.length}`}>
+              {teachers.map((t) => {
+                const estNames = (data.assignments ?? [])
+                  .filter((a) => a.teacher_id === t.id)
+                  .map((a) => estName(a.establishment_id))
+                  .filter(Boolean);
+                return (
+                  <CommandItem
+                    key={t.id}
+                    value={`enseignant ${t.last_name} ${t.first_name} ${t.domain ?? ""} ${estNames.join(" ")}`}
+                    className="gap-3 rounded-lg py-2"
+                    onSelect={() =>
+                      go(() => navigate({ to: "/enseignants/$teacherId", params: { teacherId: t.id } }))
+                    }
+                  >
+                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent/40 text-[11px] font-semibold text-foreground">
+                      {(t.last_name[0] ?? "") + (t.first_name[0] ?? "")}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-foreground">
+                        {t.last_name} {t.first_name}
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">
+                        {[t.domain, estNames.join(" · ")].filter(Boolean).join(" · ") || "—"}
                       </span>
                     </span>
                   </CommandItem>
