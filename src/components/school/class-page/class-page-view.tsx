@@ -22,6 +22,7 @@ import { ClassActionsMenu } from "@/components/school/class-actions-menu";
 import { BulletinWalkthroughDialog, AnnualBulletinDialog } from "@/components/school/bulletin-helpers";
 import { StudentGroupCard, ClassReportsSection } from "@/components/school/class-results-helpers";
 import { PeriodComparisonChart } from "@/components/school/period-comparison-chart";
+import { GradesIntegrityCard } from "@/components/school/grades-integrity-card";
 import { formatDateTime } from "@/lib/format";
 import { PASS_THRESHOLD, EXCELLENT_THRESHOLD } from "@/lib/grades";
 import { describeError } from "@/lib/errors";
@@ -329,6 +330,17 @@ export function ClassPageView(m: ClassPageModel) {
           }
         />
       </div>
+
+      {!isClassArchived && currentPeriod && (
+        <GradesIntegrityCard
+          students={classStudents}
+          subjects={subjectsQuery.data ?? []}
+          grades={gradesForPeriod}
+          natures={activeTemplate?.gradeNatures ?? ["evaluation", "composition"]}
+          natureLabels={activeTemplate?.natureLabels ?? { evaluation: "Note d'évaluation", composition: "Note de composition" }}
+          periodLabel={periodLabelText}
+        />
+      )}
 
       {!isClassArchived && (
         <ReportTemplateManager
