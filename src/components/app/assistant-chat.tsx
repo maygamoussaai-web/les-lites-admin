@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAdminProfile } from "@/hooks/use-auth";
 import {
   askAssistant, clearAssistantMessages, createMessage, formatMessageTime,
-  loadAssistantMessages, saveAssistantMessages, type AssistantMessage,
+  loadOlderAssistantMessages, loadRecentAssistantMessages, saveAssistantMessages, type AssistantMessage,
 } from "@/lib/ai-assistant";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
@@ -207,8 +207,12 @@ export function AssistantChat({ className }: Props) {
   const [editDraft, setEditDraft] = useState("");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const [hasOlder, setHasOlder] = useState(false);
+  const stickRef = useRef(true);
 
   const qc = useQueryClient();
   // NOTE POUR CLAUDE: après une écriture de l'IA, les écrans se rafraîchissent.
@@ -216,12 +220,35 @@ export function AssistantChat({ className }: Props) {
 
   useEffect(() => {
     if (!userId) return;
-    setMessages(loadAssistantMessages(userId));
+    let cancelled = false;
+    void loadRecentAssistantMessages(userId).then((page) => {
+      if (cancelled) return;
+      setMessages(page.messages);
+      setHasOlder(page.hasOlder);
+    });
+    return () => { cancelled = true; };
   }, [userId]);
 
   useEffect(() => {
+    if (!stickRef.current) return;
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, sending]);
+
+  const onScroll = async () => {
+    const el = scrollerRef.current;
+    if (!el || loadingOlder || !hasOlder || !userId || messages.length === 0) return;
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (el.scrollTop > 48) return;
+    setLoadingOlder(true);
+    const prevHeight = el.scrollHeight;
+    const page = await loadOlderAssistantMessages(userId, messages[0]!.at);
+    setMessages((cur) => [...page.messages, ...cur]);
+    setHasOlder(page.hasOlder);
+    setLoadingOlder(false);
+    requestAnimationFrame(() => {
+      if (scrollerRef.current) scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight - prevHeight;
+    });
+  };
 
   const persist = useCallback(
     (next: AssistantMessage[]) => {
@@ -340,8 +367,9 @@ export function AssistantChat({ className }: Props) {
 
   return (
     <div className={cn("flex h-full min-h-0 flex-col bg-background", className)}>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollerRef} onScroll={() => void onScroll()} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-2xl space-y-6 px-3 py-5 sm:max-w-3xl sm:px-5 sm:py-7">
+          {loadingOlder && <p className="text-center text-xs text-muted-foreground">Chargement…</p>}
           {messages.length === 0 && !sending && (
             <div className="flex flex-col items-center justify-center gap-7 py-12 sm:py-20">
               <div className="max-w-md text-center">
