@@ -387,6 +387,7 @@ export function ClassPageView(m: ClassPageModel) {
         open={annualOpen}
         onClose={() => setAnnualOpen(false)}
         klass={klass}
+        establishmentName={establishment?.name ?? ""}
         students={classStudents}
         periods={periodsQuery.data ?? []}
         subjects={subjectsQuery.data ?? []}

@@ -224,8 +224,8 @@ export function ClassReportsSection({ classId }: { classId: string }) {
                 return (
                   <li key={r.id} className="flex items-center justify-between gap-2 px-3 py-2">
                     <div className="min-w-0">
-                      <p className="font-medium truncate">{r.title ?? `Rapport P${period?.period_number ?? "?"}`}</p>
-                      <p className="text-[11px] text-muted-foreground">{formatDateTime(r.created_at)}</p>
+                      <p className="font-medium truncate">{`Rapport P${period?.period_number ?? "?"}`}</p>
+                      <p className="text-[11px] text-muted-foreground">{formatDateTime(r.generated_at)}</p>
                     </div>
                     <div className="flex shrink-0 gap-1">
                       <Button

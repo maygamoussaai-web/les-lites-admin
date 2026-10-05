@@ -84,7 +84,7 @@ export function PeriodComparisonChart({
       .filter((p) => p.moyenne !== null);
     let delta: number | null = null;
     if (pts.length >= 2) {
-      delta = (pts[pts.length - 1].moyenne as number) - (pts[pts.length - 2].moyenne as number);
+      delta = (pts[pts.length - 1]!.moyenne as number) - (pts[pts.length - 2]!.moyenne as number);
     }
     return { points: pts, lastDelta: delta, trend: trendOf(delta) };
   }, [periodsQ.data, cardsQ.data, studentId]);
@@ -133,7 +133,7 @@ export function PeriodComparisonChart({
             style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
           >
             {points.map((p, i) => {
-              const prev = i > 0 ? (points[i - 1].moyenne as number) : null;
+              const prev = i > 0 ? (points[i - 1]!.moyenne as number) : null;
               const d = prev === null || p.moyenne === null ? null : (p.moyenne as number) - prev;
               const heightPct = p.moyenne === null ? 0 : Math.max(8, (p.moyenne / maxAvg) * 100);
               return (
