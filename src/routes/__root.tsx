@@ -66,9 +66,9 @@ function ErrorComponent({ error, reset }: ErrorComponentProps) {
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             Un problème est survenu lors du chargement. Réessayez ou revenez à l'accueil.
           </p>
-          {import.meta.env.DEV && error?.message ? (
+          {import.meta.env.DEV && (error as Error)?.message ? (
             <pre className="mt-4 max-h-32 overflow-auto rounded-lg bg-muted p-3 text-left text-xs text-muted-foreground">
-              {error.message}
+              {(error as Error).message}
             </pre>
           ) : null}
           <div className="mt-6 flex flex-wrap gap-2">
