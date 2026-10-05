@@ -23,6 +23,7 @@ export function NetworkBanner() {
       const t = window.setTimeout(() => setShowBackOnline(false), 3500);
       return () => window.clearTimeout(t);
     }
+    return undefined;
   }, [online, wasOffline]);
 
   if (online && !showBackOnline) return null;

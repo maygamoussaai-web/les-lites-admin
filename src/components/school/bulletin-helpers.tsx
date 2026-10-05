@@ -50,7 +50,7 @@ function toBlob(buffer: ArrayBuffer | Uint8Array | number[]): Blob {
   else if (Array.isArray(buffer)) bytes = new Uint8Array(buffer);
   else throw new Error("Buffer Excel invalide");
   if (!bytes.byteLength) throw new Error("Fichier bulletin vide — génération Excel a échoué.");
-  return new Blob([bytes], { type: XLSX_MIME });
+  return new Blob([bytes as BlobPart], { type: XLSX_MIME });
 }
 
 export function BulletinWalkthroughDialog({
@@ -178,7 +178,7 @@ export function BulletinWalkthroughDialog({
           studentFirstName: student.first_name,
           studentLastName: student.last_name,
           periodNumber: periodSnap.period_number,
-          periodName: periodSnap.name ?? null,
+          periodName: `Période ${periodSnap.period_number}`,
           subjects: subjectsSnap,
           grades: gradesSnap,
           studentId: student.id,
@@ -215,7 +215,7 @@ export function BulletinWalkthroughDialog({
             studentFirstName: student.first_name,
             studentLastName: student.last_name,
             periodNumber: periodSnap.period_number,
-            periodName: periodSnap.name ?? null,
+            periodName: `Période ${periodSnap.period_number}`,
             subjects: subjectsSnap,
             grades: gradesSnap,
             studentId: student.id,
@@ -244,7 +244,7 @@ export function BulletinWalkthroughDialog({
               ? `${uploaded.bucket}:${uploaded.path}`
               : uploaded.path;
 
-          const docName = `Bulletin ${periodSnap.name?.trim() || `période ${periodSnap.period_number}`}`;
+          const docName = `Bulletin ${`période ${periodSnap.period_number}`}`;
           const { data: docRow, error: docErr } = await supabase
             .from("student_documents")
             .insert({

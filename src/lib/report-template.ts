@@ -72,6 +72,8 @@ export function evaluationSlotCount(mapping: TemplateMapping | null | undefined)
   return Math.max(1, Object.values(mapping.columns).filter((r) => r === "evaluation").length);
 }
 
+type TemplateRow = { name: string; file_path: string; mapping: unknown; scale: number; kind?: string };
+
 export type ActiveTemplate = {
   name: string;
   scale: number;
@@ -101,8 +103,7 @@ export async function downloadActiveTemplateBuffer(
   classId: string,
   kind: TemplateKind = "period",
 ): Promise<{ buffer: ArrayBuffer; mapping: TemplateMapping; scale: number; name: string } | null> {
-  let rows: { name: string; file_path: string; mapping: unknown; scale: number; kind?: string }[] | null =
-    null;
+  let rows: TemplateRow[] | null = null;
 
   {
     const res = await supabase
@@ -120,16 +121,16 @@ export async function downloadActiveTemplateBuffer(
         .eq("is_active", true)
         .order("created_at", { ascending: false });
       if (fallback.error) return null;
-      rows = fallback.data as typeof rows;
+      rows = fallback.data as unknown as TemplateRow[];
       if (kind !== "period") return null;
     } else if (res.error) {
       return null;
     } else {
-      rows = res.data as typeof rows;
+      rows = res.data as unknown as TemplateRow[];
     }
   }
 
-  const tpl =
+  const tpl: TemplateRow | null | undefined =
     (rows ?? []).find((r) => (r.kind ?? "period") === kind) ??
     (kind === "period" ? (rows ?? [])[0] : null);
   if (!tpl?.file_path) return null;
@@ -160,13 +161,7 @@ export function useActiveReportTemplate(classId: string | null, kind: TemplateKi
     queryFn: async () => {
       if (!classId) return null;
 
-      let rows: {
-        name: string;
-        file_path: string;
-        mapping: unknown;
-        scale: number;
-        kind?: string;
-      }[] | null = null;
+      let rows: TemplateRow[] | null = null;
 
       const res = await supabase
         .from("report_templates")
@@ -183,15 +178,15 @@ export function useActiveReportTemplate(classId: string | null, kind: TemplateKi
           .eq("is_active", true)
           .order("created_at", { ascending: false });
         if (fallback.error) throw fallback.error;
-        rows = fallback.data as typeof rows;
+        rows = fallback.data as unknown as TemplateRow[];
         if (kind !== "period") return null;
       } else if (res.error) {
         throw res.error;
       } else {
-        rows = res.data as typeof rows;
+        rows = res.data as unknown as TemplateRow[];
       }
 
-      const tpl =
+      const tpl: TemplateRow | null | undefined =
         (rows ?? []).find((r) => (r.kind ?? "period") === kind) ??
         (kind === "period" ? (rows ?? [])[0] : null);
       if (!tpl?.file_path) return null;
@@ -202,7 +197,8 @@ export function useActiveReportTemplate(classId: string | null, kind: TemplateKi
       if (dlErr || !blob) throw dlErr ?? new Error("Fichier modèle introuvable");
 
       const buffer = await blob.arrayBuffer();
-      const { sheet } = readTemplate(buffer);
+      // NOTE POUR CLAUDE: readTemplate renvoie directement la feuille (pas { sheet }).
+      const sheet = readTemplate(buffer);
       const mapping = (tpl.mapping as TemplateMapping) ?? null;
       if (!mapping) return null;
 
