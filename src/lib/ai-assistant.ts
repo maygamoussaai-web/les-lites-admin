@@ -104,6 +104,10 @@ function mapError(rawMsg: string, parsed: { code: string; message: string } | nu
   if (parsed) return { code: parsed.code, message: parsed.message };
   const lower = (rawMsg || "").toLowerCase();
   if (lower.includes("failed to send") || lower.includes("failed to fetch") || lower.includes("network")) {
+    // NOTE POUR CLAUDE: en ligne = le serveur de l'assistant s'est interrompu (délai/crash), pas la connexion.
+    if (typeof navigator !== "undefined" && navigator.onLine) {
+      return { code: "UPSTREAM", message: "L'assistant ne répond pas (serveur interrompu ou délai dépassé). Réessayez dans un instant." };
+    }
     return { code: "NETWORK", message: "Impossible de joindre l'assistant. Vérifiez votre connexion internet." };
   }
   return { code: "UPSTREAM", message: rawMsg || "Erreur assistant." };
