@@ -1,25 +1,36 @@
-# Edge Function `ai-assistant`
+# Edge Function `ai-assistant` (feature/gemini-assistant)
 
-Assistant admin Les Élites de Gao — **plan de base**.
+Assistant admin Les Élites de Gao — **43 outils**, Gemini Function Calling, confirmation HMAC sécurisée.
 
-## Stack
-- **Gemini** via secret Supabase `GEMINI_API_KEY` (jamais Lovable / GPT / Astra / AI Gateway).
-- Modèles (fallback automatique) : `GEMINI_MODEL` env ou `gemini-2.0-flash-lite` → `gemini-2.0-flash` → `gemini-1.5-flash`.
-- **43 outils** lecture + écriture (RLS via JWT admin).
+## Architecture
+Frontend → `supabase.functions.invoke("ai-assistant")` → Edge → Gemini API → exécuteurs (JWT + has_establishment_access)
 
-## Déploiement
+## Sécurité
+- Auth JWT + admin_profiles.is_active
+- Accès établissement via has_establishment_access (resolvers)
+- WRITE: confirm_token HMAC (user + tool + establishment_id hint + params + nonce)
+  - expire 10 min, one-shot
+  - confirmed=true sans token valide → refusé
+- Secret serveur: CONFIRM_SECRET (recommandé) ou SUPABASE_ANON_KEY
+- Audit: chaque WRITE → audit_logs (échec audit = échec opération)
+
+## 43 outils
+Déclarés dans TOOLS et exécutés dans runTool.
+Non supportés (schéma): schedule, create/revoke invitation.
+
+## Bulletins
+Lecture student_report_cards. generate_class_bulletins oriente vers le moteur UI (aucun recalcul Gemini).
+
+## Modèle
+GEMINI_MODEL puis gemini-2.0-flash-lite → gemini-2.0-flash
+
+## Deploy
 ```bash
-supabase secrets set GEMINI_API_KEY=your_key
-# optionnel :
-# supabase secrets set GEMINI_MODEL=gemini-2.0-flash-lite
+supabase secrets set GEMINI_API_KEY=...
+supabase secrets set CONFIRM_SECRET=$(openssl rand -hex 32)
 supabase functions deploy ai-assistant
 ```
 
-## Confirmation écriture
-1. L'IA décrit l'action et demande « Confirmez par oui ».
-2. L'utilisateur répond « oui » (ou ok / d'accord…).
-3. Le serveur force `confirmed=true` sur les outils d'écriture — **une seule confirmation**.
-
-## Client
-`src/lib/ai-assistant.ts` → `supabase.functions.invoke("ai-assistant")`.
-Aucun chemin Lovable actif.
+## Contrat client (inchangé)
+`{ message, history }` → `{ ok, data: { reply } }` | `{ ok: false, error }`
+Message ≤ 2000 caractères.

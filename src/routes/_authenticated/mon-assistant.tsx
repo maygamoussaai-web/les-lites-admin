@@ -1,9 +1,8 @@
-/**
- * Page Mon assistant — en-tête centré + conversation plein écran.
- * Accès uniquement via le menu latéral (aucun bouton flottant).
- */
 import { createFileRoute } from "@tanstack/react-router";
+import { Bot } from "lucide-react";
+import { PageHeader } from "@/components/app/page-header";
 import { AssistantChat } from "@/components/app/assistant-chat";
+import { useAdminProfile } from "@/hooks/use-auth";
 
 export const Route = createFileRoute("/_authenticated/mon-assistant")({
   head: () => ({
@@ -12,27 +11,35 @@ export const Route = createFileRoute("/_authenticated/mon-assistant")({
       {
         name: "description",
         content:
-          "Assistant administratif : consultation des classes, élèves, enseignants et résultats.",
+          "Assistant scolaire : questions sur les classes, les élèves et les résultats officiels.",
       },
+      { property: "og:title", content: "Mon assistant – Les Élites de Gao" },
     ],
   }),
   component: Page,
 });
 
 function Page() {
+  const { user, loading } = useAdminProfile();
+
   return (
-    <div className="flex h-[calc(100svh-3.5rem)] min-h-0 w-full flex-col overflow-hidden">
-      <header className="shrink-0 border-b border-border/40 bg-background/80 px-4 pb-3 pt-4 text-center backdrop-blur supports-[backdrop-filter]:bg-background/60 sm:px-6 sm:pt-5">
-        <h1 className="font-display text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-          Mon assistant
-        </h1>
-        <p className="mx-auto mt-1 max-w-xl text-sm text-muted-foreground">
-          Consultation et aide à la gestion du complexe scolaire.
-        </p>
-      </header>
-      <div className="flex min-h-0 flex-1 flex-col">
-        <AssistantChat className="min-h-0 flex-1" />
-      </div>
+    <div className="mx-auto flex max-w-3xl flex-col gap-4">
+      <PageHeader
+        title="Mon assistant"
+        description="Posez des questions sur les classes, les élèves et les moyennes officielles (bulletins). Une seule conversation est conservée pour votre compte sur cet appareil."
+        eyebrow={
+          <span className="inline-flex items-center gap-1.5">
+            <Bot className="h-3.5 w-3.5" />
+            Intelligence
+          </span>
+        }
+      />
+
+      {loading || !user?.id ? (
+        <p className="text-sm text-muted-foreground">Chargement de la session…</p>
+      ) : (
+        <AssistantChat userId={user.id} className="min-h-[calc(100dvh-14rem)]" />
+      )}
     </div>
   );
 }

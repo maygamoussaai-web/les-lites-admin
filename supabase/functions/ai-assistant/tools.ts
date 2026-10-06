@@ -1,2 +1,2 @@
-/** Outils intégrés dans index.ts — ce fichier est un stub pour compatibilité. */
+/** Outils intégrés dans le payload gzip décompressé par index.ts. */
 export {};

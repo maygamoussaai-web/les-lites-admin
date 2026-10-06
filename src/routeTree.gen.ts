@@ -13,12 +13,11 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as ActivationRouteImport } from './routes/activation'
 import { Route as AuthRouteImport } from './routes/auth'
-import { Route as AuthenticatedArchivesRouteImport } from './routes/_authenticated/archives'
 import { Route as AuthenticatedEtablissementsRouteImport } from './routes/_authenticated/etablissements'
 import { Route as AuthenticatedFinanceRouteImport } from './routes/_authenticated/finance'
 import { Route as AuthenticatedHistoriqueRouteImport } from './routes/_authenticated/historique'
-import { Route as AuthenticatedMonAssistantRouteImport } from './routes/_authenticated/mon-assistant'
 import { Route as AuthenticatedMonCompteRouteImport } from './routes/_authenticated/mon-compte'
+import { Route as AuthenticatedMonAssistantRouteImport } from './routes/_authenticated/mon-assistant'
 import { Route as AuthenticatedPersonnelRouteImport } from './routes/_authenticated/personnel'
 import { Route as AuthenticatedTableauDeBordRouteImport } from './routes/_authenticated/tableau-de-bord'
 import { Route as InvitationTokenRouteImport } from './routes/invitation.$token'
@@ -32,7 +31,6 @@ import { Route as AuthenticatedEtablissementsIdRouteImport } from './routes/_aut
 import { Route as AuthenticatedPersonnelIndexRouteImport } from './routes/_authenticated/personnel.index'
 import { Route as AuthenticatedPersonnelIdRouteImport } from './routes/_authenticated/personnel.$id'
 import { Route as AuthenticatedElevesStudentIdIndexRouteImport } from './routes/_authenticated/eleves.$studentId.index'
-import { Route as AuthenticatedElevesStudentIdBibliothequeRouteImport } from './routes/_authenticated/eleves.$studentId.bibliotheque'
 import { Route as AuthenticatedElevesStudentIdIdentiteRouteImport } from './routes/_authenticated/eleves.$studentId.identite'
 import { Route as AuthenticatedElevesStudentIdNotesRouteImport } from './routes/_authenticated/eleves.$studentId.notes'
 import { Route as AuthenticatedElevesStudentIdScolariteRouteImport } from './routes/_authenticated/eleves.$studentId.scolarite'
@@ -56,11 +54,6 @@ const AuthRoute = AuthRouteImport.update({
   path: '/auth',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedArchivesRoute = AuthenticatedArchivesRouteImport.update({
-  id: '/archives',
-  path: '/archives',
-  getParentRoute: () => AuthenticatedRouteRoute,
-} as any)
 const AuthenticatedEtablissementsRoute =
   AuthenticatedEtablissementsRouteImport.update({
     id: '/etablissements',
@@ -77,15 +70,14 @@ const AuthenticatedHistoriqueRoute = AuthenticatedHistoriqueRouteImport.update({
   path: '/historique',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedMonAssistantRoute =
-  AuthenticatedMonAssistantRouteImport.update({
-    id: '/mon-assistant',
-    path: '/mon-assistant',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
 const AuthenticatedMonCompteRoute = AuthenticatedMonCompteRouteImport.update({
   id: '/mon-compte',
   path: '/mon-compte',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedMonAssistantRoute = AuthenticatedMonAssistantRouteImport.update({
+  id: '/mon-assistant',
+  path: '/mon-assistant',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedPersonnelRoute = AuthenticatedPersonnelRouteImport.update({
@@ -164,12 +156,6 @@ const AuthenticatedElevesStudentIdIndexRoute =
     path: '/',
     getParentRoute: () => AuthenticatedElevesStudentIdRoute,
   } as any)
-const AuthenticatedElevesStudentIdBibliothequeRoute =
-  AuthenticatedElevesStudentIdBibliothequeRouteImport.update({
-    id: '/bibliotheque',
-    path: '/bibliotheque',
-    getParentRoute: () => AuthenticatedElevesStudentIdRoute,
-  } as any)
 const AuthenticatedElevesStudentIdIdentiteRoute =
   AuthenticatedElevesStudentIdIdentiteRouteImport.update({
     id: '/identite',
@@ -193,12 +179,11 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/activation': typeof ActivationRoute
   '/auth': typeof AuthRoute
-  '/archives': typeof AuthenticatedArchivesRoute
   '/etablissements': typeof AuthenticatedEtablissementsRouteWithChildren
   '/finance': typeof AuthenticatedFinanceRoute
   '/historique': typeof AuthenticatedHistoriqueRoute
-  '/mon-assistant': typeof AuthenticatedMonAssistantRoute
   '/mon-compte': typeof AuthenticatedMonCompteRoute
+  '/mon-assistant': typeof AuthenticatedMonAssistantRoute
   '/personnel': typeof AuthenticatedPersonnelRouteWithChildren
   '/tableau-de-bord': typeof AuthenticatedTableauDeBordRoute
   '/invitation/$token': typeof InvitationTokenRoute
@@ -211,469 +196,8 @@ export interface FileRoutesByFullPath {
   '/enseignants/': typeof AuthenticatedEnseignantsIndexRoute
   '/etablissements/': typeof AuthenticatedEtablissementsIndexRoute
   '/personnel/': typeof AuthenticatedPersonnelIndexRoute
-  '/eleves/$studentId/bibliotheque': typeof AuthenticatedElevesStudentIdBibliothequeRoute
   '/eleves/$studentId/identite': typeof AuthenticatedElevesStudentIdIdentiteRoute
   '/eleves/$studentId/notes': typeof AuthenticatedElevesStudentIdNotesRoute
   '/eleves/$studentId/scolarite': typeof AuthenticatedElevesStudentIdScolariteRoute
   '/eleves/$studentId/': typeof AuthenticatedElevesStudentIdIndexRoute
-}
-export interface FileRoutesByTo {
-  '/': typeof IndexRoute
-  '/activation': typeof ActivationRoute
-  '/auth': typeof AuthRoute
-  '/archives': typeof AuthenticatedArchivesRoute
-  '/finance': typeof AuthenticatedFinanceRoute
-  '/historique': typeof AuthenticatedHistoriqueRoute
-  '/mon-assistant': typeof AuthenticatedMonAssistantRoute
-  '/mon-compte': typeof AuthenticatedMonCompteRoute
-  '/tableau-de-bord': typeof AuthenticatedTableauDeBordRoute
-  '/invitation/$token': typeof InvitationTokenRoute
-  '/classes/$classId': typeof AuthenticatedClassesClassIdRoute
-  '/enseignants/$teacherId': typeof AuthenticatedEnseignantsTeacherIdRoute
-  '/etablissements/$id': typeof AuthenticatedEtablissementsIdRoute
-  '/personnel/$id': typeof AuthenticatedPersonnelIdRoute
-  '/eleves': typeof AuthenticatedElevesIndexRoute
-  '/enseignants': typeof AuthenticatedEnseignantsIndexRoute
-  '/etablissements': typeof AuthenticatedEtablissementsIndexRoute
-  '/personnel': typeof AuthenticatedPersonnelIndexRoute
-  '/eleves/$studentId/bibliotheque': typeof AuthenticatedElevesStudentIdBibliothequeRoute
-  '/eleves/$studentId/identite': typeof AuthenticatedElevesStudentIdIdentiteRoute
-  '/eleves/$studentId/notes': typeof AuthenticatedElevesStudentIdNotesRoute
-  '/eleves/$studentId/scolarite': typeof AuthenticatedElevesStudentIdScolariteRoute
-  '/eleves/$studentId': typeof AuthenticatedElevesStudentIdIndexRoute
-}
-export interface FileRoutesById {
-  __root__: typeof rootRouteImport
-  '/': typeof IndexRoute
-  '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
-  '/activation': typeof ActivationRoute
-  '/auth': typeof AuthRoute
-  '/_authenticated/archives': typeof AuthenticatedArchivesRoute
-  '/_authenticated/etablissements': typeof AuthenticatedEtablissementsRouteWithChildren
-  '/_authenticated/finance': typeof AuthenticatedFinanceRoute
-  '/_authenticated/historique': typeof AuthenticatedHistoriqueRoute
-  '/_authenticated/mon-assistant': typeof AuthenticatedMonAssistantRoute
-  '/_authenticated/mon-compte': typeof AuthenticatedMonCompteRoute
-  '/_authenticated/personnel': typeof AuthenticatedPersonnelRouteWithChildren
-  '/_authenticated/tableau-de-bord': typeof AuthenticatedTableauDeBordRoute
-  '/invitation/$token': typeof InvitationTokenRoute
-  '/_authenticated/classes/$classId': typeof AuthenticatedClassesClassIdRoute
-  '/_authenticated/eleves/$studentId': typeof AuthenticatedElevesStudentIdRouteWithChildren
-  '/_authenticated/enseignants/$teacherId': typeof AuthenticatedEnseignantsTeacherIdRoute
-  '/_authenticated/etablissements/$id': typeof AuthenticatedEtablissementsIdRoute
-  '/_authenticated/personnel/$id': typeof AuthenticatedPersonnelIdRoute
-  '/_authenticated/eleves/': typeof AuthenticatedElevesIndexRoute
-  '/_authenticated/enseignants/': typeof AuthenticatedEnseignantsIndexRoute
-  '/_authenticated/etablissements/': typeof AuthenticatedEtablissementsIndexRoute
-  '/_authenticated/personnel/': typeof AuthenticatedPersonnelIndexRoute
-  '/_authenticated/eleves/$studentId/bibliotheque': typeof AuthenticatedElevesStudentIdBibliothequeRoute
-  '/_authenticated/eleves/$studentId/identite': typeof AuthenticatedElevesStudentIdIdentiteRoute
-  '/_authenticated/eleves/$studentId/notes': typeof AuthenticatedElevesStudentIdNotesRoute
-  '/_authenticated/eleves/$studentId/scolarite': typeof AuthenticatedElevesStudentIdScolariteRoute
-  '/_authenticated/eleves/$studentId/': typeof AuthenticatedElevesStudentIdIndexRoute
-}
-export interface FileRouteTypes {
-  fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/activation'
-    | '/auth'
-    | '/archives'
-    | '/etablissements'
-    | '/finance'
-    | '/historique'
-    | '/mon-assistant'
-    | '/mon-compte'
-    | '/personnel'
-    | '/tableau-de-bord'
-    | '/invitation/$token'
-    | '/classes/$classId'
-    | '/eleves/$studentId'
-    | '/enseignants/$teacherId'
-    | '/etablissements/$id'
-    | '/personnel/$id'
-    | '/eleves/'
-    | '/enseignants/'
-    | '/etablissements/'
-    | '/personnel/'
-    | '/eleves/$studentId/bibliotheque'
-    | '/eleves/$studentId/identite'
-    | '/eleves/$studentId/notes'
-    | '/eleves/$studentId/scolarite'
-    | '/eleves/$studentId/'
-  fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/'
-    | '/activation'
-    | '/auth'
-    | '/archives'
-    | '/finance'
-    | '/historique'
-    | '/mon-assistant'
-    | '/mon-compte'
-    | '/tableau-de-bord'
-    | '/invitation/$token'
-    | '/classes/$classId'
-    | '/enseignants/$teacherId'
-    | '/etablissements/$id'
-    | '/personnel/$id'
-    | '/eleves'
-    | '/enseignants'
-    | '/etablissements'
-    | '/personnel'
-    | '/eleves/$studentId/bibliotheque'
-    | '/eleves/$studentId/identite'
-    | '/eleves/$studentId/notes'
-    | '/eleves/$studentId/scolarite'
-    | '/eleves/$studentId'
-  id:
-    | '__root__'
-    | '/'
-    | '/_authenticated'
-    | '/activation'
-    | '/auth'
-    | '/_authenticated/archives'
-    | '/_authenticated/etablissements'
-    | '/_authenticated/finance'
-    | '/_authenticated/historique'
-    | '/_authenticated/mon-assistant'
-    | '/_authenticated/mon-compte'
-    | '/_authenticated/personnel'
-    | '/_authenticated/tableau-de-bord'
-    | '/invitation/$token'
-    | '/_authenticated/classes/$classId'
-    | '/_authenticated/eleves/$studentId'
-    | '/_authenticated/enseignants/$teacherId'
-    | '/_authenticated/etablissements/$id'
-    | '/_authenticated/personnel/$id'
-    | '/_authenticated/eleves/'
-    | '/_authenticated/enseignants/'
-    | '/_authenticated/etablissements/'
-    | '/_authenticated/personnel/'
-    | '/_authenticated/eleves/$studentId/bibliotheque'
-    | '/_authenticated/eleves/$studentId/identite'
-    | '/_authenticated/eleves/$studentId/notes'
-    | '/_authenticated/eleves/$studentId/scolarite'
-    | '/_authenticated/eleves/$studentId/'
-  fileRoutesById: FileRoutesById
-}
-export interface RootRouteChildren {
-  IndexRoute: typeof IndexRoute
-  AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
-  ActivationRoute: typeof ActivationRoute
-  AuthRoute: typeof AuthRoute
-  InvitationTokenRoute: typeof InvitationTokenRoute
-}
-
-declare module '@tanstack/react-router' {
-  interface FileRoutesByPath {
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated': {
-      id: '/_authenticated'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof AuthenticatedRouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/activation': {
-      id: '/activation'
-      path: '/activation'
-      fullPath: '/activation'
-      preLoaderRoute: typeof ActivationRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/auth': {
-      id: '/auth'
-      path: '/auth'
-      fullPath: '/auth'
-      preLoaderRoute: typeof AuthRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated/archives': {
-      id: '/_authenticated/archives'
-      path: '/archives'
-      fullPath: '/archives'
-      preLoaderRoute: typeof AuthenticatedArchivesRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/etablissements': {
-      id: '/_authenticated/etablissements'
-      path: '/etablissements'
-      fullPath: '/etablissements'
-      preLoaderRoute: typeof AuthenticatedEtablissementsRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/finance': {
-      id: '/_authenticated/finance'
-      path: '/finance'
-      fullPath: '/finance'
-      preLoaderRoute: typeof AuthenticatedFinanceRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/historique': {
-      id: '/_authenticated/historique'
-      path: '/historique'
-      fullPath: '/historique'
-      preLoaderRoute: typeof AuthenticatedHistoriqueRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/mon-assistant': {
-      id: '/_authenticated/mon-assistant'
-      path: '/mon-assistant'
-      fullPath: '/mon-assistant'
-      preLoaderRoute: typeof AuthenticatedMonAssistantRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/mon-compte': {
-      id: '/_authenticated/mon-compte'
-      path: '/mon-compte'
-      fullPath: '/mon-compte'
-      preLoaderRoute: typeof AuthenticatedMonCompteRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/personnel': {
-      id: '/_authenticated/personnel'
-      path: '/personnel'
-      fullPath: '/personnel'
-      preLoaderRoute: typeof AuthenticatedPersonnelRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/tableau-de-bord': {
-      id: '/_authenticated/tableau-de-bord'
-      path: '/tableau-de-bord'
-      fullPath: '/tableau-de-bord'
-      preLoaderRoute: typeof AuthenticatedTableauDeBordRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/invitation/$token': {
-      id: '/invitation/$token'
-      path: '/invitation/$token'
-      fullPath: '/invitation/$token'
-      preLoaderRoute: typeof InvitationTokenRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated/classes/$classId': {
-      id: '/_authenticated/classes/$classId'
-      path: '/classes/$classId'
-      fullPath: '/classes/$classId'
-      preLoaderRoute: typeof AuthenticatedClassesClassIdRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/eleves/': {
-      id: '/_authenticated/eleves/'
-      path: '/eleves'
-      fullPath: '/eleves/'
-      preLoaderRoute: typeof AuthenticatedElevesIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/eleves/$studentId': {
-      id: '/_authenticated/eleves/$studentId'
-      path: '/eleves/$studentId'
-      fullPath: '/eleves/$studentId'
-      preLoaderRoute: typeof AuthenticatedElevesStudentIdRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/enseignants/': {
-      id: '/_authenticated/enseignants/'
-      path: '/enseignants'
-      fullPath: '/enseignants/'
-      preLoaderRoute: typeof AuthenticatedEnseignantsIndexRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/enseignants/$teacherId': {
-      id: '/_authenticated/enseignants/$teacherId'
-      path: '/enseignants/$teacherId'
-      fullPath: '/enseignants/$teacherId'
-      preLoaderRoute: typeof AuthenticatedEnseignantsTeacherIdRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/_authenticated/etablissements/': {
-      id: '/_authenticated/etablissements/'
-      path: '/'
-      fullPath: '/etablissements/'
-      preLoaderRoute: typeof AuthenticatedEtablissementsIndexRouteImport
-      parentRoute: typeof AuthenticatedEtablissementsRoute
-    }
-    '/_authenticated/etablissements/$id': {
-      id: '/_authenticated/etablissements/$id'
-      path: '/$id'
-      fullPath: '/etablissements/$id'
-      preLoaderRoute: typeof AuthenticatedEtablissementsIdRouteImport
-      parentRoute: typeof AuthenticatedEtablissementsRoute
-    }
-    '/_authenticated/personnel/': {
-      id: '/_authenticated/personnel/'
-      path: '/'
-      fullPath: '/personnel/'
-      preLoaderRoute: typeof AuthenticatedPersonnelIndexRouteImport
-      parentRoute: typeof AuthenticatedPersonnelRoute
-    }
-    '/_authenticated/personnel/$id': {
-      id: '/_authenticated/personnel/$id'
-      path: '/$id'
-      fullPath: '/personnel/$id'
-      preLoaderRoute: typeof AuthenticatedPersonnelIdRouteImport
-      parentRoute: typeof AuthenticatedPersonnelRoute
-    }
-    '/_authenticated/eleves/$studentId/': {
-      id: '/_authenticated/eleves/$studentId/'
-      path: '/'
-      fullPath: '/eleves/$studentId/'
-      preLoaderRoute: typeof AuthenticatedElevesStudentIdIndexRouteImport
-      parentRoute: typeof AuthenticatedElevesStudentIdRoute
-    }
-    '/_authenticated/eleves/$studentId/bibliotheque': {
-      id: '/_authenticated/eleves/$studentId/bibliotheque'
-      path: '/bibliotheque'
-      fullPath: '/eleves/$studentId/bibliotheque'
-      preLoaderRoute: typeof AuthenticatedElevesStudentIdBibliothequeRouteImport
-      parentRoute: typeof AuthenticatedElevesStudentIdRoute
-    }
-    '/_authenticated/eleves/$studentId/identite': {
-      id: '/_authenticated/eleves/$studentId/identite'
-      path: '/identite'
-      fullPath: '/eleves/$studentId/identite'
-      preLoaderRoute: typeof AuthenticatedElevesStudentIdIdentiteRouteImport
-      parentRoute: typeof AuthenticatedElevesStudentIdRoute
-    }
-    '/_authenticated/eleves/$studentId/notes': {
-      id: '/_authenticated/eleves/$studentId/notes'
-      path: '/notes'
-      fullPath: '/eleves/$studentId/notes'
-      preLoaderRoute: typeof AuthenticatedElevesStudentIdNotesRouteImport
-      parentRoute: typeof AuthenticatedElevesStudentIdRoute
-    }
-    '/_authenticated/eleves/$studentId/scolarite': {
-      id: '/_authenticated/eleves/$studentId/scolarite'
-      path: '/scolarite'
-      fullPath: '/eleves/$studentId/scolarite'
-      preLoaderRoute: typeof AuthenticatedElevesStudentIdScolariteRouteImport
-      parentRoute: typeof AuthenticatedElevesStudentIdRoute
-    }
-  }
-}
-
-interface AuthenticatedEtablissementsRouteChildren {
-  AuthenticatedEtablissementsIdRoute: typeof AuthenticatedEtablissementsIdRoute
-  AuthenticatedEtablissementsIndexRoute: typeof AuthenticatedEtablissementsIndexRoute
-}
-
-const AuthenticatedEtablissementsRouteChildren: AuthenticatedEtablissementsRouteChildren =
-  {
-    AuthenticatedEtablissementsIdRoute: AuthenticatedEtablissementsIdRoute,
-    AuthenticatedEtablissementsIndexRoute:
-      AuthenticatedEtablissementsIndexRoute,
-  }
-
-const AuthenticatedEtablissementsRouteWithChildren =
-  AuthenticatedEtablissementsRoute._addFileChildren(
-    AuthenticatedEtablissementsRouteChildren,
-  )
-
-interface AuthenticatedPersonnelRouteChildren {
-  AuthenticatedPersonnelIdRoute: typeof AuthenticatedPersonnelIdRoute
-  AuthenticatedPersonnelIndexRoute: typeof AuthenticatedPersonnelIndexRoute
-}
-
-const AuthenticatedPersonnelRouteChildren: AuthenticatedPersonnelRouteChildren =
-  {
-    AuthenticatedPersonnelIdRoute: AuthenticatedPersonnelIdRoute,
-    AuthenticatedPersonnelIndexRoute: AuthenticatedPersonnelIndexRoute,
-  }
-
-const AuthenticatedPersonnelRouteWithChildren =
-  AuthenticatedPersonnelRoute._addFileChildren(
-    AuthenticatedPersonnelRouteChildren,
-  )
-
-interface AuthenticatedElevesStudentIdRouteChildren {
-  AuthenticatedElevesStudentIdBibliothequeRoute: typeof AuthenticatedElevesStudentIdBibliothequeRoute
-  AuthenticatedElevesStudentIdIdentiteRoute: typeof AuthenticatedElevesStudentIdIdentiteRoute
-  AuthenticatedElevesStudentIdNotesRoute: typeof AuthenticatedElevesStudentIdNotesRoute
-  AuthenticatedElevesStudentIdScolariteRoute: typeof AuthenticatedElevesStudentIdScolariteRoute
-  AuthenticatedElevesStudentIdIndexRoute: typeof AuthenticatedElevesStudentIdIndexRoute
-}
-
-const AuthenticatedElevesStudentIdRouteChildren: AuthenticatedElevesStudentIdRouteChildren =
-  {
-    AuthenticatedElevesStudentIdBibliothequeRoute:
-      AuthenticatedElevesStudentIdBibliothequeRoute,
-    AuthenticatedElevesStudentIdIdentiteRoute:
-      AuthenticatedElevesStudentIdIdentiteRoute,
-    AuthenticatedElevesStudentIdNotesRoute:
-      AuthenticatedElevesStudentIdNotesRoute,
-    AuthenticatedElevesStudentIdScolariteRoute:
-      AuthenticatedElevesStudentIdScolariteRoute,
-    AuthenticatedElevesStudentIdIndexRoute:
-      AuthenticatedElevesStudentIdIndexRoute,
-  }
-
-const AuthenticatedElevesStudentIdRouteWithChildren =
-  AuthenticatedElevesStudentIdRoute._addFileChildren(
-    AuthenticatedElevesStudentIdRouteChildren,
-  )
-
-interface AuthenticatedRouteRouteChildren {
-  AuthenticatedArchivesRoute: typeof AuthenticatedArchivesRoute
-  AuthenticatedEtablissementsRoute: typeof AuthenticatedEtablissementsRouteWithChildren
-  AuthenticatedFinanceRoute: typeof AuthenticatedFinanceRoute
-  AuthenticatedHistoriqueRoute: typeof AuthenticatedHistoriqueRoute
-  AuthenticatedMonAssistantRoute: typeof AuthenticatedMonAssistantRoute
-  AuthenticatedMonCompteRoute: typeof AuthenticatedMonCompteRoute
-  AuthenticatedPersonnelRoute: typeof AuthenticatedPersonnelRouteWithChildren
-  AuthenticatedTableauDeBordRoute: typeof AuthenticatedTableauDeBordRoute
-  AuthenticatedClassesClassIdRoute: typeof AuthenticatedClassesClassIdRoute
-  AuthenticatedElevesStudentIdRoute: typeof AuthenticatedElevesStudentIdRouteWithChildren
-  AuthenticatedEnseignantsTeacherIdRoute: typeof AuthenticatedEnseignantsTeacherIdRoute
-  AuthenticatedElevesIndexRoute: typeof AuthenticatedElevesIndexRoute
-  AuthenticatedEnseignantsIndexRoute: typeof AuthenticatedEnseignantsIndexRoute
-}
-
-const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
-  AuthenticatedArchivesRoute: AuthenticatedArchivesRoute,
-  AuthenticatedEtablissementsRoute:
-    AuthenticatedEtablissementsRouteWithChildren,
-  AuthenticatedFinanceRoute: AuthenticatedFinanceRoute,
-  AuthenticatedHistoriqueRoute: AuthenticatedHistoriqueRoute,
-  AuthenticatedMonAssistantRoute: AuthenticatedMonAssistantRoute,
-  AuthenticatedMonCompteRoute: AuthenticatedMonCompteRoute,
-  AuthenticatedPersonnelRoute: AuthenticatedPersonnelRouteWithChildren,
-  AuthenticatedTableauDeBordRoute: AuthenticatedTableauDeBordRoute,
-  AuthenticatedClassesClassIdRoute: AuthenticatedClassesClassIdRoute,
-  AuthenticatedElevesStudentIdRoute:
-    AuthenticatedElevesStudentIdRouteWithChildren,
-  AuthenticatedEnseignantsTeacherIdRoute:
-    AuthenticatedEnseignantsTeacherIdRoute,
-  AuthenticatedElevesIndexRoute: AuthenticatedElevesIndexRoute,
-  AuthenticatedEnseignantsIndexRoute: AuthenticatedEnseignantsIndexRoute,
-}
-
-const AuthenticatedRouteRouteWithChildren =
-  AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
-
-const rootRouteChildren: RootRouteChildren = {
-  IndexRoute: IndexRoute,
-  AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
-  ActivationRoute: ActivationRoute,
-  AuthRoute: AuthRoute,
-  InvitationTokenRoute: InvitationTokenRoute,
-}
-export const routeTree = rootRouteImport
-  ._addFileChildren(rootRouteChildren)
-  ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
 }

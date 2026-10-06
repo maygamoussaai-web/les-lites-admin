@@ -21,6 +21,7 @@ import { useAdminProfile, useOnlineStatus } from "@/hooks/use-auth";
 import { OfflineSyncIndicator } from "@/components/app/offline-sync-indicator";
 import { NetworkBanner } from "@/components/app/network-banner";
 import { GlobalSearch } from "@/components/app/global-search";
+import { AssistantFab } from "@/components/app/assistant-fab";
 import { initials, roleLabel } from "@/lib/format";
 import { ThemeToggle } from "@/components/app/theme-toggle";
 import { AuroraBackground } from "@/components/app/aurora-background";
@@ -118,6 +119,7 @@ function AuthenticatedLayout() {
           </main>
         </div>
       </div>
+      <AssistantFab />
     </SidebarProvider>
   );
 }
