@@ -170,14 +170,21 @@ export function StudentFichePage() {
 
   return (
     <>
+      {/* NOTE POUR CLAUDE: retour vers la classe de l'élève (repli établissement si pas de classe). */}
       <Button variant="ghost" size="sm" className="-ml-2 w-fit"
         onClick={() =>
           isArchived
             ? navigate({ to: "/archives" })
-            : navigate({ to: "/etablissements/$id", params: { id: student.establishment_id } })
+            : klass
+              ? navigate({ to: "/classes/$classId", params: { classId: klass.id } })
+              : navigate({ to: "/etablissements/$id", params: { id: student.establishment_id } })
         }>
         <ArrowLeft className="mr-1.5 h-4 w-4" />
-        {isArchived ? "Retour aux archives" : `Retour à ${establishment?.name ?? "l'établissement"}`}
+        {isArchived
+          ? "Retour aux archives"
+          : klass
+            ? `Retour à ${klass.name}`
+            : `Retour à ${establishment?.name ?? "l'établissement"}`}
       </Button>
 
       {isArchived && (
@@ -215,7 +222,8 @@ export function StudentFichePage() {
       />
       <div className="flex flex-wrap items-center gap-4 rounded-xl border border-border/70 bg-card p-4">
         <StudentPhoto studentId={student.id} establishmentId={student.establishment_id}
-          photoUrl={student.photo_url ?? null} firstName={student.first_name} lastName={student.last_name} compact />
+          photoUrl={student.photo_url ?? null} firstName={student.first_name} lastName={student.last_name} compact
+          readOnly={isArchived} />
         <div className="min-w-0 flex-1">
           <p className="font-display text-lg font-semibold">{student.last_name} {student.first_name}</p>
           <p className="text-sm text-muted-foreground">

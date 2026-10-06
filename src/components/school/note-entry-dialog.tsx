@@ -49,7 +49,7 @@ function applyOptimisticGrades(
     const byId = new Map((old as { id: string }[]).map((r) => [r.id, r]));
     for (const row of rows) {
       const id = String(row.id);
-      byId.set(id, { ...(byId.get(id) ?? {}), ...row });
+      byId.set(id, { ...(byId.get(id) ?? {}), ...row } as { id: string });
     }
     return Array.from(byId.values());
   });
@@ -244,7 +244,8 @@ export function NoteEntryDialog({
             id: crypto.randomUUID(),
             table: "grades",
             op: "insert",
-            payload: row,
+            rowId: String(row.id),
+            values: row,
             createdAt: Date.now(),
             label: `Note ${labelFor(nature)}`,
           });
@@ -253,7 +254,7 @@ export function NoteEntryDialog({
         toast.message(`${rows.length} note(s) en file hors ligne`);
       }
       onClose();
-      void flushQueue();
+      void flushQueue(qc);
     } catch (e) {
       toast.error(describeError(e, "Impossible d'enregistrer les notes"));
     } finally {

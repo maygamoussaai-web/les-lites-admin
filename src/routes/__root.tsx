@@ -6,6 +6,7 @@ import {
   useRouter,
   HeadContent,
   Scripts,
+  type ErrorComponentProps,
 } from "@tanstack/react-router";
 import { useEffect, type ReactNode } from "react";
 import { AlertCircle, Home, RotateCcw } from "lucide-react";
@@ -45,7 +46,7 @@ function NotFoundComponent() {
   );
 }
 
-function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
+function ErrorComponent({ error, reset }: ErrorComponentProps) {
   const router = useRouter();
   useEffect(() => {
     console.error(error);
@@ -65,9 +66,9 @@ function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
             Un problème est survenu lors du chargement. Réessayez ou revenez à l'accueil.
           </p>
-          {import.meta.env.DEV && error?.message ? (
+          {import.meta.env.DEV && (error as Error)?.message ? (
             <pre className="mt-4 max-h-32 overflow-auto rounded-lg bg-muted p-3 text-left text-xs text-muted-foreground">
-              {error.message}
+              {(error as Error).message}
             </pre>
           ) : null}
           <div className="mt-6 flex flex-wrap gap-2">

@@ -1,5 +1,5 @@
-import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
-import { ArrowLeft, Pencil, ShieldAlert } from "lucide-react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { ArrowLeft, Pencil, ShieldAlert, Archive } from "lucide-react";
 import { useState } from "react";
 import { PageHeader } from "@/components/app/page-header";
 import { EmptyState } from "@/components/app/empty-state";
@@ -25,7 +25,6 @@ export const Route = createFileRoute("/_authenticated/eleves/$studentId/identite
 
 function Page() {
   const { studentId } = Route.useParams();
-  const navigate = useNavigate();
   const { isDG, establishmentIds, establishmentIdsLoading } = useAdminProfile();
   const data = useSchoolData();
   const save = useSaveRow("students", "Élève");
@@ -36,6 +35,7 @@ function Page() {
     data.archivedStudents.find((s) => s.id === studentId) ??
     data.studentsById.get(studentId) ??
     null;
+  const isArchived = !!(student as { archived_at?: string | null } | null)?.archived_at;
   const allowed = student && (isDG || establishmentIds.includes(student.establishment_id));
 
   if (!data.loading && !establishmentIdsLoading && (!student || !allowed)) {
@@ -80,14 +80,26 @@ function Page() {
         </Link>
       </Button>
 
+      {isArchived && (
+        <div
+          role="status"
+          className="mb-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-950 dark:text-amber-100"
+        >
+          <Archive className="mr-1.5 inline h-4 w-4" />
+          <strong>Dossier archivé</strong> — identité en lecture seule. Restaurez l'élève pour modifier.
+        </div>
+      )}
+
       <PageHeader
         eyebrow="Identité et informations"
         title={`${student.last_name} ${student.first_name}`}
         description={`${establishment?.name ?? "—"} · ${klass?.name ?? "Classe non assignée"}`}
         actions={
-          <Button className="press" onClick={() => setEditOpen(true)}>
-            <Pencil className="mr-1.5 h-4 w-4" /> Modifier
-          </Button>
+          isArchived ? undefined : (
+            <Button className="press" onClick={() => setEditOpen(true)}>
+              <Pencil className="mr-1.5 h-4 w-4" /> Modifier
+            </Button>
+          )
         }
       />
 
@@ -102,6 +114,7 @@ function Page() {
             photoUrl={student.photo_url ?? null}
             firstName={student.first_name}
             lastName={student.last_name}
+            readOnly={isArchived}
           />
           <Row label="Sexe" value={student.gender === "F" ? "Féminin" : "Masculin"} />
           <Row label="Date de naissance" value={formatDate(student.date_of_birth)} />
@@ -116,17 +129,19 @@ function Page() {
         </CardContent>
       </Card>
 
-      <RecordDialog
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        title="Modifier l'identité"
-        fields={editFields}
-        initial={student}
-        submitting={save.isPending}
-        onSubmit={(values) =>
-          save.mutate({ id: student.id, values }, { onSuccess: () => setEditOpen(false) })
-        }
-      />
+      {!isArchived && (
+        <RecordDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          title="Modifier l'identité"
+          fields={editFields}
+          initial={student}
+          submitting={save.isPending}
+          onSubmit={(values) =>
+            save.mutate({ id: student.id, values }, { onSuccess: () => setEditOpen(false) })
+          }
+        />
+      )}
     </>
   );
 }

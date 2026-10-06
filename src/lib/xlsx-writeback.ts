@@ -18,6 +18,7 @@ import {
   type FillData,
   type ComputedAverages,
   type FieldRole,
+  type PeriodStat,
 } from "@/lib/xlsx-template";
 
 const toScale = (v: number | null, scale: number) =>
@@ -186,6 +187,42 @@ export function writeFilledWorkbook(
     }
   }
 
+  // NOTE POUR CLAUDE: balises statistiques indexées par période (bulletins annuels
+  // ou tout modèle multi-périodes) : [mg:1], [rang:2], [premier:3], [dernier:1],
+  // [moy_classe:2], [effectif:3] ; suffixe « :annuel » ou sans indice = valeur annuelle/courante.
+  {
+    const STAT_KEYS: Record<string, keyof PeriodStat> = {
+      mg: "generalAverage", moyenne: "generalAverage", "moyenne generale": "generalAverage", moy_gen: "generalAverage",
+      rang: "rank", premier: "firstAverage", "moyenne premier": "firstAverage",
+      dernier: "lastAverage", "moyenne dernier": "lastAverage",
+      moy_classe: "classAverage", "moyenne classe": "classAverage", effectif: "headcount",
+    };
+    const current: PeriodStat = {
+      generalAverage: data.generalAverage, rank: data.rank, firstAverage: data.firstAverage,
+      lastAverage: data.lastAverage, classAverage: data.classAverage ?? null, headcount: data.headcount,
+    };
+    const rangeStat = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
+    for (let r = rangeStat.s.r; r <= rangeStat.e.r; r++) {
+      for (let c = rangeStat.s.c; c <= rangeStat.e.c; c++) {
+        const address = XLSX.utils.encode_cell({ r, c });
+        const cell = ws[address] as XLSX.CellObject | undefined;
+        if (!cell || cell.f || typeof cell.v !== "string") continue;
+        const m = /^\s*[[{]\s*([a-z_ ]+?)\s*(?::\s*(\d+|annuel|annual|an))?\s*[\]}]\s*$/i.exec(cell.v);
+        if (!m) continue;
+        const rawKey = m[1]!.toLowerCase().trim();
+        const key = STAT_KEYS[rawKey] ?? STAT_KEYS[normalize(rawKey)];
+        if (!key) continue;
+        const idx = m[2] && /^\d+$/.test(m[2]) ? Number(m[2]) - 1 : null;
+        // Sans indice, rang/effectif/premier/dernier sont déjà gérés plus haut.
+        if (idx === null && !m[2] && key !== "generalAverage" && key !== "classAverage") continue;
+        const stat = idx === null ? current : data.periodStats?.[idx];
+        const raw = stat ? stat[key] : null;
+        const isCount = key === "rank" || key === "headcount";
+        setInputCell(address, raw == null ? null : isCount ? raw : toScale(raw, data.scale));
+      }
+    }
+  }
+
   const subjectColumn = Object.entries(mapping.columns).find(([, role]) => role === "subject")?.[0];
   const rowSubjectName = new Map<number, string>();
   if (subjectColumn) {
@@ -283,20 +320,18 @@ export function writeFilledWorkbook(
     }
   }
 
-  for (const { address } of formulas) {
+  // NOTE POUR CLAUDE: « Cas A » validé par l'utilisateur — la formule du modèle
+  // est CONSERVÉE dans le .xlsx livré (cell.f) ; on n'y ajoute que la valeur
+  // calculée (cell.v) pour un affichage immédiat. Excel recalcule à l'ouverture.
+  for (const { address, formula } of formulas) {
     const result = values[address];
     const cell = ws[address] as XLSX.CellObject | undefined;
+    const next: XLSX.CellObject = { ...(cell ?? {}), f: formula } as XLSX.CellObject;
+    delete next.w;
     if (result === null || result === undefined) {
-      if (cell) {
-        delete cell.f;
-        delete cell.v;
-        delete cell.w;
-      }
-      continue;
-    }
-    const next: XLSX.CellObject = { ...(cell ?? {}) };
-    delete next.f;
-    if (typeof result === "number") {
+      delete next.v;
+      next.t = "s";
+    } else if (typeof result === "number") {
       next.t = "n";
       next.v = result;
     } else {
@@ -305,6 +340,7 @@ export function writeFilledWorkbook(
     }
     ws[address] = next;
   }
+  wb.Workbook = { ...(wb.Workbook ?? {}), CalcPr: { fullCalcOnLoad: "1" } } as unknown as NonNullable<XLSX.WorkBook["Workbook"]>;
 
   const readNumericNear = (address: string): number | null => {
     const direct = fromScale(values[address] ?? (ws[address] as XLSX.CellObject | undefined)?.v, data.scale);

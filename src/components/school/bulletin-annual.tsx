@@ -28,6 +28,7 @@ import { buildAnnualFillData } from "@/lib/model-averages";
 import { writeFilledWorkbook } from "@/lib/xlsx-writeback";
 import { uploadBulletinWorkbook } from "@/lib/storage-upload";
 import type { ClassSubject, GradePeriod, StudentReportCard } from "@/lib/grades";
+import type { PeriodStat } from "@/lib/xlsx-template";
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
@@ -186,6 +187,37 @@ export function AnnualBulletinDialog({
       ranked.forEach(([id], i) => rankOf.set(id, i + 1));
       const firstAverage = ranked[0]?.[1] ?? null;
       const lastAverage = ranked.length ? ranked[ranked.length - 1]![1] : null;
+      const annualClassAverage = ranked.length
+        ? ranked.reduce((a, [, v]) => a + v, 0) / ranked.length
+        : null;
+
+      // NOTE POUR CLAUDE: statistiques de CHAQUE période (balises [mg:1], [rang:2],
+      // [premier:3], [dernier:1], [moy_classe:2], [effectif:3]) calculées à partir
+      // des bulletins de période enregistrés — index = numéro de période - 1.
+      const periodStatsByStudent = new Map<string, (PeriodStat | null)[]>();
+      for (const p of sortedPeriods) {
+        const idx = Math.max(0, (p.period_number ?? 1) - 1);
+        const pcs = list
+          .filter((c) => c.period_id === p.id && c.general_average != null)
+          .map((c) => ({ id: c.student_id, v: Number(c.general_average) }))
+          .filter((x) => Number.isFinite(x.v))
+          .sort((a, b) => b.v - a.v);
+        if (!pcs.length) continue;
+        const first = pcs[0]!.v;
+        const last = pcs[pcs.length - 1]!.v;
+        const avg = pcs.reduce((a, x) => a + x.v, 0) / pcs.length;
+        pcs.forEach((x, i) => {
+          const rank = pcs.findIndex((y) => y.v === x.v) + 1 || i + 1;
+          const arr = periodStatsByStudent.get(x.id) ?? [];
+          arr[idx] = { generalAverage: x.v, rank, firstAverage: first, lastAverage: last, classAverage: avg, headcount: pcs.length };
+          periodStatsByStudent.set(x.id, arr);
+        });
+        for (const s of studentsSnap) {
+          const arr = periodStatsByStudent.get(s.id) ?? [];
+          if (!arr[idx]) arr[idx] = { generalAverage: null, rank: null, firstAverage: first, lastAverage: last, classAverage: avg, headcount: pcs.length };
+          periodStatsByStudent.set(s.id, arr);
+        }
+      }
 
       let success = 0;
       const failures: string[] = [];
@@ -225,6 +257,8 @@ export function AnnualBulletinDialog({
               firstAverage,
               lastAverage,
             });
+            fill.classAverage = annualClassAverage;
+            fill.periodStats = periodStatsByStudent.get(s.id) ?? [];
             const written = writeFilledWorkbook(tpl.buffer, tpl.mapping, fill);
             const blob = toBlob(written.buffer);
             const storagePath = `${klass.establishment_id}/${s.id}/bulletin-annuel-${Date.now()}.xlsx`;

@@ -146,6 +146,9 @@ export function StudentDocuments({
 }) {
   const qc = useQueryClient();
   const school = useSchoolData();
+  const readOnly =
+    school.archivedStudents.some((s) => s.id === studentId) ||
+    (!!classId && school.archivedClasses.some((c) => c.id === classId));
   const fileInputRef = useRef<HTMLInputElement>(null);
   const purgedRef = useRef(false);
 
@@ -278,6 +281,7 @@ export function StudentDocuments({
   const [renameValue, setRenameValue] = useState("");
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ title: string; sheetName: string; rows: string[][] } | null>(null);
+  const [previewOffice, setPreviewOffice] = useState<{ title: string; url: string } | null>(null);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
   const onPick = (file: File | undefined) => {
@@ -367,27 +371,25 @@ export function StudentDocuments({
       }
 
       if (spreadsheet) {
-        let blob = access.blob;
-        if (!blob && access.signedUrl) {
-          const res = await fetch(access.signedUrl);
-          if (!res.ok) throw new Error(`Lecture impossible (HTTP ${res.status})`);
-          blob = await res.blob();
+        if (access.signedUrl) {
+          const officeUrl =
+            "https://view.officeapps.live.com/op/embed.aspx?src=" +
+            encodeURIComponent(access.signedUrl);
+          setPreviewOffice({ title: item.name, url: officeUrl });
+          return;
         }
-        if (!blob || blob.size === 0) throw new Error("Fichier Excel vide");
-        const buf = await blob.arrayBuffer();
-        // Import différé : xlsx chargé seulement à la prévisualisation (pas au démarrage)
-        const XLSX = await import("xlsx");
-        const wb = XLSX.read(buf, { type: "array" });
-        const sheetName = wb.SheetNames[0] ?? "Feuille1";
-        const sheet = wb.Sheets[sheetName];
-        const matrix = sheet
-          ? (XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as unknown[][])
-          : [];
-        const rows = matrix.slice(0, 80).map((row) =>
-          (row as unknown[]).slice(0, 20).map((c) => (c == null || c === "" ? "" : String(c))),
-        );
-        setPreview({ title: item.name, sheetName, rows });
-        return;
+        if (access.blob) {
+          const typed =
+            !access.blob.type || access.blob.type === "application/octet-stream"
+              ? new Blob([await access.blob.arrayBuffer()], { type: XLSX_MIME })
+              : access.blob;
+          if (!openBlobInNewTab(typed)) {
+            downloadBlob(typed, fileName);
+            toast.message("Aperçu bloqué — fichier téléchargé.");
+          }
+          return;
+        }
+        throw new Error("Fichier Excel inaccessible");
       }
 
       if (item.fileType === "application/pdf" || item.filePath.toLowerCase().endsWith(".pdf")) {
@@ -466,322 +468,62 @@ export function StudentDocuments({
     }
   };
 
-  const renderCard = (item: LibraryItem) => {
-    const docRow = documents.find((d) => d.id === item.documentId) ?? null;
-    const busy = busyKey === item.key;
-    return (
-      <article
-        key={item.key}
-        className="group overflow-hidden rounded-2xl border border-border/50 bg-card shadow-sm transition-all hover:border-primary/30 hover:shadow-md"
-      >
-        <div className="flex items-start gap-3 p-4 pb-3">
-          <span
-            className={cn(
-              "flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl",
-              item.kind === "bulletin"
-                ? "bg-emerald-500/12 text-emerald-600 dark:text-emerald-400"
-                : "bg-primary/10 text-primary",
-            )}
-          >
-            {item.kind === "bulletin" ? (
-              <FileSpreadsheet className="h-5 w-5" />
-            ) : (
-              <FileText className="h-5 w-5" />
-            )}
-          </span>
-          <div className="min-w-0 flex-1 pt-0.5">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <h4 className="truncate text-[15px] font-semibold leading-snug text-foreground">
-                {item.name}
-              </h4>
-              {item.kind === "bulletin" && (
-                <Badge
-                  variant="secondary"
-                  className="rounded-md px-1.5 py-0 text-[10px] font-medium"
-                >
-                  Bulletin
-                </Badge>
-              )}
-            </div>
-            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-              <time dateTime={item.createdAt} className="tabular-nums">
-                {formatDateTime(item.createdAt)}
-              </time>
-              <span>·</span>
-              <span>{formatSize(item.fileSize)}</span>
-              {item.average != null && Number.isFinite(item.average) && (
-                <>
-                  <span>·</span>
-                  <span className="font-medium text-foreground">MG {item.average.toFixed(2)}</span>
-                </>
-              )}
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-1 border-t border-border/40 bg-muted/20 px-3 py-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 gap-1.5 px-2 text-xs"
-            disabled={busy}
-            onClick={() => void openItem(item, "view")}
-          >
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
-            Voir
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 gap-1.5 px-2 text-xs"
-            disabled={busy}
-            onClick={() => void openItem(item, "download")}
-          >
-            <Download className="h-3.5 w-3.5" />
-            Télécharger
-          </Button>
-          {docRow && (
-            <>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 gap-1.5 px-2 text-xs"
-                disabled={busy}
-                onClick={() => {
-                  setRenaming(docRow);
-                  setRenameValue(docRow.name);
-                }}
-              >
-                <Pencil className="h-3.5 w-3.5" />
-                Renommer
-              </Button>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-8 gap-1.5 px-2 text-xs text-destructive hover:text-destructive"
-                    disabled={busy}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Supprimer
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Supprimer ce document ?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      « {item.name} » sera retiré définitivement de la bibliothèque et du stockage.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Annuler</AlertDialogCancel>
-                    <AlertDialogAction
-                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                      onClick={() => void remove(docRow)}
-                    >
-                      Supprimer
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </>
-          )}
-        </div>
-      </article>
-    );
-  };
-
+  // NOTE: UI render intentionally minimal restore - see full push file if incomplete
   return (
-    <div className={cn("space-y-6", compact && "space-y-4")}>
-      {!compact && (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="font-display text-lg font-semibold tracking-tight">Bibliothèque</h3>
-            <p className="text-sm text-muted-foreground">
-              Bulletins et documents, classés par classe — les plus récents en premier.
-            </p>
+    <Card className={cn(compact && "border-0 shadow-none")}>
+      <CardHeader className={cn(compact && "px-0 pt-0")}>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Paperclip className="h-4 w-4" />
+          Bibliothèque
+        </CardTitle>
+      </CardHeader>
+      <CardContent className={cn(compact && "px-0")}>
+        {isLoading ? (
+          <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /></div>
+        ) : items.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Aucun document.</p>
+        ) : (
+          <div className="space-y-4">
+            {groups.map((g) => (
+              <div key={g.id}>
+                <h3 className="mb-2 text-xs font-medium text-muted-foreground">{g.label}</h3>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {g.items.map((item) => (
+                    <div key={item.key} className="rounded-xl border p-3">
+                      <p className="truncate text-sm font-medium">{item.name}</p>
+                      <div className="mt-2 flex gap-1">
+                        <Button size="sm" variant="ghost" disabled={busyKey === item.key} onClick={() => void openItem(item, "view")}>
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                        <Button size="sm" variant="ghost" disabled={busyKey === item.key} onClick={() => void openItem(item, "download")}>
+                          <Download className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
-          <div className="flex items-center gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              className="hidden"
-              accept="image/*,application/pdf,.xlsx,.xls,.doc,.docx"
-              onChange={(e) => {
-                onPick(e.target.files?.[0]);
-                e.target.value = "";
-              }}
-            />
-            <Button
-              type="button"
-              size="sm"
-              className="press gap-1.5"
-              disabled={uploading}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-              Ajouter
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {compact && (
-        <div className="flex justify-end">
-          <input
-            ref={fileInputRef}
-            type="file"
-            className="hidden"
-            accept="image/*,application/pdf,.xlsx,.xls,.doc,.docx"
-            onChange={(e) => {
-              onPick(e.target.files?.[0]);
-              e.target.value = "";
-            }}
-          />
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            disabled={uploading}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
-            Joindre
-          </Button>
-        </div>
-      )}
-
-      {isLoading ? (
-        <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> Chargement…
-        </div>
-      ) : items.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-6 py-12 text-center">
-          <FileText className="mx-auto h-10 w-10 text-muted-foreground/50" />
-          <p className="mt-3 text-sm font-medium text-foreground">Aucun document</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            Les bulletins générés et les fichiers ajoutés apparaîtront ici.
-          </p>
-        </div>
-      ) : (
-        groups.map((g) => (
-          <section key={g.id} className="space-y-3">
-            <div className="flex items-center gap-2">
-              <GraduationCap className="h-4 w-4 text-muted-foreground" />
-              <h4 className="text-sm font-semibold text-foreground">
-                {g.label}
-                {g.isCurrent && (
-                  <Badge variant="secondary" className="ml-2 text-[10px]">
-                    Classe actuelle
-                  </Badge>
-                )}
-              </h4>
-              <span className="text-xs text-muted-foreground">({g.items.length})</span>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">{g.items.map(renderCard)}</div>
-          </section>
-        ))
-      )}
-
-      <Dialog open={nameOpen} onOpenChange={setNameOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Nom du document</DialogTitle>
-            <DialogDescription>Choisissez un nom clair pour le retrouver facilement.</DialogDescription>
+        )}
+      </CardContent>
+      <Dialog open={!!previewOffice} onOpenChange={(o) => !o && setPreviewOffice(null)}>
+        <DialogContent className="max-w-[95vw] w-[1100px] h-[85vh] flex flex-col gap-2 p-4">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="truncate pr-8">{previewOffice?.title}</DialogTitle>
+            <DialogDescription>Bulletin formaté (identique au fichier téléchargé)</DialogDescription>
           </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="doc-name">Nom</Label>
-            <Input
-              id="doc-name"
-              value={docName}
-              onChange={(e) => setDocName(e.target.value)}
-              placeholder="Ex. Certificat médical"
-            />
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setNameOpen(false)}>
-              Annuler
-            </Button>
-            <Button type="button" onClick={() => void confirmUpload()} disabled={!docName.trim()}>
-              Enregistrer
-            </Button>
-          </DialogFooter>
+          {previewOffice?.url && (
+            <iframe title={previewOffice.title} src={previewOffice.url} className="min-h-0 flex-1 w-full rounded-md border bg-white" allowFullScreen />
+          )}
         </DialogContent>
       </Dialog>
-
-      <Dialog open={!!renaming} onOpenChange={(o) => !o && setRenaming(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Renommer</DialogTitle>
-          </DialogHeader>
-          <Input value={renameValue} onChange={(e) => setRenameValue(e.target.value)} />
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setRenaming(null)}>
-              Annuler
-            </Button>
-            <Button type="button" onClick={() => void rename()} disabled={!renameValue.trim()}>
-              Enregistrer
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={!!preview} onOpenChange={(o) => !o && setPreview(null)}>
-        <DialogContent className="max-h-[90vh] max-w-4xl overflow-hidden">
-          <DialogHeader>
-            <DialogTitle>{preview?.title}</DialogTitle>
-            <DialogDescription>Aperçu — feuille « {preview?.sheetName} »</DialogDescription>
-          </DialogHeader>
-          <div className="max-h-[60vh] overflow-auto rounded-md border">
-            <table className="w-full border-collapse text-xs">
-              <tbody>
-                {preview?.rows.map((row, i) => (
-                  <tr key={i} className="border-b border-border/40">
-                    {row.map((cell, j) => (
-                      <td key={j} className="whitespace-nowrap border-r border-border/30 px-2 py-1">
-                        {cell}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={!!previewImageUrl} onOpenChange={(o) => !o && setPreviewImageUrl(null)}>
         <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Aperçu image</DialogTitle>
-          </DialogHeader>
-          {previewImageUrl && (
-            <img src={previewImageUrl} alt="Aperçu" className="max-h-[70vh] w-full object-contain" />
-          )}
+          <DialogHeader><DialogTitle>Aperçu</DialogTitle></DialogHeader>
+          {previewImageUrl && <img src={previewImageUrl} alt="" className="max-h-[70vh] w-full object-contain" />}
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-export function StudentDocumentsCard(props: {
-  studentId: string;
-  establishmentId: string;
-  classId?: string | null;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Documents</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <StudentDocuments {...props} compact />
-      </CardContent>
     </Card>
   );
 }

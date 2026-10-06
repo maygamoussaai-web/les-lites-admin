@@ -1,4 +1,4 @@
-import { createFileRoute, Outlet, redirect, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Outlet, redirect, useNavigate, useRouterState } from "@tanstack/react-router";
 import { LogOut, WifiOff, Wifi } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { AppSidebar } from "@/components/app/app-sidebar";
@@ -25,6 +25,7 @@ import { AssistantFab } from "@/components/app/assistant-fab";
 import { initials, roleLabel } from "@/lib/format";
 import { ThemeToggle } from "@/components/app/theme-toggle";
 import { AuroraBackground } from "@/components/app/aurora-background";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -40,6 +41,9 @@ function AuthenticatedLayout() {
   const { profile } = useAdminProfile();
   const online = useOnlineStatus();
   const navigate = useNavigate();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const isAssistant =
+    pathname === "/mon-assistant" || pathname.startsWith("/mon-assistant/");
 
   const signOut = async () => {
     await supabase.auth.signOut();
@@ -56,7 +60,7 @@ function AuthenticatedLayout() {
           <header className="glass-panel safe-header sticky top-0 z-20 flex h-14 items-center gap-2 border-x-0 border-t-0 px-3 sm:px-4">
             <SidebarTrigger className="shrink-0" />
             <div className="min-w-0 flex-1" />
-            <GlobalSearch />
+            {!isAssistant && <GlobalSearch />}
             <OfflineSyncIndicator />
             <Badge
               variant={online ? "success" : "destructive"}
@@ -104,7 +108,13 @@ function AuthenticatedLayout() {
               </AlertDialogContent>
             </AlertDialog>
           </header>
-          <main className="animate-fade-soft safe-pad mx-auto w-full max-w-7xl flex-1 space-y-5 p-3 sm:space-y-6 sm:p-5 lg:p-6">
+          <main
+            className={cn(
+              isAssistant
+                ? "flex min-h-0 flex-1 flex-col overflow-hidden p-0"
+                : "animate-fade-soft safe-pad mx-auto w-full max-w-7xl flex-1 space-y-5 p-3 sm:space-y-6 sm:p-5 lg:p-6",
+            )}
+          >
             <Outlet />
           </main>
         </div>

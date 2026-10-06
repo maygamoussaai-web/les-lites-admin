@@ -22,6 +22,7 @@ import { ClassActionsMenu } from "@/components/school/class-actions-menu";
 import { BulletinWalkthroughDialog, AnnualBulletinDialog } from "@/components/school/bulletin-helpers";
 import { StudentGroupCard, ClassReportsSection } from "@/components/school/class-results-helpers";
 import { PeriodComparisonChart } from "@/components/school/period-comparison-chart";
+import { GradesIntegrityCard } from "@/components/school/grades-integrity-card";
 import { formatDateTime } from "@/lib/format";
 import { PASS_THRESHOLD, EXCELLENT_THRESHOLD } from "@/lib/grades";
 import { describeError } from "@/lib/errors";
@@ -71,7 +72,7 @@ export function ClassPageView(m: ClassPageModel) {
 
       {!currentPeriod && latestPeriod && !isClassArchived && (
         <div className="mb-4 rounded-xl border border-border/70 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-          Période {latestPeriod.period_number} clôturée. La prochaine période s&apos;ouvrira automatiquement
+          Période {latestPeriod.period_number} clôturée. La prochaine période s'ouvrira automatiquement
           à la <strong className="text-foreground">première note</strong> enregistrée.
         </div>
       )}
@@ -330,6 +331,17 @@ export function ClassPageView(m: ClassPageModel) {
         />
       </div>
 
+      {!isClassArchived && currentPeriod && (
+        <GradesIntegrityCard
+          students={classStudents}
+          subjects={subjectsQuery.data ?? []}
+          grades={gradesForPeriod}
+          natures={activeTemplate?.gradeNatures ?? ["evaluation", "composition"]}
+          natureLabels={activeTemplate?.natureLabels ?? { evaluation: "Note d'évaluation", composition: "Note de composition" }}
+          periodLabel={periodLabelText}
+        />
+      )}
+
       {!isClassArchived && (
         <ReportTemplateManager
           classId={classId}
@@ -366,6 +378,7 @@ export function ClassPageView(m: ClassPageModel) {
         klass={studentsOpen ? klass : null}
         data={data}
         onClose={() => setStudentsOpen(false)}
+        readOnly={isClassArchived}
       />
 
       <BulletinWalkthroughDialog
@@ -386,6 +399,7 @@ export function ClassPageView(m: ClassPageModel) {
         open={annualOpen}
         onClose={() => setAnnualOpen(false)}
         klass={klass}
+        establishmentName={establishment?.name ?? ""}
         students={classStudents}
         periods={periodsQuery.data ?? []}
         subjects={subjectsQuery.data ?? []}
@@ -397,7 +411,7 @@ export function ClassPageView(m: ClassPageModel) {
             <AlertDialogTitle>Clôturer sans tous les bulletins ?</AlertDialogTitle>
             <AlertDialogDescription>
               Des élèves ont des notes sans bulletin généré. Vous pouvez générer les bulletins
-              d&apos;abord, ou forcer la nouvelle période.
+              d'abord, ou forcer la nouvelle période.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

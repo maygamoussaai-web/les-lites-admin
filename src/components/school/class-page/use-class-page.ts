@@ -65,8 +65,8 @@ export function useClassPage() {
   const [studentsOpen, setStudentsOpen] = useState(false);
   const [noteEntryOpen, setNoteEntryOpen] = useState(false);
   const [bulletinsOpen, setBulletinsOpen] = useState(false);
-  const [zipBusy, setZipBusy] = useState(false);
   const [annualOpen, setAnnualOpen] = useState(false);
+  const [zipBusy, setZipBusy] = useState(false);
   const [pendingForcePeriod, setPendingForcePeriod] = useState(false);
   const [stats, setStats] = useState<ClassStats>(EMPTY_STATS);
 
@@ -302,6 +302,8 @@ export function useClassPage() {
   }
 
   return {
+    zipBusy,
+    setZipBusy,
     classId,
     data,
     klass,
@@ -315,8 +317,6 @@ export function useClassPage() {
     setNoteEntryOpen,
     bulletinsOpen,
     setBulletinsOpen,
-    zipBusy,
-    setZipBusy,
     annualOpen,
     setAnnualOpen,
     pendingForcePeriod,

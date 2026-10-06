@@ -163,12 +163,8 @@ export function downloadBlob(blob: Blob, filename: string) {
   }
   a.remove();
 
-  if (isMobileBrowser()) {
-    setTimeout(() => {
-      const w = window.open(url, "_blank");
-      if (!w) window.location.assign(url);
-    }, 80);
-  }
+  // NOTE POUR CLAUDE: ne jamais rediriger la page vers une URL blob: (provoquait la 404
+  // sur Chrome Android, ex. « Tester avec un élève fictif »). Le clic <a download> suffit.
 
   setTimeout(() => URL.revokeObjectURL(url), 90_000);
 }

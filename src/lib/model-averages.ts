@@ -238,3 +238,49 @@ export function buildAnnualFillData(opts: {
     scale,
   };
 }
+
+/**
+ * NOTE POUR CLAUDE: jeu de données fictif pour le bouton « Tester avec un élève fictif »
+ * (import d'un modèle). Notes déterministes : matière 1 = éval 12 / compo 15,
+ * matière 2 = 10 / 8, matière 3 = 14 seule, puis une rotation simple.
+ */
+export function buildSampleFillData(opts: {
+  kind: "period" | "annual";
+  subjectLabels: string[];
+  className: string;
+  scale: number;
+  periods: number;
+}): FillData {
+  const base: [number | null, number | null][] = [[12, 15], [10, 8], [14, null], [11, 13], [16, 12]];
+  const subjects = opts.subjectLabels.map((name, i) => {
+    const [ev, co] = base[i % base.length]!;
+    if (opts.kind === "annual") {
+      const per = Array.from({ length: opts.periods }, (_, p) => 10 + ((i + p * 2) % 7));
+      const avg = per.reduce((a, b) => a + b, 0) / per.length;
+      return { name, composition: avg, evaluations: per, evaluationAverage: avg, average: avg };
+    }
+    return { name, composition: co, evaluations: ev == null ? [] : [ev], evaluationAverage: ev, average: null };
+  });
+  const periodStats = Array.from({ length: opts.periods }, (_, p) => ({
+    generalAverage: 12 + p * 0.5, rank: 3 + p, firstAverage: 17.25, lastAverage: 6.5, classAverage: 11.4, headcount: 42,
+  }));
+  return {
+    establishmentName: "Complexe Scolaire Les Élites de Gao",
+    className: opts.className,
+    periodLabel: opts.kind === "annual" ? "Année scolaire (test)" : "Période 1 (test)",
+    studentName: "TEST Élève fictif",
+    studentFirstName: "Élève fictif",
+    studentLastName: "TEST",
+    subjects,
+    generalAverage: opts.kind === "annual" ? 12.5 : null,
+    firstAverage: 17.25,
+    lastAverage: 6.5,
+    classAverageEvaluation: 11.2,
+    classAverageComposition: 10.8,
+    classAverage: 11.4,
+    headcount: 42,
+    rank: 5,
+    scale: opts.scale,
+    periodStats,
+  };
+}

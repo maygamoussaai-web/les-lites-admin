@@ -505,6 +505,19 @@ export type FillData = {
   headcount: number;
   rank: number | null;
   scale: number;
+  /** Moyenne générale de la classe (balise [moy_classe]). */
+  classAverage?: number | null;
+  /** Statistiques par période (index 0 = période 1) pour [mg:1], [rang:2]… */
+  periodStats?: (PeriodStat | null)[];
+};
+
+export type PeriodStat = {
+  generalAverage: number | null;
+  rank: number | null;
+  firstAverage: number | null;
+  lastAverage: number | null;
+  classAverage: number | null;
+  headcount: number | null;
 };
 
 export type ComputedAverages = {
