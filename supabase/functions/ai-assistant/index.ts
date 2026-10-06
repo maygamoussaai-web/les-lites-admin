@@ -19,6 +19,7 @@ const SYSTEM = `Tu es l'assistant admin professionnel de Les Élites.
 Français, concis, professionnel. Pas de formules vides.
 LECTURE : utilise les outils list_*/get_*/search dès qu'une donnée est demandée.
 ÉCRITURE : confirme toujours avant d'agir (l'utilisateur doit dire oui).
+Cite toujours une classe par son nom, jamais par son identifiant. Pour les effectifs par classe, utilise list_classes (champ eleves_actifs).
 Ne révèle jamais de secrets ni de clés API.`;
 
 type Content = { role: string; parts: { text?: string; functionCall?: { name: string; args: Record<string, unknown> }; functionResponse?: { name: string; response: unknown } }[] };
@@ -51,13 +52,13 @@ async function runTool(sb: SupabaseClient, name: string, args: Record<string, un
       case "get_complex_overview": {
         const [{ count: students }, { count: classes }, { count: teachers }] = await Promise.all([
           sb.from("students").select("id", { count: "exact", head: true }).is("archived_at", null),
-          sb.from("classes").select("id", { count: "exact", head: true }).is("archived_at", null),
+          sb.from("classes").select("id", { count: "exact", head: true }).eq("is_active", true),
           sb.from("teachers").select("id", { count: "exact", head: true }),
         ]);
         return { ok: true, data: { eleves_actifs: students ?? 0, classes_actives: classes ?? 0, enseignants: teachers ?? 0 } };
       }
       case "list_students": {
-        let q = sb.from("students").select("id,first_name,last_name,class_id,archived_at,date_of_birth").order("last_name").limit(Number(args.limit) || 40);
+        let q = sb.from("students").select("id,first_name,last_name,class_id,archived_at,date_of_birth,classes(name)").order("last_name").limit(Number(args.limit) || 500);
         if (args.include_archived !== true) q = q.is("archived_at", null);
         const { data, error } = await q;
         if (error) return { ok: false, error: { code: "DB", message: error.message } };
@@ -67,11 +68,17 @@ async function runTool(sb: SupabaseClient, name: string, args: Record<string, un
         return { ok: true, data: { count: rows.length, students: rows } };
       }
       case "list_classes": {
-        let q = sb.from("classes").select("id,name,level,archived_at").order("name");
-        if (args.include_archived !== true) q = q.is("archived_at", null);
+        // NOTE POUR CLAUDE: la table classes n'a ni level ni archived_at ; archivée = is_active false.
+        let q = sb.from("classes").select("id,name,capacity,is_active,establishments(name)").order("name");
+        if (args.include_archived !== true) q = q.eq("is_active", true);
         const { data, error } = await q;
         if (error) return { ok: false, error: { code: "DB", message: error.message } };
-        return { ok: true, data: { classes: data ?? [] } };
+        const { data: st } = await sb.from("students").select("class_id").is("archived_at", null).limit(5000);
+        const counts = new Map<string, number>();
+        for (const r of st ?? []) if (r.class_id) counts.set(r.class_id, (counts.get(r.class_id) ?? 0) + 1);
+        // deno-lint-ignore no-explicit-any
+        const classes = (data ?? []).map((c: any) => ({ id: c.id, nom: String(c.name).trim(), etablissement: c.establishments?.name ?? null, capacite: c.capacity, archivee: !c.is_active, eleves_actifs: counts.get(c.id) ?? 0 }));
+        return { ok: true, data: { classes } };
       }
       case "list_teachers": {
         const { data, error } = await sb.from("teachers").select("id,first_name,last_name").order("last_name").limit(50);
@@ -87,7 +94,7 @@ async function runTool(sb: SupabaseClient, name: string, args: Record<string, un
         const q = query.toLowerCase();
         const [{ data: st }, { data: cl }, { data: te }] = await Promise.all([
           sb.from("students").select("id,first_name,last_name").is("archived_at", null).limit(30),
-          sb.from("classes").select("id,name").is("archived_at", null).limit(20),
+          sb.from("classes").select("id,name").eq("is_active", true).limit(50),
           sb.from("teachers").select("id,first_name,last_name").limit(20),
         ]);
         return {
@@ -103,20 +110,21 @@ async function runTool(sb: SupabaseClient, name: string, args: Record<string, un
         const className = String(args.class_name || "").trim();
         let classId = String(args.class_id || "").trim();
         if (!classId && className) {
-          const { data } = await sb.from("classes").select("id,name").ilike("name", `%${className}%`).is("archived_at", null).limit(5);
+          const { data } = await sb.from("classes").select("id,name").ilike("name", `%${className}%`).eq("is_active", true).limit(5);
           if (!data?.length) return { ok: false, error: { code: "NOT_FOUND", message: "Classe introuvable" } };
           if (data.length > 1) return { ok: false, error: { code: "AMBIGUOUS", message: "Plusieurs classes", candidates: data } };
           classId = data[0].id;
         }
         if (!classId) return { ok: false, error: { code: "VALIDATION", message: "class_name ou class_id requis" } };
         const { count } = await sb.from("students").select("id", { count: "exact", head: true }).eq("class_id", classId).is("archived_at", null);
-        return { ok: true, data: { class_id: classId, eleves_actifs: count ?? 0 } };
+        const { data: cn } = await sb.from("classes").select("name").eq("id", classId).maybeSingle();
+        return { ok: true, data: { class_id: classId, classe: cn?.name?.trim() ?? null, eleves_actifs: count ?? 0 } };
       }
       case "rank_students": {
         const className = String(args.class_name || "").trim();
         let classId = String(args.class_id || "").trim();
         if (!classId && className) {
-          const { data } = await sb.from("classes").select("id,name").ilike("name", `%${className}%`).is("archived_at", null).limit(5);
+          const { data } = await sb.from("classes").select("id,name").ilike("name", `%${className}%`).eq("is_active", true).limit(5);
           if (!data?.length) return { ok: false, error: { code: "NOT_FOUND", message: "Classe introuvable" } };
           classId = data[0].id;
         }
