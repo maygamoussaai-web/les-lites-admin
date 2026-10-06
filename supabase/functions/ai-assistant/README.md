@@ -1,6 +1,28 @@
-# ai-assistant (Lot1–Lot4)
+# ai-assistant (Lot1–Lot4 + protocole confirmation)
 
 Edge Function Gemini — Les Élites de Gao.
+
+> **Source de vérité en production** : le code collé dans le Dashboard Supabase (pas ce dossier `index.ts` stub).
+> Ne pas déployer automatiquement depuis GitHub sans revue : risque d’écraser la version live.
+
+## Correctif protocole (2026-10-06)
+
+Fichier prêt à coller : `PROTOCOL-FIXED.ts` (dans ce dossier).
+
+### Problème corrigé
+Boucle « Confirmez-vous ? » après un « oui » : le `confirm_token` était perdu entre deux requêtes HTTP.
+
+### Solution
+- Map `pendingByUser` : mémorise tool + args + token après `CONFIRMATION_REQUIRED`
+- Détection d’affirmation (`oui`, `je confirme`, `vas-y`, `ok`…)
+- Exécution directe de l’action au message de confirmation
+- SYSTEM : plan → une seule confirmation → exécution → résumé
+
+### Déploiement manuel (recommandé)
+1. Ouvrir `PROTOCOL-FIXED.ts` sur GitHub
+2. Copier tout le contenu
+3. Supabase → Edge Functions → `ai-assistant` → coller → Deploy
+4. Activer **Verify JWT**
 
 ## Outils (47)
 
@@ -25,7 +47,3 @@ record_tuition_payment, record_teacher_payment
 ## Secrets
 - GEMINI_API_KEY (requis)
 - CONFIRM_SECRET (optionnel)
-
-## Déploiement
-Coller `ai-assistant-LOT4-READY.ts` dans le Dashboard Edge Function puis Deploy.
-Activer **verify_jwt = ON**.
