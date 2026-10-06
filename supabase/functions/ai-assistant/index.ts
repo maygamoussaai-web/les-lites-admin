@@ -9,11 +9,11 @@ const CORS = {
 const jr = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: CORS });
 
-const MODELS = [
-  Deno.env.get("GEMINI_MODEL") || "gemini-2.0-flash-lite",
-  "gemini-2.0-flash-lite",
-  "gemini-2.0-flash",
-];
+const MODELS = [...new Set([
+  Deno.env.get("GEMINI_MODEL") || "gemini-3.5-flash-lite",
+  "gemini-3.5-flash-lite",
+  "gemini-3.8-flash",
+])];
 
 const SYSTEM = `Tu es l'assistant admin professionnel de Les Élites.
 Français, concis, professionnel. Pas de formules vides.
@@ -176,11 +176,12 @@ async function callGemini(key: string, contents: Content[]) {
   return null;
 }
 
-function extract(j: { candidates?: { content?: { parts?: { text?: string; functionCall?: { name: string; args?: Record<string, unknown> } }[] } }[] }) {
+function extract(j: { candidates?: { content?: { parts?: { text?: string; thought?: boolean; functionCall?: { name: string; args?: Record<string, unknown> } }[] } }[] }) {
   const parts = j?.candidates?.[0]?.content?.parts ?? [];
-  const text = parts.map((p) => p.text || "").join("").trim();
+  const text = parts.filter((p) => !p.thought).map((p) => p.text || "").join("").trim();
   const calls = parts.filter((p) => p.functionCall).map((p) => p.functionCall!);
-  return { text, calls };
+  // NOTE POUR CLAUDE: Gemini 3.x exige de renvoyer les parts brutes (avec thoughtSignature) du tour modèle.
+  return { text, calls, rawParts: parts };
 }
 
 Deno.serve(async (req) => {
@@ -232,12 +233,12 @@ Deno.serve(async (req) => {
     for (let round = 0; round < 6; round++) {
       const gj = await callGemini(gkey, contents);
       if (!gj) return jr({ ok: false, error: { code: "UPSTREAM", message: "Erreur IA Gemini." } }, 502);
-      const { text, calls } = extract(gj);
+      const { text, calls, rawParts } = extract(gj);
       if (!calls.length) {
         reply = text || "Sans réponse.";
         break;
       }
-      contents.push({ role: "model", parts: calls.map((c) => ({ functionCall: { name: c.name, args: c.args || {} } })) });
+      contents.push({ role: "model", parts: rawParts as Content["parts"] });
       const frParts: Content["parts"] = [];
       for (const c of calls) {
         const result = await runTool(sb, c.name, c.args || {});
