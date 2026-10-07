@@ -131,7 +131,7 @@ function strengthenAffirmative(message: string, history: { role: "user" | "assis
   const planHint = lastAssistant?.content?.slice(0, 800) ?? "";
   const looksLikePlan =
     /confirmez|plan d['']action|qui\s*:|quoi\s*:|exécut/i.test(planHint) ||
-    /ajouter une séance|emploi du temps|saisie|paiement|archiver|créer/i.test(planHint);
+    /ajouter une séance|emploi du temps|saisie|paiement|archiver|créer|renouv|génération|séance/i.test(planHint);
   if (!looksLikePlan) return message;
   return (
     `${message}\n\n` +
@@ -174,7 +174,7 @@ export async function askAssistant(message: string, history: { role: "user" | "a
     if (data && typeof data === "object" && "ok" in data) return data as AssistantResponse;
     return { ok: false, error: { code: "INTERNAL", message: "Réponse inattendue de l'assistant." } };
   } catch (e) {
-    if (signal?.aborted) return { ok: false, error: { code: "ABORTED", message: "Requête annulée." } };
+    if (signal?.aborted) return { ok: false, error: { code: "ABORTED", message: "Erreur inattendue" } };
     return { ok: false, error: mapError(e instanceof Error ? e.message : "Erreur inattendue", null) };
   }
 }
