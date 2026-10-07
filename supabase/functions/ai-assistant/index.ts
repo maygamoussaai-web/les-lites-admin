@@ -1,13 +1,12 @@
 /**
  * ai-assistant Edge Function — source de vérité = déploiement Supabase Dashboard.
  *
- * PROTOCOLE (v160 / 2026-10-07) :
- * - Lecture → outil immédiat
- * - Écriture → Plan → un seul « oui » → confirmed=true
- * - Token HMAC = userId|tool|exp|nonce (PAS les paramètres métier)
- * - isAffirmative : regarde la 1re ligne seulement (le client ajoute [INSTRUCTION:…] >80 car.)
- * - pendingByUser + allowAffirmThisRequest (cold start)
- * - renew_class = même logique que ⋮ → Renouveler
+ * PROTOCOLE renew_class (2026-10-08) :
+ * - Génération Archives : classe renommée Nom_année, is_active=false (lecture seule)
+ * - Élèves désassignés (class_id null) → liste « Sans classe »
+ * - Scolarités fermées ; période notes clôturée
+ * - Nouvelle classe active vide avec le nom d'origine
+ * - Bibliothèque élève : documents de la génération masqués (visibles via Archives)
  *
  * Déployer le monolithe : artifacts/DEPLOY_AI_ASSISTANT_v151.ts
  */
