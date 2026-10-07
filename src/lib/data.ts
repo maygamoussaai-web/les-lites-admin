@@ -23,8 +23,7 @@ type ListOptions = {
   limit?: number;
   /**
    * Durée (ms) pendant laquelle les données sont considérées fraîches.
-   * Au-delà, un refetch part en arrière-plan ; l'UI reste instantanée grâce à placeholderData, quelle que soit cette
-   * valeur.
+   * Au-delà, un refetch part en arrière-plan ; l'UI reste instantanée grâce à placeholderData.
    */
   staleTime?: number;
 };
@@ -52,11 +51,16 @@ export function useRows<T = any>(table: TableName, options: ListOptions = {}) {
     queryKey: [table, select, order, eq, limit],
     enabled,
     staleTime,
+    networkMode: "offlineFirst",
     refetchOnWindowFocus: true,
     refetchOnMount: isVolatile ? "always" : true,
     refetchOnReconnect: true,
     structuralSharing: true,
     placeholderData: keepPreviousData,
+    retry: (failureCount) => {
+      if (typeof navigator !== "undefined" && !navigator.onLine) return false;
+      return failureCount < 1;
+    },
     queryFn: async () => {
       let q = supabase.from(table).select(select);
       if (eq) {
@@ -92,6 +96,7 @@ function applyOptimistic(qc: QueryClient, table: TableName, updater: (rows: any[
 export function useSaveRow(table: TableName, label = "Enregistrement") {
   const qc = useQueryClient();
   return useMutation({
+    networkMode: "offlineFirst",
     mutationFn: async ({ id, values }: { id?: string | null; values: Record<string, unknown> }) => {
       const rowId = id ?? crypto.randomUUID();
       const op: "insert" | "update" = id ? "update" : "insert";
@@ -117,6 +122,7 @@ export function useSaveRow(table: TableName, label = "Enregistrement") {
 export function useDeleteRow(table: TableName, label = "Élément") {
   const qc = useQueryClient();
   return useMutation({
+    networkMode: "offlineFirst",
     mutationFn: async (rowId: string) => {
       applyOptimistic(qc, table, (rows) => rows.filter((r) => r.id !== rowId));
       enqueue({ id: crypto.randomUUID(), table, op: "delete", rowId, createdAt: Date.now(), label });
@@ -135,6 +141,7 @@ export function useDeleteRow(table: TableName, label = "Élément") {
 export function useArchiveRow(table: TableName, label = "Élément") {
   const qc = useQueryClient();
   return useMutation({
+    networkMode: "offlineFirst",
     mutationFn: async (rowId: string) => {
       applyOptimistic(qc, table, (rows) =>
         rows.map((r) => (r.id === rowId ? { ...r, archived_at: new Date().toISOString() } : r)),

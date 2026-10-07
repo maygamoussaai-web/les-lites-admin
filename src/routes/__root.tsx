@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { attachQueryPersist } from "@/lib/query-persist";
 
 function NotFoundComponent() {
   return (
@@ -169,8 +170,11 @@ function RootComponent() {
       .catch((err) => console.error("[SW] Échec d'enregistrement :", err));
   }, []);
 
-  // Persist désactivé : évite les deps optionnelles qui cassent le build Lovable
-  // et force des données fraîches (notes, bulletins).
+  // Persistance cache listes (élèves, classes…) pour rechargement hors ligne — sans package externe.
+  useEffect(() => {
+    return attachQueryPersist(queryClient);
+  }, [queryClient]);
+
   return (
     <QueryClientProvider client={queryClient}>
       <Outlet />
