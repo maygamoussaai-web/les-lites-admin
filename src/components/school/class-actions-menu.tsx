@@ -33,8 +33,7 @@ import { formatFCFA } from "@/lib/format";
 import type { SchoolData } from "@/lib/school-data";
 import type { ClassRow } from "@/lib/school";
 import { describeError } from "@/lib/errors";
-import { checkOpenPeriodBulletins, closeAndStartNextPeriod } from "@/lib/period-lifecycle";
-import { renewEnrollmentsForClass, snapshotFromPlan } from "@/lib/enrollment";
+import { checkOpenPeriodBulletins, closeOpenPeriodOnly } from "@/lib/period-lifecycle";
 
 export function ClassActionsMenu({
   klass,
@@ -53,10 +52,8 @@ export function ClassActionsMenu({
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [password, setPassword] = useState("");
   const [warnMissing, setWarnMissing] = useState(false);
-  // Année académique : sept→août (ex. octobre 2026 → « 2026-2027 »).
-  const now = new Date();
-  const startYear = now.getMonth() >= 8 ? now.getFullYear() : now.getFullYear() - 1;
-  const defaultGenerationName = `${klass.name} — ${startYear}-${startYear + 1}`;
+  // Nom génération : NomClasse_année civile au moment du renouvellement (ex. TSE_2026).
+  const defaultGenerationName = `${klass.name}_${new Date().getFullYear()}`;
   const [generationName, setGenerationName] = useState(defaultGenerationName);
 
   const plans = data.feePlans.filter((p) => p.establishment_id === klass.establishment_id);
@@ -81,9 +78,12 @@ export function ClassActionsMenu({
   };
 
   /**
-   * Renouvellement d'année : les élèves restent dans la même classe.
-   * Chaque période active est fermée (historique conservé), puis une nouvelle
-   * période démarre à zéro avec le modèle de scolarité *actuel* de la classe.
+   * Renouvellement = créer une génération figée en Archives, désassigner les élèves.
+   * 1) Clôture période notes ouverte (sans en ouvrir une nouvelle sur l'archive)
+   * 2) Ferme les scolarités actives (nom de génération sur l'historique)
+   * 3) Élèves → class_id null (liste « Sans classe »)
+   * 4) Classe actuelle renommée Nom_année + is_active=false → Archives (lecture seule)
+   * 5) Nouvelle classe active vide, nom d'origine + même fee_plan reconduit
    */
   const renewClass = async (force = false) => {
     setRenewBusy(true);
@@ -94,20 +94,14 @@ export function ClassActionsMenu({
         toast.message("Des notes existent sans bulletin. Générez-les ou confirmez le renouvellement.");
         return;
       }
-      // Clôturer la période de notes ouverte (bulletins) si besoin
       if (check.hasOpenPeriod) {
-        await closeAndStartNextPeriod(klass.id, klass.establishment_id);
+        await closeOpenPeriodOnly(klass.id);
       }
 
-      const establishment = data.establishments.find((e) => e.id === klass.establishment_id);
-      const plan = data.feePlans.find((p) => p.id === klass.fee_plan_id);
-      const planInstallments = data.installments.filter((i) => i.fee_plan_id === klass.fee_plan_id);
-      const snap = snapshotFromPlan(planInstallments);
-      const generation = generationName.trim() || defaultGenerationName;
+      const generation = (generationName.trim() || defaultGenerationName).replace(/\s+/g, " ").trim();
+      const originalName = klass.name;
 
       if (studentIds.length) {
-        // NOTE POUR CLAUDE: la période de scolarité qui se termine garde le nom de
-        // génération saisi (ex. « 9e A — 2025-2026 ») pour l'historique des élèves.
         const { error: genErr } = await supabase
           .from("student_enrollments")
           .update({ class_name: generation })
@@ -115,32 +109,60 @@ export function ClassActionsMenu({
           .in("student_id", studentIds)
           .is("ended_at", null);
         if (genErr) throw genErr;
-        await renewEnrollmentsForClass({
-          studentIds,
-          establishmentId: klass.establishment_id,
-          establishmentName: establishment?.name ?? "",
-          classId: klass.id,
-          className: klass.name,
-          feePlanId: klass.fee_plan_id,
-          totalAmount: plan ? Number(plan.total_amount) : 0,
-          installments: snap,
-        });
+        const { error: closeEnr } = await supabase
+          .from("student_enrollments")
+          .update({ ended_at: new Date().toISOString() })
+          .in("student_id", studentIds)
+          .is("ended_at", null);
+        if (closeEnr) throw closeEnr;
+        const { error: unassignErr } = await supabase
+          .from("students")
+          .update({ class_id: null })
+          .in("id", studentIds);
+        if (unassignErr) throw unassignErr;
       }
+
+      // Génération figée en archives (même id → notes, matières, bulletins conservés)
+      const { error: archErr } = await supabase
+        .from("classes")
+        .update({ name: generation, is_active: false })
+        .eq("id", klass.id);
+      if (archErr) throw archErr;
+
+      // Nouvelle coque active avec le nom d'origine + même modèle de scolarité
+      const { data: created, error: createErr } = await supabase
+        .from("classes")
+        .insert({
+          name: originalName,
+          establishment_id: klass.establishment_id,
+          fee_plan_id: klass.fee_plan_id,
+          capacity: klass.capacity ?? 0,
+          is_active: true,
+        })
+        .select("id")
+        .single();
+      if (createErr) throw createErr;
 
       await writeAudit("update", "classes", klass.id, {
         renewed: true,
         generation_name: generation,
-        students: studentIds.length,
-        fee_plan_id: klass.fee_plan_id,
+        archived_class_id: klass.id,
+        new_class_id: created?.id ?? null,
+        students_unassigned: studentIds.length,
       });
       invalidateAll();
       toast.success(
         studentIds.length
-          ? `Année renouvelée — ${studentIds.length} nouvelle(s) période(s) de scolarité ouvertes`
-          : "Année renouvelée (aucun élève dans la classe)",
+          ? `Génération « ${generation} » archivée — ${studentIds.length} élève(s) sans classe. Nouvelle classe « ${originalName} » créée.`
+          : `Génération « ${generation} » archivée. Nouvelle classe « ${originalName} » créée.`,
       );
       setRenewOpen(false);
       setWarnMissing(false);
+      if (created?.id) {
+        navigate({ to: "/classes/$classId", params: { classId: created.id } });
+      } else {
+        navigate({ to: "/etablissements/$id", params: { id: klass.establishment_id } });
+      }
     } catch (e) {
       toast.error(describeError(e, "Renouvellement impossible"));
     } finally {
@@ -167,7 +189,7 @@ export function ClassActionsMenu({
         return;
       }
       if (check.hasOpenPeriod) {
-        await closeAndStartNextPeriod(klass.id, klass.establishment_id);
+        await closeOpenPeriodOnly(klass.id);
       }
       if (studentIds.length) {
         await supabase.from("students").update({ class_id: null }).in("id", studentIds);
@@ -230,15 +252,16 @@ export function ClassActionsMenu({
             <AlertDialogTitle>Renouveler la classe « {klass.name} » ?</AlertDialogTitle>
             <AlertDialogDescription className="space-y-2">
               <span className="block">
-                Les {studentIds.length} élève(s) <strong>restent dans cette classe</strong>. Leur
-                période de scolarité en cours est fermée (historique conservé) et une nouvelle
-                période démarre à zéro avec le <strong>modèle de scolarité actuel</strong> de la
-                classe. Vérifiez les échéances du modèle avant de confirmer, sinon tous
-                pourraient apparaître « en retard ».
+                Une <strong>génération figée</strong> sera créée dans Archives (même page classe,
+                lecture seule : notes, élèves, scolarité). Les {studentIds.length} élève(s)
+                passent en <strong>sans classe</strong> (liste Élèves → filtre non assignés).
+                Une <strong>nouvelle classe vide</strong> « {klass.name} » est recréée avec le{" "}
+                <strong>même modèle de scolarité</strong> (aucun élève au départ).
+                Les documents de cette génération ne resteront visibles que dans les Archives.
               </span>
               <span className="block space-y-1.5 pt-1">
                 <Label htmlFor="generation-name" className="text-foreground">
-                  Nom de la génération archivée
+                  Nom de la génération (Archives)
                 </Label>
                 <Input
                   id="generation-name"
@@ -247,7 +270,7 @@ export function ClassActionsMenu({
                   placeholder={defaultGenerationName}
                 />
                 <span className="block text-xs">
-                  Ce nom identifiera l'année qui se termine dans l'historique des élèves.
+                  Format conseillé : NomClasse_année (ex. {defaultGenerationName}).
                 </span>
               </span>
               {warnMissing && (
