@@ -5,7 +5,7 @@ import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
   ArrowLeft, Trophy, TrendingDown, Users, GraduationCap,
-  Plus, RotateCcw, FileBarChart, FileText, Download,
+  Plus, RotateCcw, FileBarChart, FileText,
 } from "lucide-react";
 import { StatCard } from "@/components/app/stat-card";
 import { Button } from "@/components/ui/button";
@@ -25,15 +25,13 @@ import { PeriodComparisonChart } from "@/components/school/period-comparison-cha
 import { GradesIntegrityCard } from "@/components/school/grades-integrity-card";
 import { formatDateTime } from "@/lib/format";
 import { PASS_THRESHOLD, EXCELLENT_THRESHOLD } from "@/lib/grades";
-import { describeError } from "@/lib/errors";
-import { downloadPeriodBulletinsZip } from "@/lib/bulletin-zip";
 import type { ClassPageModel } from "./use-class-page";
 
 export function ClassPageView(m: ClassPageModel) {
   const {
     classId, data, klass, isClassArchived, establishment, classStudents,
     studentsOpen, setStudentsOpen, noteEntryOpen, setNoteEntryOpen,
-    bulletinsOpen, setBulletinsOpen, zipBusy, setZipBusy,
+    bulletinsOpen, setBulletinsOpen,
     annualOpen, setAnnualOpen, pendingForcePeriod, setPendingForcePeriod,
     stats, periodsQuery, subjectsQuery, activeTemplate,
     currentPeriod, latestPeriod, gradesForPeriod, periodCards,
@@ -154,46 +152,6 @@ export function ClassPageView(m: ClassPageModel) {
                   </span>
                 )}
               </Button>
-              {bulletinsDone > 0 && (currentPeriod ?? latestPeriod) && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="press"
-                  disabled={zipBusy}
-                  onClick={() => {
-                    const per = currentPeriod ?? latestPeriod;
-                    if (!per) return;
-                    void (async () => {
-                      setZipBusy(true);
-                      const toastId = toast.loading("Préparation du ZIP des bulletins…");
-                      try {
-                        const n = await downloadPeriodBulletinsZip({
-                          classId,
-                          periodId: per.id,
-                          periodNumber: per.period_number,
-                          className: klass.name,
-                          students: classStudents.map((s) => ({
-                            id: s.id,
-                            first_name: s.first_name,
-                            last_name: s.last_name,
-                          })),
-                          onProgress: (done, total) => {
-                            toast.loading(`ZIP ${done}/${total}…`, { id: toastId });
-                          },
-                        });
-                        toast.success(`${n} bulletin(s) dans le ZIP`, { id: toastId });
-                      } catch (e) {
-                        toast.error(describeError(e, "ZIP impossible"), { id: toastId });
-                      } finally {
-                        setZipBusy(false);
-                      }
-                    })();
-                  }}
-                >
-                  <Download className="mr-1.5 h-4 w-4" />
-                  {zipBusy ? "ZIP…" : "ZIP bulletins"}
-                </Button>
-              )}
               <Button variant="outline" size="sm" className="press" onClick={() => setAnnualOpen(true)}>
                 <FileText className="mr-1.5 h-4 w-4" /> Annuel
               </Button>
