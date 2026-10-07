@@ -1,4 +1,4 @@
-/**
- * TEMP restore marker - will replace
- */
-export function ReportTemplateManager() { return null; }
+/** PLACEHOLDER_WILL_FAIL - need full content */
+export function ReportTemplateManager() {
+  return null;
+}
