@@ -36,6 +36,8 @@ import { Route as AuthenticatedElevesStudentIdBibliothequeRouteImport } from './
 import { Route as AuthenticatedElevesStudentIdIdentiteRouteImport } from './routes/_authenticated/eleves.$studentId.identite'
 import { Route as AuthenticatedElevesStudentIdNotesRouteImport } from './routes/_authenticated/eleves.$studentId.notes'
 import { Route as AuthenticatedElevesStudentIdScolariteRouteImport } from './routes/_authenticated/eleves.$studentId.scolarite'
+import { Route as AuthenticatedEnseignantsTeacherIdIndexRouteImport } from './routes/_authenticated/enseignants.$teacherId.index'
+import { Route as AuthenticatedEnseignantsTeacherIdIdentiteRouteImport } from './routes/_authenticated/enseignants.$teacherId.identite'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -188,6 +190,18 @@ const AuthenticatedElevesStudentIdScolariteRoute =
     path: '/scolarite',
     getParentRoute: () => AuthenticatedElevesStudentIdRoute,
   } as any)
+const AuthenticatedEnseignantsTeacherIdIndexRoute =
+  AuthenticatedEnseignantsTeacherIdIndexRouteImport.update({
+    id: '/',
+    path: '/',
+    getParentRoute: () => AuthenticatedEnseignantsTeacherIdRoute,
+  } as any)
+const AuthenticatedEnseignantsTeacherIdIdentiteRoute =
+  AuthenticatedEnseignantsTeacherIdIdentiteRouteImport.update({
+    id: '/identite',
+    path: '/identite',
+    getParentRoute: () => AuthenticatedEnseignantsTeacherIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -204,7 +218,7 @@ export interface FileRoutesByFullPath {
   '/invitation/$token': typeof InvitationTokenRoute
   '/classes/$classId': typeof AuthenticatedClassesClassIdRoute
   '/eleves/$studentId': typeof AuthenticatedElevesStudentIdRouteWithChildren
-  '/enseignants/$teacherId': typeof AuthenticatedEnseignantsTeacherIdRoute
+  '/enseignants/$teacherId': typeof AuthenticatedEnseignantsTeacherIdRouteWithChildren
   '/etablissements/$id': typeof AuthenticatedEtablissementsIdRoute
   '/personnel/$id': typeof AuthenticatedPersonnelIdRoute
   '/eleves/': typeof AuthenticatedElevesIndexRoute
@@ -215,7 +229,9 @@ export interface FileRoutesByFullPath {
   '/eleves/$studentId/identite': typeof AuthenticatedElevesStudentIdIdentiteRoute
   '/eleves/$studentId/notes': typeof AuthenticatedElevesStudentIdNotesRoute
   '/eleves/$studentId/scolarite': typeof AuthenticatedElevesStudentIdScolariteRoute
+  '/enseignants/$teacherId/identite': typeof AuthenticatedEnseignantsTeacherIdIdentiteRoute
   '/eleves/$studentId/': typeof AuthenticatedElevesStudentIdIndexRoute
+  '/enseignants/$teacherId/': typeof AuthenticatedEnseignantsTeacherIdIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -229,7 +245,6 @@ export interface FileRoutesByTo {
   '/tableau-de-bord': typeof AuthenticatedTableauDeBordRoute
   '/invitation/$token': typeof InvitationTokenRoute
   '/classes/$classId': typeof AuthenticatedClassesClassIdRoute
-  '/enseignants/$teacherId': typeof AuthenticatedEnseignantsTeacherIdRoute
   '/etablissements/$id': typeof AuthenticatedEtablissementsIdRoute
   '/personnel/$id': typeof AuthenticatedPersonnelIdRoute
   '/eleves': typeof AuthenticatedElevesIndexRoute
@@ -240,7 +255,9 @@ export interface FileRoutesByTo {
   '/eleves/$studentId/identite': typeof AuthenticatedElevesStudentIdIdentiteRoute
   '/eleves/$studentId/notes': typeof AuthenticatedElevesStudentIdNotesRoute
   '/eleves/$studentId/scolarite': typeof AuthenticatedElevesStudentIdScolariteRoute
+  '/enseignants/$teacherId/identite': typeof AuthenticatedEnseignantsTeacherIdIdentiteRoute
   '/eleves/$studentId': typeof AuthenticatedElevesStudentIdIndexRoute
+  '/enseignants/$teacherId': typeof AuthenticatedEnseignantsTeacherIdIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -259,7 +276,7 @@ export interface FileRoutesById {
   '/invitation/$token': typeof InvitationTokenRoute
   '/_authenticated/classes/$classId': typeof AuthenticatedClassesClassIdRoute
   '/_authenticated/eleves/$studentId': typeof AuthenticatedElevesStudentIdRouteWithChildren
-  '/_authenticated/enseignants/$teacherId': typeof AuthenticatedEnseignantsTeacherIdRoute
+  '/_authenticated/enseignants/$teacherId': typeof AuthenticatedEnseignantsTeacherIdRouteWithChildren
   '/_authenticated/etablissements/$id': typeof AuthenticatedEtablissementsIdRoute
   '/_authenticated/personnel/$id': typeof AuthenticatedPersonnelIdRoute
   '/_authenticated/eleves/': typeof AuthenticatedElevesIndexRoute
@@ -270,7 +287,9 @@ export interface FileRoutesById {
   '/_authenticated/eleves/$studentId/identite': typeof AuthenticatedElevesStudentIdIdentiteRoute
   '/_authenticated/eleves/$studentId/notes': typeof AuthenticatedElevesStudentIdNotesRoute
   '/_authenticated/eleves/$studentId/scolarite': typeof AuthenticatedElevesStudentIdScolariteRoute
+  '/_authenticated/enseignants/$teacherId/identite': typeof AuthenticatedEnseignantsTeacherIdIdentiteRoute
   '/_authenticated/eleves/$studentId/': typeof AuthenticatedElevesStudentIdIndexRoute
+  '/_authenticated/enseignants/$teacherId/': typeof AuthenticatedEnseignantsTeacherIdIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -300,7 +319,9 @@ export interface FileRouteTypes {
     | '/eleves/$studentId/identite'
     | '/eleves/$studentId/notes'
     | '/eleves/$studentId/scolarite'
+    | '/enseignants/$teacherId/identite'
     | '/eleves/$studentId/'
+    | '/enseignants/$teacherId/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -314,7 +335,6 @@ export interface FileRouteTypes {
     | '/tableau-de-bord'
     | '/invitation/$token'
     | '/classes/$classId'
-    | '/enseignants/$teacherId'
     | '/etablissements/$id'
     | '/personnel/$id'
     | '/eleves'
@@ -325,7 +345,9 @@ export interface FileRouteTypes {
     | '/eleves/$studentId/identite'
     | '/eleves/$studentId/notes'
     | '/eleves/$studentId/scolarite'
+    | '/enseignants/$teacherId/identite'
     | '/eleves/$studentId'
+    | '/enseignants/$teacherId'
   id:
     | '__root__'
     | '/'
@@ -354,7 +376,9 @@ export interface FileRouteTypes {
     | '/_authenticated/eleves/$studentId/identite'
     | '/_authenticated/eleves/$studentId/notes'
     | '/_authenticated/eleves/$studentId/scolarite'
+    | '/_authenticated/enseignants/$teacherId/identite'
     | '/_authenticated/eleves/$studentId/'
+    | '/_authenticated/enseignants/$teacherId/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -556,6 +580,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedElevesStudentIdScolariteRouteImport
       parentRoute: typeof AuthenticatedElevesStudentIdRoute
     }
+    '/_authenticated/enseignants/$teacherId/': {
+      id: '/_authenticated/enseignants/$teacherId/'
+      path: '/'
+      fullPath: '/enseignants/$teacherId/'
+      preLoaderRoute: typeof AuthenticatedEnseignantsTeacherIdIndexRouteImport
+      parentRoute: typeof AuthenticatedEnseignantsTeacherIdRoute
+    }
+    '/_authenticated/enseignants/$teacherId/identite': {
+      id: '/_authenticated/enseignants/$teacherId/identite'
+      path: '/identite'
+      fullPath: '/enseignants/$teacherId/identite'
+      preLoaderRoute: typeof AuthenticatedEnseignantsTeacherIdIdentiteRouteImport
+      parentRoute: typeof AuthenticatedEnseignantsTeacherIdRoute
+    }
   }
 }
 
@@ -619,6 +657,24 @@ const AuthenticatedElevesStudentIdRouteWithChildren =
     AuthenticatedElevesStudentIdRouteChildren,
   )
 
+interface AuthenticatedEnseignantsTeacherIdRouteChildren {
+  AuthenticatedEnseignantsTeacherIdIdentiteRoute: typeof AuthenticatedEnseignantsTeacherIdIdentiteRoute
+  AuthenticatedEnseignantsTeacherIdIndexRoute: typeof AuthenticatedEnseignantsTeacherIdIndexRoute
+}
+
+const AuthenticatedEnseignantsTeacherIdRouteChildren: AuthenticatedEnseignantsTeacherIdRouteChildren =
+  {
+    AuthenticatedEnseignantsTeacherIdIdentiteRoute:
+      AuthenticatedEnseignantsTeacherIdIdentiteRoute,
+    AuthenticatedEnseignantsTeacherIdIndexRoute:
+      AuthenticatedEnseignantsTeacherIdIndexRoute,
+  }
+
+const AuthenticatedEnseignantsTeacherIdRouteWithChildren =
+  AuthenticatedEnseignantsTeacherIdRoute._addFileChildren(
+    AuthenticatedEnseignantsTeacherIdRouteChildren,
+  )
+
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedArchivesRoute: typeof AuthenticatedArchivesRoute
   AuthenticatedEtablissementsRoute: typeof AuthenticatedEtablissementsRouteWithChildren
@@ -630,7 +686,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedTableauDeBordRoute: typeof AuthenticatedTableauDeBordRoute
   AuthenticatedClassesClassIdRoute: typeof AuthenticatedClassesClassIdRoute
   AuthenticatedElevesStudentIdRoute: typeof AuthenticatedElevesStudentIdRouteWithChildren
-  AuthenticatedEnseignantsTeacherIdRoute: typeof AuthenticatedEnseignantsTeacherIdRoute
+  AuthenticatedEnseignantsTeacherIdRoute: typeof AuthenticatedEnseignantsTeacherIdRouteWithChildren
   AuthenticatedElevesIndexRoute: typeof AuthenticatedElevesIndexRoute
   AuthenticatedEnseignantsIndexRoute: typeof AuthenticatedEnseignantsIndexRoute
 }
@@ -649,7 +705,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedElevesStudentIdRoute:
     AuthenticatedElevesStudentIdRouteWithChildren,
   AuthenticatedEnseignantsTeacherIdRoute:
-    AuthenticatedEnseignantsTeacherIdRoute,
+    AuthenticatedEnseignantsTeacherIdRouteWithChildren,
   AuthenticatedElevesIndexRoute: AuthenticatedElevesIndexRoute,
   AuthenticatedEnseignantsIndexRoute: AuthenticatedEnseignantsIndexRoute,
 }
