@@ -1,7 +1,7 @@
 // Service worker — Les Elites de Gao
 // Reseau d'abord pour les pages ; cache pour le hors ligne.
 // Assets statiques (js/css/fonts/images) : cache d'abord puis reseau.
-const CACHE_NAME = "eg-cache-v2";
+const CACHE_NAME = "eg-cache-v3";
 
 const ASSET_EXT = /\.(js|css|woff2?|ttf|otf|png|jpe?g|gif|webp|svg|ico|webmanifest)(\?.*)?$/i;
 
@@ -30,7 +30,6 @@ self.addEventListener("fetch", (event) => {
   const isNavigate = request.mode === "navigate";
 
   if (isAsset) {
-    // Cache-first pour les fichiers statiques (chargement plus fluide).
     event.respondWith(
       caches.match(request).then((cached) => {
         const network = fetch(request)
@@ -48,7 +47,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Pages / HTML : reseau d'abord, sinon cache, sinon shell de navigation.
   event.respondWith(
     fetch(request)
       .then((response) => {
