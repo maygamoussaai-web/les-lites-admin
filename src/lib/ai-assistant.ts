@@ -113,20 +113,58 @@ function mapError(rawMsg: string, parsed: { code: string; message: string } | nu
   return { code: "UPSTREAM", message: rawMsg || "Erreur assistant." };
 }
 
+/** Réponse affirmative courte (oui, ok, je confirme…). */
+function isAffirmativeClient(msg: string): boolean {
+  const t = msg.trim().toLowerCase().replace(/[.!?…]+$/g, "").trim();
+  return /^(oui|ok|d['']accord|dac|je confirme|confirme|vas-?y|oui vas-?y|oui je confirme|yes|yep|go|parfait|d accord)(\s|$)/i.test(t)
+    || /^(oui[, ]+)/i.test(t);
+}
+
+/**
+ * Si l'utilisateur confirme un plan, enrichit le message pour forcer l'exécution.
+ * Contourne partiellement la perte du pendingByUser côté Edge (cold start).
+ * Ne change pas le protocole serveur — uniquement le texte envoyé à Gemini.
+ */
+function strengthenAffirmative(message: string, history: { role: "user" | "assistant"; content: string }[]): string {
+  if (!isAffirmativeClient(message)) return message;
+  const lastAssistant = [...history].reverse().find((h) => h.role === "assistant");
+  const planHint = lastAssistant?.content?.slice(0, 800) ?? "";
+  const looksLikePlan =
+    /confirmez|plan d['']action|qui\s*:|quoi\s*:|exécut/i.test(planHint) ||
+    /ajouter une séance|emploi du temps|saisie|paiement|archiver|créer/i.test(planHint);
+  if (!looksLikePlan) return message;
+  return (
+    `${message}\n\n` +
+    `[INSTRUCTION: L'utilisateur confirme explicitement le plan d'action ci-dessus. ` +
+    `Exécute immédiatement l'outil d'écriture correspondant avec confirmed=true et les mêmes paramètres. ` +
+    `Ne redemande pas de confirmation. Ne demande pas de synthèse. Réponds uniquement après exécution.]`
+  ).slice(0, 2000);
+}
+
 export async function askAssistant(message: string, history: { role: "user" | "assistant"; content: string }[] = [], signal?: AbortSignal): Promise<AssistantResponse> {
   const trimmed = message.trim();
   if (!trimmed) return { ok: false, error: { code: "VALIDATION", message: "Message vide." } };
   if (trimmed.length > 2000) return { ok: false, error: { code: "VALIDATION", message: "Message trop long (2000 caractères max)." } };
   try {
+    // Historique sans le dernier message utilisateur s'il est identique au message courant
+    // (évite le doublon « Oui » dans history + message qui désoriente le modèle).
+    const histClean = history.filter((h, i) => {
+      if (i === history.length - 1 && h.role === "user" && h.content.trim() === trimmed) return false;
+      return true;
+    });
+    const protocolSlots = ASSISTANT_PROTOCOL.length * 2;
+    const histBudget = Math.max(8, 24 - protocolSlots);
+    const outboundMessage = strengthenAffirmative(trimmed, histClean);
+
     const { data, error } = await supabase.functions.invoke("ai-assistant", {
       body: {
-        message: trimmed,
+        message: outboundMessage,
         history: [
           ...ASSISTANT_PROTOCOL.flatMap((content) => [
             { role: "user" as const, content: content.slice(0, 2000) },
             { role: "assistant" as const, content: "Compris." },
           ]),
-          ...history.slice(-(20 - ASSISTANT_PROTOCOL.length * 2)).map((h) => ({ role: h.role, content: h.content.slice(0, 2000) })),
+          ...histClean.slice(-histBudget).map((h) => ({ role: h.role, content: h.content.slice(0, 2000) })),
         ],
       },
       ...(signal ? { signal } : {}),
