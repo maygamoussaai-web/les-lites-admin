@@ -2,10 +2,9 @@ import { useState } from "react";
 import { Link, useNavigate, useParams } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, Banknote, ShieldAlert, Pencil, X, Building2, Trash2 } from "lucide-react";
+import { ArrowLeft, Banknote, ShieldAlert, IdCard, X, Building2, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { EmptyState } from "@/components/app/empty-state";
-import { RecordDialog, type Field } from "@/components/app/record-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -17,7 +16,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAdminProfile } from "@/hooks/use-auth";
-import { useSaveRow, useArchiveRow, writeAudit } from "@/lib/data";
+import { useArchiveRow, writeAudit } from "@/lib/data";
 import { useSchoolData } from "@/lib/school-data";
 import { teacherDue, sum, type TeacherAssignment } from "@/lib/school";
 import { formatFCFA, formatDate } from "@/lib/format";
@@ -30,9 +29,7 @@ export function TeacherFichePage() {
   const qc = useQueryClient();
   const { isDG, establishmentIds, establishmentIdsLoading } = useAdminProfile();
   const data = useSchoolData();
-  const saveTeacher = useSaveRow("teachers", "Enseignant");
   const archiveTeacher = useArchiveRow("teachers", "Enseignant");
-  const [editOpen, setEditOpen] = useState(false);
   const [payFor, setPayFor] = useState<TeacherAssignment | null>(null);
   const [removeBusy, setRemoveBusy] = useState(false);
   const [from, setFrom] = useState("");
@@ -83,13 +80,6 @@ export function TeacherFichePage() {
     }
   };
 
-  const editFields: Field[] = [
-    { name: "first_name", label: "Prénom", required: true },
-    { name: "last_name", label: "Nom", required: true },
-    { name: "phone", label: "Téléphone" },
-    { name: "domain", label: "Domaine" },
-  ];
-
   return (
     <>
       <Button variant="ghost" size="sm" className="-ml-2 w-fit" asChild>
@@ -102,47 +92,36 @@ export function TeacherFichePage() {
         eyebrow="Fiche enseignant"
         title={`${teacher.last_name} ${teacher.first_name}`}
         description={teacher.domain ?? "Aucun domaine renseigné"}
+        actions={
+          <Button variant="outline" size="sm" className="press" asChild>
+            <Link to="/enseignants/$teacherId/identite" params={{ teacherId: teacher.id }}>
+              <IdCard className="mr-1.5 h-4 w-4" /> Identité
+            </Link>
+          </Button>
+        }
       />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2">
-            <CardTitle className="text-base">Identité</CardTitle>
-            <Button variant="ghost" size="sm" className="press" onClick={() => setEditOpen(true)}>
-              <Pencil className="mr-1.5 h-4 w-4" /> Modifier
-            </Button>
-          </CardHeader>
-          <CardContent className="space-y-2.5 text-sm">
-            <div className="flex items-center justify-between border-b border-border/60 pb-2">
-              <span className="text-muted-foreground">Téléphone</span>
-              <span className="font-medium">{teacher.phone ?? "—"}</span>
+      <Card className="border-border/60 shadow-none">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">{isDG ? "Total (tous établissements)" : "Total"}</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-3 gap-3 text-sm">
+            <div>
+              <p className="text-xs text-muted-foreground">Dû</p>
+              <p className="font-medium tabular-nums">{formatFCFA(totalDue)}</p>
             </div>
-            <div className="flex items-center justify-between pb-2">
-              <span className="text-muted-foreground">Domaine</span>
-              <span className="font-medium">{teacher.domain ?? "—"}</span>
+            <div>
+              <p className="text-xs text-muted-foreground">Payé</p>
+              <p className="font-medium tabular-nums">{formatFCFA(totalPaid)}</p>
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">{isDG ? "Total (tous établissements)" : "Total"}</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2.5 text-sm">
-            <div className="flex items-center justify-between border-b border-border/60 pb-2">
-              <span className="text-muted-foreground">Dû</span>
-              <span className="font-medium">{formatFCFA(totalDue)}</span>
+            <div>
+              <p className="text-xs text-muted-foreground">Reste dû</p>
+              <p className="font-semibold tabular-nums">{formatFCFA(Math.max(0, totalDue - totalPaid))}</p>
             </div>
-            <div className="flex items-center justify-between border-b border-border/60 pb-2">
-              <span className="text-muted-foreground">Payé</span>
-              <span className="font-medium">{formatFCFA(totalPaid)}</span>
-            </div>
-            <div className="flex items-center justify-between pb-2">
-              <span className="text-muted-foreground">Reste dû</span>
-              <span className="font-semibold">{formatFCFA(Math.max(0, totalDue - totalPaid))}</span>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="space-y-3">
         <h3 className="font-display text-lg font-semibold">Établissements assignés</h3>
@@ -159,7 +138,7 @@ export function TeacherFichePage() {
                   .map((p) => Number(p.amount)),
               );
               return (
-                <Card key={a.id} className="animate-rise panel-gradient">
+                <Card key={a.id} className="border-border/60 shadow-none">
                   <CardContent className="space-y-2.5 p-4">
                     <div className="flex items-start justify-between gap-2">
                       <div>
@@ -226,11 +205,10 @@ export function TeacherFichePage() {
           <EmptyState icon={Banknote} title="Aucun paiement" description="Aucun paiement enregistré pour cette période." />
         ) : (
           <div className="space-y-2">
-            {payments.map((p, index) => {
+            {payments.map((p) => {
               const est = data.establishments.find((e) => e.id === p.establishment_id);
               return (
-                <div key={p.id} className="animate-rise flex items-center justify-between gap-3 rounded-lg border border-border/70 bg-card px-4 py-3 text-sm"
-                  style={{ animationDelay: `${Math.min(index, 15) * 30}ms` }}>
+                <div key={p.id} className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-card px-4 py-3 text-sm">
                   <div>
                     <p className="font-medium">{formatFCFA(p.amount)}</p>
                     <p className="text-xs text-muted-foreground">{est?.name ?? "—"}{p.note ? ` · ${p.note}` : ""}</p>
@@ -268,10 +246,6 @@ export function TeacherFichePage() {
           </AlertDialog>
         </div>
       )}
-
-      <RecordDialog open={editOpen} onOpenChange={setEditOpen} title="Modifier l'enseignant" fields={editFields}
-        initial={teacher} submitting={saveTeacher.isPending}
-        onSubmit={(values) => saveTeacher.mutate({ id: teacher.id, values }, { onSuccess: () => setEditOpen(false) })} />
 
       <TeacherPayDialog open={!!payFor} onClose={() => setPayFor(null)} assignment={payFor}
         teacherName={`${teacher.last_name} ${teacher.first_name}`} data={data} />
