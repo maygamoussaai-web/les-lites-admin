@@ -13,10 +13,23 @@ import { RecordDialog, type Field } from "@/components/app/record-dialog";
 import { EmptyState } from "@/components/app/empty-state";
 import { supabase } from "@/integrations/supabase/client";
 import { writeAudit } from "@/lib/data";
+import { enqueue } from "@/lib/offline-queue";
+import { flushQueue } from "@/lib/offline-sync";
 import { formatFCFA } from "@/lib/format";
 import { lateStatus, sum, type ClassRow, type Installment, type Student } from "@/lib/school";
 import type { SchoolData } from "@/lib/school-data";
 import { describeError } from "@/lib/errors";
+
+function isOnline() {
+  return typeof navigator === "undefined" || navigator.onLine;
+}
+
+function patchListCache(qc: ReturnType<typeof useQueryClient>, table: string, updater: (rows: any[]) => any[]) {
+  for (const query of qc.getQueryCache().findAll({ queryKey: [table] })) {
+    const old = query.state.data;
+    if (Array.isArray(old)) qc.setQueryData(query.queryKey, updater(old));
+  }
+}
 
 export function StudentsDialog({
   klass,
@@ -81,19 +94,21 @@ export function StudentsDialog({
     if (!klass || locked) return;
     setSubmitting(true);
     try {
-      const { data: created, error } = await supabase
-        .from("students")
-        .insert({ ...values, class_id: klass.id, establishment_id: klass.establishment_id } as never)
-        .select()
-        .single();
-      if (error) throw error;
+      const studentId = crypto.randomUUID();
+      const enrollmentId = crypto.randomUUID();
+      const studentRow = {
+        id: studentId,
+        ...values,
+        class_id: klass.id,
+        establishment_id: klass.establishment_id,
+      };
 
       const establishment = data.establishments.find((e) => e.id === klass.establishment_id);
       const plan = data.feePlans.find((p) => p.id === klass.fee_plan_id);
       const planInstallments = data.installments.filter((i) => i.fee_plan_id === klass.fee_plan_id);
-
-      const { error: enrollError } = await supabase.from("student_enrollments").insert({
-        student_id: created.id,
+      const enrollmentRow = {
+        id: enrollmentId,
+        student_id: studentId,
         establishment_id: klass.establishment_id,
         class_id: klass.id,
         establishment_name: establishment?.name ?? "",
@@ -105,14 +120,66 @@ export function StudentsDialog({
           amount: i.amount,
           due_date: i.due_date,
           position: i.position,
-        })) as never,
-      });
-      if (enrollError) throw enrollError;
+        })),
+        ended_at: null,
+        started_at: new Date().toISOString(),
+      };
 
-      await writeAudit("create", "students", created.id, { class_id: klass.id });
-      qc.invalidateQueries({ queryKey: ["students"] });
-      qc.invalidateQueries({ queryKey: ["student_enrollments"] });
-      toast.success("Élève ajouté");
+      // UI instantanée
+      patchListCache(qc, "students", (rows) => [...rows, studentRow]);
+      patchListCache(qc, "student_enrollments", (rows) => [...rows, enrollmentRow]);
+
+      if (isOnline()) {
+        const { data: created, error } = await supabase
+          .from("students")
+          .insert({ ...values, id: studentId, class_id: klass.id, establishment_id: klass.establishment_id } as never)
+          .select()
+          .single();
+        if (error) throw error;
+
+        const { error: enrollError } = await supabase.from("student_enrollments").insert({
+          id: enrollmentId,
+          student_id: created.id,
+          establishment_id: klass.establishment_id,
+          class_id: klass.id,
+          establishment_name: establishment?.name ?? "",
+          class_name: klass.name,
+          fee_plan_id: klass.fee_plan_id,
+          total_amount: plan ? Number(plan.total_amount) : 0,
+          installments_snapshot: planInstallments.map((i) => ({
+            label: i.label,
+            amount: i.amount,
+            due_date: i.due_date,
+            position: i.position,
+          })) as never,
+        });
+        if (enrollError) throw enrollError;
+
+        await writeAudit("create", "students", created.id, { class_id: klass.id });
+        qc.invalidateQueries({ queryKey: ["students"] });
+        qc.invalidateQueries({ queryKey: ["student_enrollments"] });
+        toast.success("Élève ajouté");
+      } else {
+        enqueue({
+          id: crypto.randomUUID(),
+          table: "students",
+          op: "insert",
+          rowId: studentId,
+          values: studentRow,
+          createdAt: Date.now(),
+          label: `${values.last_name} ${values.first_name}`,
+        });
+        enqueue({
+          id: crypto.randomUUID(),
+          table: "student_enrollments",
+          op: "insert",
+          rowId: enrollmentId,
+          values: enrollmentRow,
+          createdAt: Date.now() + 1,
+          label: `Inscription ${values.last_name}`,
+        });
+        toast.success("Élève enregistré hors ligne — sera synchronisé au retour du réseau");
+      }
       setOpen(false);
     } catch (e) {
       toast.error(describeError(e, "Ajout impossible"));
