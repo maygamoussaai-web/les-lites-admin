@@ -22,12 +22,12 @@ export const Route = createFileRoute("/_authenticated/mon-assistant")({
 function Page() {
   return (
     <div className="flex h-[calc(100svh-3.5rem)] min-h-0 w-full flex-col overflow-hidden">
-      <header className="shrink-0 border-b border-border/40 bg-background/80 px-4 pb-3 pt-4 text-center backdrop-blur supports-[backdrop-filter]:bg-background/60 sm:px-6 sm:pt-5">
-        <h1 className="font-display text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+      <header className="shrink-0 border-b border-border/30 bg-background/90 px-4 py-3 text-center backdrop-blur-md supports-[backdrop-filter]:bg-background/70 sm:px-6">
+        <h1 className="font-display text-base font-semibold tracking-tight text-foreground sm:text-lg">
           Mon assistant
         </h1>
-        <p className="mx-auto mt-1 max-w-xl text-sm text-muted-foreground">
-          Consultation et aide à la gestion du complexe scolaire.
+        <p className="mx-auto mt-0.5 max-w-md text-[12px] text-muted-foreground">
+          Consultation et aide à la gestion du complexe
         </p>
       </header>
       <div className="flex min-h-0 flex-1 flex-col">
