@@ -151,7 +151,7 @@ function renderClassReportCanvas({
   ctx.fillText(establishmentName, 60, 80);
   ctx.fillStyle = "#1a1a1a";
   ctx.font = "bold 28px sans-serif";
-  ctx.fillText(`Rapport \u2014 ${className}`, 60, 140);
+  ctx.fillText(`Rapport — ${className}`, 60, 140);
   ctx.font = "20px sans-serif";
   ctx.fillStyle = "#444";
   ctx.fillText(`Période ${period.period_number}`, 60, 180);
@@ -161,7 +161,7 @@ function renderClassReportCanvas({
   const withAvg = stats.withAvg ?? [];
   const passing = stats.passing ?? [];
   ctx.fillText(
-    `Moyenne : ${stats.classAverage != null ? stats.classAverage.toFixed(2) : "\u2014"}`,
+    `Moyenne : ${stats.classAverage != null ? stats.classAverage.toFixed(2) : "—"}`,
     60,
     y,
   );
@@ -175,7 +175,7 @@ function renderClassReportCanvas({
   ctx.font = "18px sans-serif";
   for (const [i, r] of withAvg.slice(0, 20).entries()) {
     ctx.fillText(
-      `${i + 1}. ${r.student.last_name} ${r.student.first_name} \u2014 ${r.average.toFixed(2)}`,
+      `${i + 1}. ${r.student.last_name} ${r.student.first_name} — ${r.average.toFixed(2)}`,
       60,
       y,
     );
@@ -185,7 +185,7 @@ function renderClassReportCanvas({
   return canvas;
 }
 
-export function ClassReportsSection({ classId }: { classId: string }) {
+export function ClassReportsSection({ classId, readOnly = false }: { classId: string; readOnly?: boolean }) {
   const qc = useQueryClient();
   const reportsQuery = useSupabaseRows<ClassReport>("class_reports", { class_id: classId }, "created_at", false);
   const periodsQuery = useSupabaseRows<GradePeriod>("grade_periods", { class_id: classId }, "period_number");
@@ -193,6 +193,7 @@ export function ClassReportsSection({ classId }: { classId: string }) {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const remove = async (id: string) => {
+    if (readOnly) return;
     setBusyId(id);
     try {
       const { error } = await supabase.from("class_reports").delete().eq("id", id);
@@ -227,17 +228,19 @@ export function ClassReportsSection({ classId }: { classId: string }) {
                       <p className="font-medium truncate">{`Rapport P${period?.period_number ?? "?"}`}</p>
                       <p className="text-[11px] text-muted-foreground">{formatDateTime(r.generated_at)}</p>
                     </div>
-                    <div className="flex shrink-0 gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        disabled={busyId === r.id}
-                        onClick={() => void remove(r.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    {!readOnly && (
+                      <div className="flex shrink-0 gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          disabled={busyId === r.id}
+                          onClick={() => void remove(r.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
                   </li>
                 );
               })}
