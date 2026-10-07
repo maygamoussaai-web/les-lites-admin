@@ -1,11 +1,11 @@
 /**
  * ai-assistant Edge Function — source de vérité = déploiement Supabase Dashboard.
  *
- * PROTOCOLE (v152 / 2026-10-07) :
+ * PROTOCOLE (v160 / 2026-10-07) :
  * - Lecture → outil immédiat
  * - Écriture → Plan → un seul « oui » → confirmed=true
  * - Token HMAC = userId|tool|exp|nonce (PAS les paramètres métier)
- *   → évite l'échec quand Gemini ajoute generation_name etc. entre les appels
+ * - isAffirmative : regarde la 1re ligne seulement (le client ajoute [INSTRUCTION:…] >80 car.)
  * - pendingByUser + allowAffirmThisRequest (cold start)
  * - renew_class = même logique que ⋮ → Renouveler
  *
