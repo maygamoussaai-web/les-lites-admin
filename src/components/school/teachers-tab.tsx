@@ -1,1 +1,321 @@
-PLACEHOLDER
+/**
+ * Onglet Enseignants d'un établissement.
+ */
+import { useState } from "react";
+import { Link } from "@tanstack/react-router";
+import { toast } from "sonner";
+import { Banknote, UserPlus, Trash2, UserCheck, CalendarDays } from "lucide-react";
+import { EmptyState } from "@/components/app/empty-state";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { supabase } from "@/integrations/supabase/client";
+import { useSaveRow, writeAudit } from "@/lib/data";
+import { teacherDue, sum, type TeacherAssignment } from "@/lib/school";
+import { formatFCFA } from "@/lib/format";
+import { describeError } from "@/lib/errors";
+import { AssignTeacherDialog } from "@/components/school/assign-teacher-dialog";
+import type { SchoolData } from "@/lib/school-data";
+
+type Data = SchoolData;
+
+function TeacherPaymentDialog({
+  open,
+  onClose,
+  assignment,
+  teacherName,
+  establishmentId,
+  data,
+}: {
+  open: boolean;
+  onClose: () => void;
+  assignment: TeacherAssignment | null;
+  teacherName: string;
+  establishmentId: string;
+  data: Data;
+}) {
+  const savePayment = useSaveRow("teacher_payments", "Paiement");
+  const [amount, setAmount] = useState("");
+  const [paidAt, setPaidAt] = useState(new Date().toISOString().slice(0, 10));
+  const [note, setNote] = useState("");
+
+  const due = assignment ? teacherDue(assignment, data.sessions, data.sessionCompletions) : 0;
+  const paidSoFar = assignment
+    ? sum(
+        data.teacherPayments
+          .filter(
+            (p) =>
+              p.teacher_id === assignment.teacher_id && p.establishment_id === establishmentId,
+          )
+          .map((p) => Number(p.amount)),
+      )
+    : 0;
+  const remaining = Math.max(0, due - paidSoFar);
+  const amountNum = Number(amount || 0);
+  const exceeds = amountNum > remaining;
+  const canSubmit =
+    !!assignment && amountNum > 0 && !exceeds && !savePayment.isPending;
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Paiement — {teacherName}</DialogTitle>
+          <DialogDescription>Reste dû : {formatFCFA(remaining)}</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <Label className="mb-1.5 block text-sm">Montant (FCFA)</Label>
+            <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            {exceeds ? (
+              <p className="mt-1 text-xs font-medium text-destructive">
+                Dépasse le reste dû ({formatFCFA(remaining)}).
+              </p>
+            ) : null}
+          </div>
+          <div>
+            <Label className="mb-1.5 block text-sm">Date</Label>
+            <Input type="date" value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
+          </div>
+          <div className="sm:col-span-2">
+            <Label className="mb-1.5 block text-sm">Note</Label>
+            <Textarea value={note} onChange={(e) => setNote(e.target.value)} />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            Annuler
+          </Button>
+          <Button
+            disabled={!canSubmit}
+            onClick={() => {
+              if (!assignment) return;
+              savePayment.mutate(
+                {
+                  id: null,
+                  values: {
+                    teacher_id: assignment.teacher_id,
+                    establishment_id: establishmentId,
+                    amount: amountNum,
+                    paid_at: paidAt,
+                    note: note || null,
+                  },
+                },
+                {
+                  onSuccess: () => {
+                    setAmount("");
+                    setNote("");
+                    onClose();
+                  },
+                },
+              );
+            }}
+          >
+            Enregistrer
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export function TeachersTab({
+  establishmentId,
+  data,
+}: {
+  establishmentId: string;
+  data: Data;
+  isDG: boolean;
+}) {
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [payFor, setPayFor] = useState<TeacherAssignment | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const assignments = data.assignments
+    .filter((a) => a.establishment_id === establishmentId)
+    .slice()
+    .sort((a, b) => {
+      const ta = data.teachers.find((t) => t.id === a.teacher_id);
+      const tb = data.teachers.find((t) => t.id === b.teacher_id);
+      const na = ta ? `${ta.last_name} ${ta.first_name}` : "";
+      const nb = tb ? `${tb.last_name} ${tb.first_name}` : "";
+      return na.localeCompare(nb, "fr");
+    });
+
+  const remove = async (a: TeacherAssignment) => {
+    setBusyId(a.id);
+    try {
+      const sessionIds = data.sessions.filter((s) => s.assignment_id === a.id).map((s) => s.id);
+      if (sessionIds.length) {
+        await supabase.from("teacher_session_completions").delete().in("session_id", sessionIds);
+        await supabase.from("teacher_sessions").delete().eq("assignment_id", a.id);
+      }
+      const { error } = await supabase.from("teacher_assignments").delete().eq("id", a.id);
+      if (error) throw error;
+      await writeAudit("delete", "teacher_assignments", a.id, { teacher_id: a.teacher_id });
+      toast.success("Enseignant retiré");
+    } catch (e) {
+      toast.error(describeError(e, "Retrait impossible"));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-display text-base font-semibold text-foreground">Enseignants</h2>
+          <p className="text-xs text-muted-foreground">
+            {assignments.length} affectation{assignments.length > 1 ? "s" : ""} active
+            {assignments.length > 1 ? "s" : ""}
+          </p>
+        </div>
+        <Button className="press" onClick={() => setAssignOpen(true)}>
+          <UserPlus className="mr-1.5 h-4 w-4" /> Assigner un enseignant
+        </Button>
+      </div>
+
+      {assignments.length === 0 ? (
+        <EmptyState
+          icon={UserCheck}
+          title="Aucun enseignant"
+          description="Assignez le premier enseignant à cet établissement."
+        />
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {assignments.map((a) => {
+            const t = data.teachers.find((x) => x.id === a.teacher_id);
+            const due = teacherDue(a, data.sessions, data.sessionCompletions);
+            const paid = sum(
+              data.teacherPayments
+                .filter(
+                  (p) =>
+                    p.teacher_id === a.teacher_id && p.establishment_id === establishmentId,
+                )
+                .map((p) => Number(p.amount)),
+            );
+            const remaining = Math.max(0, due - paid);
+            return (
+              <Card
+                key={a.id}
+                className="overflow-hidden border-border/60 shadow-none"
+              >
+                <CardContent className="space-y-3 p-4">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <Link
+                        to="/enseignants/$teacherId"
+                        params={{ teacherId: a.teacher_id }}
+                        className="text-sm font-semibold text-foreground hover:underline"
+                      >
+                        {t ? `${t.last_name} ${t.first_name}` : "—"}
+                      </Link>
+                      <p className="mt-0.5 text-xs text-muted-foreground">
+                        {a.payment_method === "fixed_salary" ? "Salaire fixe" : "Tarif horaire"}
+                        {t?.domain ? ` · ${t.domain}` : ""}
+                      </p>
+                    </div>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                          disabled={busyId === a.id}
+                          aria-label="Retirer"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Retirer cet enseignant ?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            L'affectation sera supprimée. L'historique des paiements reste
+                            conservé.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Annuler</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => void remove(a)}>
+                            Retirer
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 rounded-md border border-border/50 bg-muted/30 px-2 py-2 text-center">
+                    <div>
+                      <p className="text-[10px] text-muted-foreground">Dû</p>
+                      <p className="mt-0.5 text-xs font-medium tabular-nums">{formatFCFA(due)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-muted-foreground">Payé</p>
+                      <p className="mt-0.5 text-xs font-medium tabular-nums text-emerald-700 dark:text-emerald-400">
+                        {formatFCFA(paid)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-muted-foreground">Reste</p>
+                      <p className="mt-0.5 text-xs font-medium tabular-nums">{formatFCFA(remaining)}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="default" className="press flex-1" asChild>
+                      <Link to="/enseignants/$teacherId" params={{ teacherId: a.teacher_id }}>
+                        <CalendarDays className="mr-1.5 h-4 w-4" />
+                        Voir l'emploi du temps
+                      </Link>
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="press shrink-0"
+                      onClick={() => setPayFor(a)}
+                      disabled={remaining <= 0}
+                    >
+                      <Banknote className="mr-1.5 h-4 w-4" />
+                      {remaining > 0 ? "Payer" : "À jour"}
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      <AssignTeacherDialog
+        open={assignOpen}
+        onClose={() => setAssignOpen(false)}
+        establishmentId={establishmentId}
+        data={data}
+      />
+      <TeacherPaymentDialog
+        open={!!payFor}
+        onClose={() => setPayFor(null)}
+        assignment={payFor}
+        teacherName={
+          payFor
+            ? (() => {
+                const t = data.teachers.find((x) => x.id === payFor.teacher_id);
+                return t ? `${t.last_name} ${t.first_name}` : "Enseignant";
+              })()
+            : ""
+        }
+        establishmentId={establishmentId}
+        data={data}
+      />
+    </div>
+  );
+}
