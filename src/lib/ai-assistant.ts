@@ -104,7 +104,6 @@ function mapError(rawMsg: string, parsed: { code: string; message: string } | nu
   if (parsed) return { code: parsed.code, message: parsed.message };
   const lower = (rawMsg || "").toLowerCase();
   if (lower.includes("failed to send") || lower.includes("failed to fetch") || lower.includes("network")) {
-    // NOTE POUR CLAUDE: en ligne = le serveur de l'assistant s'est interrompu (délai/crash), pas la connexion.
     if (typeof navigator !== "undefined" && navigator.onLine) {
       return { code: "UPSTREAM", message: "L'assistant ne répond pas (serveur interrompu ou délai dépassé). Réessayez dans un instant." };
     }
@@ -123,7 +122,6 @@ function isAffirmativeClient(msg: string): boolean {
 /**
  * Si l'utilisateur confirme un plan, enrichit le message pour forcer l'exécution.
  * Contourne partiellement la perte du pendingByUser côté Edge (cold start).
- * Ne change pas le protocole serveur — uniquement le texte envoyé à Gemini.
  */
 function strengthenAffirmative(message: string, history: { role: "user" | "assistant"; content: string }[]): string {
   if (!isAffirmativeClient(message)) return message;
@@ -146,8 +144,6 @@ export async function askAssistant(message: string, history: { role: "user" | "a
   if (!trimmed) return { ok: false, error: { code: "VALIDATION", message: "Message vide." } };
   if (trimmed.length > 2000) return { ok: false, error: { code: "VALIDATION", message: "Message trop long (2000 caractères max)." } };
   try {
-    // Historique sans le dernier message utilisateur s'il est identique au message courant
-    // (évite le doublon « Oui » dans history + message qui désoriente le modèle).
     const histClean = history.filter((h, i) => {
       if (i === history.length - 1 && h.role === "user" && h.content.trim() === trimmed) return false;
       return true;
@@ -174,7 +170,7 @@ export async function askAssistant(message: string, history: { role: "user" | "a
     if (data && typeof data === "object" && "ok" in data) return data as AssistantResponse;
     return { ok: false, error: { code: "INTERNAL", message: "Réponse inattendue de l'assistant." } };
   } catch (e) {
-    if (signal?.aborted) return { ok: false, error: { code: "ABORTED", message: "Erreur inattendue" } };
+    if (signal?.aborted) return { ok: false, error: { code: "ABORTED", message: "Requête annulée." } };
     return { ok: false, error: mapError(e instanceof Error ? e.message : "Erreur inattendue", null) };
   }
 }
