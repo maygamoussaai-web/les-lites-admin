@@ -188,7 +188,7 @@ export function BulletinWalkthroughDialog({
           firstAverage: null,
           lastAverage: null,
         });
-        const result = computeModelAverages(buf, mapping, fill);
+        const result = await computeModelAverages(buf, mapping, fill);
         if (result.generalAverage !== null) {
           avgByStudent.set(student.id, {
             avg: result.generalAverage,
@@ -225,7 +225,7 @@ export function BulletinWalkthroughDialog({
             firstAverage: firstAvg,
             lastAverage: lastAvg,
           });
-          const filled = writeFilledWorkbook(buf, mapping, fill);
+          const filled = await writeFilledWorkbook(buf, mapping, fill);
           const rawBuf = filled.buffer;
           if (!rawBuf || (rawBuf instanceof ArrayBuffer && rawBuf.byteLength === 0)) {
             throw new Error("Génération Excel a produit un fichier vide.");
