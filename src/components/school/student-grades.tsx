@@ -89,31 +89,45 @@ export function StudentGradesCard({ studentId, classId }: { studentId: string; c
     [periodGrades, studentId],
   );
 
-  const modelResult = useMemo(() => {
+  const [modelResult, setModelResult] = useState<{
+    generalAverage: number | null;
+    subjectAverages: Record<string, number | null>;
+    warnings: string[];
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
     if (!templateReady || !templateBuffer || !templateMapping || !activePeriod || bySubject.size === 0) {
-      return null;
+      setModelResult(null);
+      return;
     }
-    try {
-      const fill = buildModelFillData({
-        establishmentName: "",
-        className: "",
-        studentFirstName: "",
-        studentLastName: "",
-        periodNumber: activePeriod.period_number,
-        subjects,
-        grades: periodGrades,
-        studentId,
-        headcount: 0,
-        scale: templateScale,
-        rank: null,
-        firstAverage: null,
-        lastAverage: null,
-      });
-      return computeModelAverages(templateBuffer, templateMapping, fill);
-    } catch (e) {
-      console.error(e);
-      return null;
-    }
+    (async () => {
+      try {
+        const fill = buildModelFillData({
+          establishmentName: "",
+          className: "",
+          studentFirstName: "",
+          studentLastName: "",
+          periodNumber: activePeriod.period_number,
+          subjects,
+          grades: periodGrades,
+          studentId,
+          headcount: 0,
+          scale: templateScale,
+          rank: null,
+          firstAverage: null,
+          lastAverage: null,
+        });
+        const result = await computeModelAverages(templateBuffer, templateMapping, fill);
+        if (!cancelled) setModelResult(result);
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) setModelResult(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [
     templateReady,
     templateBuffer,
