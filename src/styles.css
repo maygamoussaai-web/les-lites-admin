@@ -323,10 +323,45 @@
 }
 
 .press {
-  transition: transform 0.15s ease;
+  transition:
+    transform 0.14s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.14s ease,
+    filter 0.14s ease;
+  will-change: transform;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 .press:active {
-  transform: scale(0.97);
+  transform: scale(0.96);
+  filter: brightness(0.97);
+}
+.press:disabled,
+.press[aria-disabled="true"] {
+  transform: none;
+  filter: none;
+}
+
+/* Transition de page (Outlet) */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.page-enter {
+  animation: page-enter 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .page-enter {
+    animation: none;
+  }
+  .press:active {
+    transform: none;
+  }
 }
 
 .panel-gradient {
