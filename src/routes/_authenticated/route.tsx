@@ -114,7 +114,9 @@ function AuthenticatedLayout() {
                 : "animate-fade-soft safe-pad mx-auto w-full max-w-7xl flex-1 space-y-5 p-3 sm:space-y-6 sm:p-5 lg:p-6",
             )}
           >
-            <Outlet />
+            <div key={pathname} className={cn(!isAssistant && "page-enter")}>
+              <Outlet />
+            </div>
           </main>
         </div>
       </div>
