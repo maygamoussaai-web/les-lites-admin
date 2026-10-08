@@ -20,14 +20,14 @@ function subjectRowFromGrades(name: string, gs: Grade[]) {
     g.scale > 0 ? (Number(g.value) / Number(g.scale)) * 20 : Number(g.value);
   const evalValues = evals.map(to20);
   const composition = comp ? to20(comp) : null;
-  const evaluationAverage = evalValues.length
-    ? evalValues.reduce((a, b) => a + b, 0) / evalValues.length
-    : null;
+  // Jamais de moyenne inventée en JS : evaluationAverage / average restent null.
+  // Seules les notes brutes (evaluations + composition) sont des entrées ;
+  // les moyennes viennent uniquement des formules du modèle Excel.
   return {
     name,
     composition,
     evaluations: evalValues,
-    evaluationAverage,
+    evaluationAverage: null as number | null,
     average: null as number | null,
   };
 }
@@ -77,12 +77,12 @@ export function buildModelFillData(opts: {
   };
 }
 
-export function computeModelAverages(
+export async function computeModelAverages(
   templateBuffer: ArrayBuffer,
   mapping: TemplateMapping,
   fillData: FillData,
-): ModelAverages {
-  const { computed, warnings } = writeFilledWorkbook(templateBuffer, mapping, fillData);
+): Promise<ModelAverages> {
+  const { computed, warnings } = await writeFilledWorkbook(templateBuffer, mapping, fillData);
   return {
     generalAverage: computed.generalAverage,
     subjectAverages: computed.subjectAverages,
@@ -91,7 +91,7 @@ export function computeModelAverages(
 }
 
 /** Calcule les moyennes modèle pour plusieurs élèves (stats de classe live). */
-export function computeModelAveragesForStudents(opts: {
+export async function computeModelAveragesForStudents(opts: {
   templateBuffer: ArrayBuffer;
   mapping: TemplateMapping;
   scale: number;
@@ -134,7 +134,7 @@ export function computeModelAveragesForStudents(opts: {
       firstAverage: null,
       lastAverage: null,
     });
-    const result = computeModelAverages(templateBuffer, mapping, fill);
+    const result = await computeModelAverages(templateBuffer, mapping, fill);
     allWarnings.push(...result.warnings);
     perStudent.set(s.id, {
       generalAverage: result.generalAverage,
@@ -147,11 +147,11 @@ export function computeModelAveragesForStudents(opts: {
 
 /**
  * Remplissage annuel à partir des bulletins de périodes déjà générés.
- * - evaluations[] = moyennes de matière de chaque période (ordre chronologique)
- * - composition = moyenne annuelle matière (si le modèle a une colonne composition unique)
- * - average / evaluationAverage = moyenne annuelle matière
- *   → colonnes subject_average / evaluation_average (modèle bref type B)
- * - generalAverage fourni pour lecture ; la MG affichée reste celle des formules Excel
+ * L'app n'injecte QUE les moyennes de période (entrées brutes) :
+ * - evaluations[] = moyennes matière P1, P2, P3… (pour [moy:1], [moy:2]…)
+ * - composition / evaluationAverage / average = null → formules Excel du modèle annuel
+ * - generalAverage = null → formule MG du modèle (jamais de moyenne inventée en JS)
+ * periodStats alimente [mg:1], [rang:2]… (stats de chaque période, entrées légitimes)
  */
 export function buildAnnualFillData(opts: {
   establishmentName: string;
@@ -182,16 +182,17 @@ export function buildAnnualFillData(opts: {
     lastAverage,
   } = opts;
 
-  const periodGeneral: number[] = [];
-  for (const c of studentCards) {
-    if (c.general_average != null && Number.isFinite(Number(c.general_average))) {
-      periodGeneral.push(Number(c.general_average));
-    }
-  }
-  const annualGeneral =
-    periodGeneral.length > 0
-      ? periodGeneral.reduce((a, b) => a + b, 0) / periodGeneral.length
-      : null;
+  const periodStats = studentCards.map((c) => ({
+    generalAverage:
+      c.general_average != null && Number.isFinite(Number(c.general_average))
+        ? Number(c.general_average)
+        : null,
+    rank: null as number | null,
+    firstAverage: null as number | null,
+    lastAverage: null as number | null,
+    classAverage: null as number | null,
+    headcount,
+  }));
 
   const fillSubjects = subjects.map((sub) => {
     const periodVals: number[] = [];
@@ -207,16 +208,13 @@ export function buildAnnualFillData(opts: {
       }
       if (v != null && Number.isFinite(Number(v))) periodVals.push(Number(v));
     }
-    const annual =
-      periodVals.length > 0
-        ? periodVals.reduce((a, b) => a + b, 0) / periodVals.length
-        : null;
+    // Pas de moyenne annuelle JS : le classeur Excel la calcule via ses formules.
     return {
       name: sub.name,
-      composition: annual,
+      composition: null,
       evaluations: periodVals,
-      evaluationAverage: annual,
-      average: annual,
+      evaluationAverage: null,
+      average: null,
     };
   });
 
@@ -228,7 +226,7 @@ export function buildAnnualFillData(opts: {
     studentFirstName,
     studentLastName,
     subjects: fillSubjects,
-    generalAverage: annualGeneral,
+    generalAverage: null,
     firstAverage,
     lastAverage,
     classAverageEvaluation: null,
@@ -236,6 +234,7 @@ export function buildAnnualFillData(opts: {
     headcount,
     rank,
     scale,
+    periodStats,
   };
 }
 
