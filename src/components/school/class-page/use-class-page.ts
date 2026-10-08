@@ -237,7 +237,7 @@ export function useClassPage() {
           });
           return;
         }
-        const live = computeLiveClassStats({
+        const live = await computeLiveClassStats({
           students: classStudents,
           subjects: subjectsQuery.data ?? [],
           grades: gradesForPeriod,
