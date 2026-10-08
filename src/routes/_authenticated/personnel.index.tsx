@@ -1,14 +1,14 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Copy, UserPlus } from "lucide-react";
+import { Copy, Share2, UserPlus, Link2, Clock, Building2, Trash2 } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { DataTable, type Column } from "@/components/app/data-table";
 import { RecordDialog } from "@/components/app/record-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { supabase } from "@/integrations/supabase/client";
 import { useRows } from "@/lib/data";
@@ -27,6 +27,66 @@ export const Route = createFileRoute("/_authenticated/personnel/")({
   }),
   component: Page,
 });
+
+const TOKEN_STORE_KEY = "eg-invite-tokens";
+
+function loadTokenMap(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(TOKEN_STORE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveToken(invitationId: string, token: string) {
+  if (typeof window === "undefined") return;
+  const map = loadTokenMap();
+  map[invitationId] = token;
+  try {
+    localStorage.setItem(TOKEN_STORE_KEY, JSON.stringify(map));
+  } catch {
+    /* quota */
+  }
+}
+
+function removeStoredToken(invitationId: string) {
+  if (typeof window === "undefined") return;
+  const map = loadTokenMap();
+  delete map[invitationId];
+  try {
+    localStorage.setItem(TOKEN_STORE_KEY, JSON.stringify(map));
+  } catch {
+    /* ignore */
+  }
+}
+
+function inviteUrlFromToken(token: string) {
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  return `${origin}/invitation/${token}`;
+}
+
+async function copyText(text: string) {
+  await navigator.clipboard.writeText(text);
+  toast.success("Lien copié dans le presse-papiers");
+}
+
+async function shareInvite(url: string, establishmentName: string) {
+  const title = "Invitation – Les Élites de Gao";
+  const text = `Vous êtes invité(e) à rejoindre l'administration de ${establishmentName || "notre établissement"}. Activez votre compte via ce lien :`;
+  if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+    try {
+      await navigator.share({ title, text, url });
+      return;
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return;
+    }
+  }
+  await copyText(url);
+}
 
 function Page() {
   const navigate = useNavigate();
@@ -54,7 +114,18 @@ function Page() {
   }
 
   const [open, setOpen] = useState(false);
-  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [tokenMapVersion, setTokenMapVersion] = useState(0);
+  const tokenMap = useMemo(() => {
+    void tokenMapVersion;
+    return loadTokenMap();
+  }, [tokenMapVersion, invitations]);
+
+  /** Liens encore utilisables : non acceptés et non expirés. */
+  const pending = useMemo(
+    () =>
+      invitations.filter((i) => !i.accepted_at && new Date(i.expires_at).getTime() > Date.now()),
+    [invitations],
+  );
 
   const invite = useMutation({
     mutationFn: async (values: Record<string, unknown>) => {
@@ -63,22 +134,62 @@ function Page() {
       const token = generateInvitationToken();
       const tokenHash = await sha256Hex(token);
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-      const { error } = await supabase.from("invitations").insert({
-        establishment_id: establishmentId,
-        token_hash: tokenHash,
-        expires_at: expiresAt,
-      });
+      const { data, error } = await supabase
+        .from("invitations")
+        .insert({
+          establishment_id: establishmentId,
+          token_hash: tokenHash,
+          expires_at: expiresAt,
+        })
+        .select("id")
+        .single();
       if (error) throw error;
-      const origin = typeof window !== "undefined" ? window.location.origin : "";
-      return `${origin}/invitation/${token}`;
+      if (data?.id) saveToken(data.id, token);
+      return { id: data.id as string, url: inviteUrlFromToken(token) };
     },
-    onSuccess: (url) => {
-      setInviteUrl(url);
+    onSuccess: () => {
+      setTokenMapVersion((v) => v + 1);
       setOpen(false);
       qc.invalidateQueries({ queryKey: ["invitations"] });
-      toast.success("Invitation générée");
+      toast.success("Invitation créée — le lien est visible ci-dessous jusqu'à utilisation.");
     },
     onError: (e: Error) => toast.error(describeError(e, "Opération impossible")),
+  });
+
+  const revoke = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("invitations").delete().eq("id", id);
+      if (error) throw error;
+      removeStoredToken(id);
+    },
+    onSuccess: () => {
+      setTokenMapVersion((v) => v + 1);
+      qc.invalidateQueries({ queryKey: ["invitations"] });
+      toast.success("Invitation révoquée");
+    },
+    onError: (e: Error) => toast.error(describeError(e, "Révocation impossible")),
+  });
+
+  const regenerate = useMutation({
+    mutationFn: async (invitation: Tables<"invitations">) => {
+      const token = generateInvitationToken();
+      const tokenHash = await sha256Hex(token);
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const { error } = await supabase
+        .from("invitations")
+        .update({ token_hash: tokenHash, expires_at: expiresAt, accepted_at: null })
+        .eq("id", invitation.id);
+      if (error) throw error;
+      saveToken(invitation.id, token);
+      return inviteUrlFromToken(token);
+    },
+    onSuccess: async (url) => {
+      setTokenMapVersion((v) => v + 1);
+      qc.invalidateQueries({ queryKey: ["invitations"] });
+      await copyText(url);
+      toast.success("Nouveau lien généré et copié");
+    },
+    onError: (e: Error) => toast.error(describeError(e, "Régénération impossible")),
   });
 
   const columns: Column<Tables<"admin_profiles">>[] = [
@@ -137,77 +248,171 @@ function Page() {
     },
   ];
 
-  const pending = invitations.filter((i) => !i.accepted_at && new Date(i.expires_at) > new Date());
-
   return (
     <>
       <PageHeader
         title="Personnel administratif"
-        description="Les comptes sont créés uniquement sur invitation du Directeur Général. Cliquez sur un membre pour voir sa fiche."
+        description="Gérez les comptes de l'équipe. Les accès se créent uniquement par invitation du Directeur Général — un lien unique, valable jusqu'à son utilisation."
         actions={
           isDG ? (
-            <Button onClick={() => setOpen(true)}>
+            <Button onClick={() => setOpen(true)} className="press">
               <UserPlus className="mr-2 h-4 w-4" />
-              Inviter
+              Inviter un membre
             </Button>
           ) : undefined
         }
       />
 
-      {inviteUrl && (
-        <Card className="border-primary/30 bg-primary/5">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Lien d'invitation</CardTitle>
+      {isDG && (
+        <Card className="mb-6 overflow-hidden border-border/80 shadow-sm">
+          <CardHeader className="border-b border-border/60 bg-muted/30 pb-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle className="font-display text-lg flex items-center gap-2">
+                  <Link2 className="h-5 w-5 text-primary" />
+                  Invitations en attente
+                </CardTitle>
+                <CardDescription className="mt-1.5 max-w-2xl text-sm leading-relaxed">
+                  Chaque lien reste visible tant qu'il n'a pas été utilisé. Dès que le collègue active
+                  son compte, l'invitation disparaît automatiquement de cette liste. Vous pouvez
+                  copier le lien ou le partager directement via les applications de votre téléphone.
+                </CardDescription>
+              </div>
+              <Badge variant="secondary" className="tabular-nums">
+                {pending.length} en cours
+              </Badge>
+            </div>
           </CardHeader>
-          <CardContent className="flex flex-wrap items-center gap-2">
-            <code className="flex-1 break-all rounded-md bg-background px-2 py-1 text-xs">{inviteUrl}</code>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={async () => {
-                await navigator.clipboard.writeText(inviteUrl);
-                toast.success("Lien copié");
-              }}
-            >
-              <Copy className="mr-1.5 h-3.5 w-3.5" />
-              Copier
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      <DataTable
-        columns={columns}
-        rows={profiles}
-        loading={profilesQ.isPending}
-        onRowClick={(r) => navigate({ to: "/personnel/$id", params: { id: r.id } })}
-        emptyLabel="Aucun membre pour le moment."
-      />
-
-      {isDG && pending.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Invitations en attente ({pending.length})</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            {pending.map((i) => {
-              const est = establishments.find((e) => e.id === i.establishment_id);
-              return (
-                <div key={i.id} className="flex justify-between border-b border-border/50 pb-1.5 last:border-0">
-                  <span>{est?.name ?? "—"}</span>
-                  <span className="text-muted-foreground">Expire le {formatDateTime(i.expires_at)}</span>
+          <CardContent className="p-0">
+            {pending.length === 0 ? (
+              <div className="px-6 py-10 text-center">
+                <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
+                  <UserPlus className="h-5 w-5 text-primary" />
                 </div>
-              );
-            })}
+                <p className="text-sm font-medium text-foreground">Aucune invitation en attente</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Cliquez sur « Inviter un membre » pour générer un lien d'activation sécurisé.
+                </p>
+              </div>
+            ) : (
+              <ul className="divide-y divide-border">
+                {pending.map((inv) => {
+                  const est = establishments.find((e) => e.id === inv.establishment_id);
+                  const token = tokenMap[inv.id];
+                  const url = token ? inviteUrlFromToken(token) : null;
+                  const estName = est?.name ?? "Établissement";
+                  return (
+                    <li
+                      key={inv.id}
+                      className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-6"
+                    >
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground">
+                            <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                            {estName}
+                          </span>
+                          <Badge variant="outline" className="text-[10px] font-normal">
+                            Non utilisé
+                          </Badge>
+                        </div>
+                        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                          <Clock className="h-3 w-3" />
+                          Expire le {formatDateTime(inv.expires_at)}
+                        </p>
+                        {url ? (
+                          <code className="mt-1 block max-w-full truncate rounded-md bg-muted/60 px-2 py-1 text-[11px] text-muted-foreground">
+                            {url}
+                          </code>
+                        ) : (
+                          <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                            Lien non disponible sur cet appareil — régénérez-le pour l'afficher.
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                        {url ? (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="press h-9"
+                              onClick={() => void copyText(url)}
+                              aria-label="Copier le lien"
+                            >
+                              <Copy className="mr-1.5 h-3.5 w-3.5" />
+                              Copier
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="default"
+                              className="press h-9"
+                              onClick={() => void shareInvite(url, estName)}
+                              aria-label="Partager le lien"
+                            >
+                              <Share2 className="mr-1.5 h-3.5 w-3.5" />
+                              Partager
+                            </Button>
+                          </>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="press h-9"
+                            disabled={regenerate.isPending}
+                            onClick={() => regenerate.mutate(inv)}
+                          >
+                            <Link2 className="mr-1.5 h-3.5 w-3.5" />
+                            Régénérer le lien
+                          </Button>
+                        )}
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-9 w-9 text-muted-foreground hover:text-destructive"
+                          disabled={revoke.isPending}
+                          onClick={() => {
+                            if (confirm("Révoquer cette invitation ? Le lien ne fonctionnera plus.")) {
+                              revoke.mutate(inv.id);
+                            }
+                          }}
+                          aria-label="Révoquer l'invitation"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
           </CardContent>
         </Card>
       )}
+
+      <Card className="overflow-hidden border-border/80 shadow-sm">
+        <CardHeader className="border-b border-border/60 pb-3">
+          <CardTitle className="font-display text-base">Équipe administrative</CardTitle>
+          <CardDescription className="text-xs">
+            Cliquez sur un membre pour ouvrir sa fiche (rôle, établissements, accès).
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <DataTable
+            columns={columns}
+            rows={profiles}
+            loading={profilesQ.isPending}
+            onRowClick={(r) => navigate({ to: "/personnel/$id", params: { id: r.id } })}
+            emptyLabel="Aucun membre pour le moment. Invitez la première personne de l'équipe."
+          />
+        </CardContent>
+      </Card>
 
       <RecordDialog
         open={open}
         onOpenChange={setOpen}
-        title="Inviter un membre"
-        description="Le destinataire utilisera le lien pour créer son compte."
+        title="Inviter un membre de l'équipe"
+        description="Choisissez l'établissement d'affectation. Un lien sécurisé sera généré : votre collègue l'utilisera pour créer son compte. Le lien reste visible ici jusqu'à son activation."
         fields={[
           {
             name: "establishment_id",
