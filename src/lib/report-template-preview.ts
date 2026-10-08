@@ -22,7 +22,7 @@ export async function buildFictivePreview(opts: {
     scale: opts.scale,
     periods: Math.max(3, opts.mapping.periodGroupLabels?.length ?? 0),
   });
-  const { buffer: out, warnings } = writeFilledWorkbook(opts.buffer, opts.mapping, fill);
+  const { buffer: out, warnings } = await writeFilledWorkbook(opts.buffer, opts.mapping, fill);
   const wb = XLSX.read(out, { type: "array" });
   const sheetName = wb.SheetNames[0];
   const ws = wb.Sheets[sheetName];

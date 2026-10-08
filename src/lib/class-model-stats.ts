@@ -27,7 +27,7 @@ export type LiveClassStats = {
   source: "bulletin" | "modele_live";
 };
 
-export function computeLiveClassStats(args: {
+export async function computeLiveClassStats(args: {
   students: { id: string; first_name: string; last_name: string }[];
   subjects: ClassSubject[];
   grades: Grade[];
@@ -37,7 +37,7 @@ export function computeLiveClassStats(args: {
   scale: number;
   establishmentName?: string;
   className?: string;
-}): LiveClassStats | null {
+}): Promise<LiveClassStats | null> {
   const {
     students,
     subjects,
@@ -71,7 +71,7 @@ export function computeLiveClassStats(args: {
         firstAverage: null,
         lastAverage: null,
       });
-      const result = computeModelAverages(templateBuffer, mapping, fill);
+      const result = await computeModelAverages(templateBuffer, mapping, fill);
       if (result.generalAverage === null || !Number.isFinite(result.generalAverage)) continue;
       const weak = Object.entries(result.subjectAverages)
         .filter(([, v]) => v !== null && (v as number) < PASS_THRESHOLD)
