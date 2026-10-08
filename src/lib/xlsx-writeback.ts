@@ -1,13 +1,15 @@
 /**
- * REMPLISSAGE DU CLASSEUR EXCEL ORIGINAL — Option 2.
+ * REMPLISSAGE DU CLASSEUR EXCEL ORIGINAL — fidélité au modèle importé.
  *
- * 1. Part du fichier .xlsx d'origine (mise en page, styles, fusions intacts).
- * 2. Ecrit uniquement notes + balises dans les cellules de saisie.
- * 3. Pour chaque cellule qui a une formule : lit LA formule du modele,
- *    la calcule dans l'app (moteur JS), ecrit le resultat numerique fige.
- * 4. Les moyennes affichees / livrees viennent UNIQUEMENT de ces formules.
+ * 1. Part du fichier .xlsx d'origine.
+ * 2. N'écrit que les entrées (notes, balises [prenom]/[nom]…).
+ * 3. Ne touche jamais une cellule déjà en formule.
+ * 4. Après écriture : fusion JSZip des media/drawings/theme d'origine
+ *    (logos, photos, thème) pour coller au modèle importé.
+ * 5. Moyennes = formules du modèle uniquement (pas de reduce JS).
  */
 import * as XLSX from "xlsx";
+import JSZip from "jszip";
 import { evaluateFormula, UnsupportedFormulaError, type CellValue } from "@/lib/xlsx-formula";
 import {
   colIndex,
@@ -77,17 +79,18 @@ function fieldValue(role: FieldRole, data: FillData): number | string | null {
   }
 }
 
-export function writeFilledWorkbook(
+export async function writeFilledWorkbook(
   originalBuffer: ArrayBuffer,
   mapping: TemplateMapping,
   data: FillData,
-): { buffer: ArrayBuffer; computed: ComputedAverages; warnings: string[] } {
+): Promise<{ buffer: ArrayBuffer; computed: ComputedAverages; warnings: string[] }> {
   const wb = XLSX.read(originalBuffer, { type: "array", cellFormula: true, cellStyles: true });
   const ws = wb.Sheets[mapping.sheetName] ?? wb.Sheets[wb.SheetNames[0]!];
   if (!ws) throw new Error("Feuille du modele introuvable dans le fichier.");
 
   const warnings: string[] = [];
 
+  // Rattrapage : balises de colonnes + libellés absents du mapping stocké
   {
     const cols = { ...mapping.columns };
     const periodCols = { ...(mapping.periodColumns ?? {}) };
@@ -146,9 +149,49 @@ export function writeFilledWorkbook(
     if (!PRE_FORMULA_FIELDS.has(role)) continue;
     const cell = ws[address] as XLSX.CellObject | undefined;
     if (cell?.f) continue;
+    const raw = cell?.v !== null && cell?.v !== undefined ? String(cell.v).trim() : "";
+    const isToken = /^\s*[[{].+[\]}]\s*$/.test(raw);
+    if (raw && !isToken) continue;
     setInputCell(address, fieldValue(role, data));
   }
 
+  // Repli : balises [prenom], [nom], … même si absentes du mapping stocké
+  {
+    const TOKEN_ROLES: Record<string, FieldRole> = {
+      prenom: "student_first_name",
+      nom: "student_last_name",
+      "nom de famille": "student_last_name",
+      "nom et prenom": "student_name",
+      classe: "class_name",
+      etablissement: "establishment_name",
+      periode: "period_label",
+      trimestre: "period_label",
+      effectif: "headcount",
+      rang: "rank",
+      date: "date",
+      "moyenne du premier": "first_average",
+      "moyenne du dernier": "last_average",
+    };
+    const rangeTok = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
+    for (let r = rangeTok.s.r; r <= rangeTok.e.r; r++) {
+      for (let c = rangeTok.s.c; c <= rangeTok.e.c; c++) {
+        const address = XLSX.utils.encode_cell({ r, c });
+        const cell = ws[address] as XLSX.CellObject | undefined;
+        if (!cell || cell.f) continue;
+        const raw = cell.v !== null && cell.v !== undefined ? String(cell.v).trim() : "";
+        const m = /^\[\s*([^\]]+?)\s*\]$/.exec(raw) || /^\{\s*([^}]+?)\s*\}$/.exec(raw);
+        if (!m) continue;
+        const key = normalize(m[1]!);
+        const role = TOKEN_ROLES[key];
+        if (!role || !PRE_FORMULA_FIELDS.has(role)) continue;
+        setInputCell(address, fieldValue(role, data));
+      }
+    }
+  }
+
+  // NOTE POUR CLAUDE: balises statistiques indexées par période (bulletins annuels
+  // ou tout modèle multi-périodes) : [mg:1], [rang:2], [premier:3], [dernier:1],
+  // [moy_classe:2], [effectif:3] ; suffixe « :annuel » ou sans indice = valeur annuelle/courante.
   {
     const STAT_KEYS: Record<string, keyof PeriodStat> = {
       mg: "generalAverage", moyenne: "generalAverage", "moyenne generale": "generalAverage", moy_gen: "generalAverage",
@@ -172,7 +215,14 @@ export function writeFilledWorkbook(
         const key = STAT_KEYS[rawKey] ?? STAT_KEYS[normalize(rawKey)];
         if (!key) continue;
         const idx = m[2] && /^\d+$/.test(m[2]) ? Number(m[2]) - 1 : null;
-        if (idx === null && !m[2] && key !== "generalAverage" && key !== "classAverage") continue;
+        // Sans indice : rang/effectif/premier/dernier déjà gérés plus haut.
+        // generalAverage sans indice = sortie (formule Excel) → on n'écrit jamais.
+        // classAverage sans indice = entrée légitime (moyenne de classe connue).
+        // Avec indice ([mg:1], [rang:2]…) = stats de période (bulletin annuel).
+        if (idx === null && !m[2]) {
+          if (key === "generalAverage") continue;
+          if (key !== "classAverage") continue;
+        }
         const stat = idx === null ? current : data.periodStats?.[idx];
         const raw = stat ? stat[key] : null;
         const isCount = key === "rank" || key === "headcount";
@@ -187,11 +237,8 @@ export function writeFilledWorkbook(
     const remaining = new Map(data.subjects.map((s) => [normalize(s.name), s]));
     const evalLetters = Object.entries(mapping.columns)
       .filter(([, role]) => role === "evaluation")
-      .map(([letter]) => letter);
-    const compLetter = Object.entries(mapping.columns).find(([, role]) => role === "composition")?.[0];
-    const evalAvgLetter = Object.entries(mapping.columns).find(([, role]) => role === "evaluation_average")?.[0];
-    const subjAvgLetter = Object.entries(mapping.columns).find(([, role]) => role === "subject_average")?.[0];
-    const periodCols = mapping.periodColumns ?? {};
+      .map(([letter]) => letter)
+      .sort((a, b) => colIndex(a) - colIndex(b));
 
     for (let r = mapping.firstSubjectRow; r <= mapping.lastSubjectRow; r++) {
       const cell = ws[`${subjectColumn}${r}`] as XLSX.CellObject | undefined;
@@ -206,85 +253,100 @@ export function writeFilledWorkbook(
       remaining.delete(normalize(match.name));
       rowSubjectName.set(r, match.name);
 
-      for (const letter of evalLetters) {
+      const periodCols = mapping.periodColumns ?? {};
+      for (const [letter, role] of Object.entries(mapping.columns)) {
         const address = `${letter}${r}`;
         const periodIdx = periodCols[letter];
-        const raw =
-          periodIdx != null
-            ? (match.evaluations[periodIdx] ?? null)
-            : match.evaluations.length === 1
-              ? match.evaluations[0]!
-              : match.evaluations[0] ?? null;
-        setInputCell(address, toScale(raw, data.scale));
-      }
-      if (compLetter) {
-        const address = `${compLetter}${r}`;
-        const periodIdx = periodCols[compLetter];
-        const raw =
-          periodIdx != null
-            ? (match.evaluations[periodIdx] ?? match.composition)
-            : match.composition;
-        setInputCell(address, toScale(raw, data.scale));
-      }
-      if (evalAvgLetter) {
-        const address = `${evalAvgLetter}${r}`;
-        const periodIdx = periodCols[evalAvgLetter];
-        const raw =
-          periodIdx != null
-            ? (match.evaluations[periodIdx] ?? match.evaluationAverage ?? match.average)
-            : (match.evaluationAverage ?? match.average);
-        setInputCell(address, toScale(raw, data.scale));
-      }
-      if (subjAvgLetter) {
-        const address = `${subjAvgLetter}${r}`;
-        const periodIdx = periodCols[subjAvgLetter];
-        const raw =
-          periodIdx != null
-            ? (match.evaluations[periodIdx] ?? match.average)
-            : match.average;
-        setInputCell(address, toScale(raw, data.scale));
+        if (role === "composition") {
+          const raw =
+            periodIdx != null && match.evaluations[periodIdx] != null
+              ? match.evaluations[periodIdx]
+              : match.composition;
+          setInputCell(address, toScale(raw, data.scale));
+        } else if (role === "evaluation") {
+          const raw =
+            periodIdx != null
+              ? (match.evaluations[periodIdx] ?? null)
+              : (() => {
+                  const idx = evalLetters.indexOf(letter);
+                  return idx >= 0 ? (match.evaluations[idx] ?? null) : null;
+                })();
+          setInputCell(address, toScale(raw, data.scale));
+        } else if (role === "evaluation_average") {
+          // Entrée légitime uniquement si index de période (bulletin annuel [moy_eval:1]).
+          // Sans période : jamais de moyenne inventée en JS — formule Excel uniquement.
+          const raw =
+            periodIdx != null ? (match.evaluations[periodIdx] ?? null) : null;
+          setInputCell(address, toScale(raw, data.scale));
+        } else if (role === "subject_average") {
+          // Idem : moyennes matière sans formule = lecture seule Excel.
+          // Avec période ([moy:1]…) = moyenne de période déjà calculée par le modèle périodique.
+          const raw =
+            periodIdx != null
+              ? (match.evaluations[periodIdx] ?? null)
+              : null;
+          setInputCell(address, toScale(raw, data.scale));
+        }
       }
     }
   }
 
-  const values: Record<string, CellValue> = {};
+  const formulas: { address: string; formula: string }[] = [];
   const range = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
+  for (let r = range.s.r; r <= range.e.r; r++) {
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const address = XLSX.utils.encode_cell({ r, c });
+      const cell = ws[address] as XLSX.CellObject | undefined;
+      if (cell?.f) formulas.push({ address, formula: String(cell.f) });
+    }
+  }
+
+  const values: Record<string, CellValue> = {};
   for (let r = range.s.r; r <= range.e.r; r++) {
     for (let c = range.s.c; c <= range.e.c; c++) {
       const address = XLSX.utils.encode_cell({ r, c });
       const cell = ws[address] as XLSX.CellObject | undefined;
       if (!cell) continue;
       if (cell.f) {
-        try {
-          const result = evaluateFormula(cell.f, (ref) => {
-            if (ref in values) return values[ref]!;
-            const dep = ws[ref] as XLSX.CellObject | undefined;
-            if (!dep) return null;
-            if (dep.f && !(ref in values)) return null;
-            return (dep.v as CellValue) ?? null;
-          });
-          values[address] = result;
-          ws[address] = { ...cell, t: typeof result === "number" ? "n" : "s", v: result ?? undefined };
-        } catch (e) {
-          if (e instanceof UnsupportedFormulaError) {
-            warnings.push(`Formule non supportée (${address}): ${cell.f}`);
-          }
-          values[address] = (cell.v as CellValue) ?? null;
+        values[address] = null;
+        continue;
+      }
+      if (cell.t === "n" && typeof cell.v === "number") values[address] = cell.v;
+      else if (cell.v === undefined || cell.v === null) values[address] = null;
+      else values[address] = String(cell.v);
+    }
+  }
+
+  const maxPasses = Math.max(8, formulas.length + 2);
+  for (let pass = 0; pass < maxPasses; pass++) {
+    for (const { address, formula } of formulas) {
+      try {
+        values[address] = evaluateFormula(formula, (ref) => values[ref] ?? null);
+      } catch (e) {
+        if (pass === maxPasses - 1 && e instanceof UnsupportedFormulaError) {
+          warnings.push(`Formule non geree en ${address} : ${e.fn}`);
         }
-      } else {
-        values[address] = (cell.v as CellValue) ?? null;
       }
     }
   }
 
-  for (const [address, cell] of Object.entries(ws)) {
-    if (address.startsWith("!")) continue;
-    const c = cell as XLSX.CellObject;
-    if (!c.f) continue;
-    const next = { ...c };
-    if (address in values && values[address] != null) {
-      next.v = values[address] as string | number;
-      next.t = typeof values[address] === "number" ? "n" : "s";
+  // NOTE POUR CLAUDE: « Cas A » validé par l'utilisateur — la formule du modèle
+  // est CONSERVÉE dans le .xlsx livré (cell.f) ; on n'y ajoute que la valeur
+  // calculée (cell.v) pour un affichage immédiat. Excel recalcule à l'ouverture.
+  for (const { address, formula } of formulas) {
+    const result = values[address];
+    const cell = ws[address] as XLSX.CellObject | undefined;
+    const next: XLSX.CellObject = { ...(cell ?? {}), f: formula } as XLSX.CellObject;
+    delete next.w;
+    if (result === null || result === undefined) {
+      delete next.v;
+      next.t = "s";
+    } else if (typeof result === "number") {
+      next.t = "n";
+      next.v = result;
+    } else {
+      next.t = "s";
+      next.v = String(result);
     }
     ws[address] = next;
   }
@@ -358,10 +420,31 @@ export function writeFilledWorkbook(
   }
 
   const written = XLSX.write(wb, { type: "array", bookType: "xlsx", cellStyles: true });
-  const buffer: ArrayBuffer =
+  let buffer: ArrayBuffer =
     written instanceof ArrayBuffer
       ? written
       : new Uint8Array(written as number[]).buffer.slice(0);
+
+  // Fidélité visuelle : recoopie logos / images / dessins / thème depuis le modèle d'origine
+  try {
+    const origZip = await JSZip.loadAsync(originalBuffer);
+    const newZip = await JSZip.loadAsync(buffer);
+    for (const [path, entry] of Object.entries(origZip.files)) {
+      if (entry.dir) continue;
+      if (
+        path.startsWith("xl/media/") ||
+        path.startsWith("xl/drawings/") ||
+        path.startsWith("xl/theme/") ||
+        (path.includes("_rels") && (path.includes("drawing") || path.includes("sheet")))
+      ) {
+        newZip.file(path, await entry.async("uint8array"));
+      }
+    }
+    buffer = await newZip.generateAsync({ type: "arraybuffer", compression: "DEFLATE" });
+  } catch {
+    /* conserve buffer SheetJS si fusion impossible */
+  }
+
   return {
     buffer,
     computed: { generalAverage, subjectAverages },
@@ -410,4 +493,11 @@ export function extractComputedAveragesFromRecalculated(
   }
 
   return { generalAverage, subjectAverages };
+}
+
+export async function convertWorkbookOnline(
+  _workbook: ArrayBuffer,
+  _filename?: string,
+): Promise<{ pdf: Blob; recalculated: ArrayBuffer } | null> {
+  return null;
 }
