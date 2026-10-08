@@ -259,7 +259,7 @@ export function AnnualBulletinDialog({
             });
             fill.classAverage = annualClassAverage;
             fill.periodStats = periodStatsByStudent.get(s.id) ?? [];
-            const written = writeFilledWorkbook(tpl.buffer, tpl.mapping, fill);
+            const written = await writeFilledWorkbook(tpl.buffer, tpl.mapping, fill);
             const blob = toBlob(written.buffer);
             const storagePath = `${klass.establishment_id}/${s.id}/bulletin-annuel-${Date.now()}.xlsx`;
             const uploaded = await uploadBulletinWorkbook(storagePath, blob);
