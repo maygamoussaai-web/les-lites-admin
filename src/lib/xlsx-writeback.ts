@@ -127,16 +127,21 @@ export async function writeFilledWorkbook(
     }
   }
 
+  /** Adresses réellement écrites (balises + notes) — seules celles-ci partent dans le .xlsx livré. */
+  const touched = new Map<string, number | string>();
+
   const setInputCell = (address: string, value: number | string | null) => {
     const cell = ws[address] as XLSX.CellObject | undefined;
-    if (cell?.f) return;
+    if (cell?.f) return; // jamais écraser une formule du modèle
     if (value === null || value === undefined) {
       if (cell) {
         delete cell.v;
         delete cell.w;
       }
+      touched.delete(address);
       return;
     }
+    touched.set(address, value);
     ws[address] = {
       ...(cell ?? {}),
       t: typeof value === "number" ? "n" : "s",
@@ -150,8 +155,10 @@ export async function writeFilledWorkbook(
     const cell = ws[address] as XLSX.CellObject | undefined;
     if (cell?.f) continue;
     const raw = cell?.v !== null && cell?.v !== undefined ? String(cell.v).trim() : "";
+    // IMPORTANT : n'écrire QUE si la cellule est une balise pure [token]/{token}.
+    // Jamais une cellule vide (mapping obsolète) ni un libellé libre.
     const isToken = /^\s*[[{].+[\]}]\s*$/.test(raw);
-    if (raw && !isToken) continue;
+    if (!isToken) continue;
     setInputCell(address, fieldValue(role, data));
   }
 
@@ -419,13 +426,49 @@ export async function writeFilledWorkbook(
     );
   }
 
+  // Livraison fidèle : ExcelJS part du buffer d'origine (couleurs, styles, fusions, images).
+  // On n'écrit QUE les entrées (balises + notes). Jamais de formule inventée.
+  try {
+    const ExcelJS = (await import("exceljs")).default;
+    const ewb = new ExcelJS.Workbook();
+    await ewb.xlsx.load(originalBuffer as ArrayBuffer);
+    const ews = ewb.getWorksheet(mapping.sheetName) ?? ewb.worksheets[0];
+    if (!ews) throw new Error("Feuille ExcelJS introuvable");
+
+    // Écrit UNIQUEMENT les cellules touchées (balises + notes matières).
+    for (const [address, value] of touched) {
+      const cell = ews.getCell(address);
+      if (cell.formula) continue;
+      const v = cell.value as unknown;
+      if (v && typeof v === "object" && "formula" in (v as object)) continue;
+      cell.value = value;
+    }
+
+    const out = await ewb.xlsx.writeBuffer();
+    const buffer: ArrayBuffer =
+      out instanceof ArrayBuffer
+        ? out
+        : (out as Uint8Array).buffer.slice(
+            (out as Uint8Array).byteOffset,
+            (out as Uint8Array).byteOffset + (out as Uint8Array).byteLength,
+          );
+    return {
+      buffer,
+      computed: { generalAverage, subjectAverages },
+      warnings: [...new Set(warnings)],
+    };
+  } catch (e) {
+    warnings.push(
+      `ExcelJS indisponible (${e instanceof Error ? e.message : "erreur"}) — repli SheetJS + media.`,
+    );
+  }
+
   const written = XLSX.write(wb, { type: "array", bookType: "xlsx", cellStyles: true });
   let buffer: ArrayBuffer =
     written instanceof ArrayBuffer
       ? written
       : new Uint8Array(written as number[]).buffer.slice(0);
 
-  // Fidélité visuelle : recoopie logos / images / dessins / thème depuis le modèle d'origine
   try {
     const origZip = await JSZip.loadAsync(originalBuffer);
     const newZip = await JSZip.loadAsync(buffer);
@@ -442,7 +485,7 @@ export async function writeFilledWorkbook(
     }
     buffer = await newZip.generateAsync({ type: "arraybuffer", compression: "DEFLATE" });
   } catch {
-    /* conserve buffer SheetJS si fusion impossible */
+    /* ignore */
   }
 
   return {
