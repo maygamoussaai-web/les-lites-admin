@@ -161,13 +161,16 @@ export const normalize = (value: string) =>
     .trim();
 
 const NON_SUBJECT_RE =
-  /^(total|sous ?total|moyenne|moyenne general|moyenne generale|moyenne annuelle|rang|effectif|date|observation|observations|appreciation|appreciations|commentaire|commentaires|signature|visa|le directeur|le provis|provis|parent|tuteur|fait a|fait le)\b/;
+  /^(total|sous ?total|moyen|moyenne|moyen general|moyenne general|moyen generale|moyenne generale|moyenne annuelle|rang|effectif|date|observation|observations|appreciation|appreciations|commentaire|commentaires|signature|visa|le directeur|le provis|provis|parent|tuteur|fait a|fait le)\b/;
 
 export function isSubjectLabel(label: string): boolean {
   const t = normalize(label);
   if (!t || t.length < 2) return false;
   if (/^\d+([.,]\d+)?$/.test(t)) return false;
   if (NON_SUBJECT_RE.test(t)) return false;
+  // « Moyen Général », « Moyenne générale », « Total : », etc. ne sont JAMAIS des matières
+  if (/\bmoyen(ne)?\b/.test(t) && /\bgeneral/.test(t)) return false;
+  if (t === "moyen" || t === "moyenne" || t.startsWith("moyen ") || t.startsWith("moyenne ")) return false;
   if (/\bobservation/.test(t)) return false;
   if (/\bappreciation/.test(t)) return false;
   if (t.includes("proviseur") || t.includes("directeur")) return false;
