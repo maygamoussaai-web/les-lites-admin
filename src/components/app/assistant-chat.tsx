@@ -4,7 +4,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
-  Check, Copy, Loader2, Pencil, RefreshCw, Send, Square, Trash2, X,
+  Check, Copy, ImagePlus, Loader2, Pencil, RefreshCw, Send, Square, Trash2, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAdminProfile } from "@/hooks/use-auth";
 import {
   askAssistant, clearAssistantMessages, createMessage, formatMessageTime,
-  loadOlderAssistantMessages, loadRecentAssistantMessages, saveAssistantMessages, type AssistantMessage,
+  loadOlderAssistantMessages, loadRecentAssistantMessages, saveAssistantMessages,
+  type AssistantImage, type AssistantMessage,
 } from "@/lib/ai-assistant";
 import { cn } from "@/lib/utils";
 import { useQueryClient } from "@tanstack/react-query";
@@ -24,9 +25,9 @@ type Props = { className?: string };
 const SUGGESTIONS = [
   "Fais-moi une synthèse du complexe",
   "Classement de la dernière période d'une classe",
+  "Enregistre les notes de maths composition pour toute la 11ème SC",
   "Quels élèves ont un reste à payer ?",
   "Statistiques de réussite par classe",
-  "Liste des enseignants et leurs séances",
 ];
 
 /**
@@ -202,6 +203,8 @@ export function AssistantChat({ className }: Props) {
   const userId = user?.id ?? "";
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [input, setInput] = useState("");
+  const [pendingImages, setPendingImages] = useState<{ preview: string; payload: AssistantImage }[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [sending, setSending] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
@@ -264,13 +267,53 @@ export function AssistantChat({ className }: Props) {
     setSending(false);
   };
 
-  const runAsk = async (text: string, baseMessages: AssistantMessage[]) => {
+  const readImageAsPayload = (file: File): Promise<{ preview: string; payload: AssistantImage } | null> =>
+    new Promise((resolve) => {
+      if (!file.type.startsWith("image/")) {
+        toast.error("Fichier non image");
+        resolve(null);
+        return;
+      }
+      if (file.size > 4 * 1024 * 1024) {
+        toast.error("Image trop lourde (max 4 Mo)");
+        resolve(null);
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = String(reader.result || "");
+        const b64idx = dataUrl.indexOf("base64,");
+        const data = b64idx >= 0 ? dataUrl.slice(b64idx + 7) : dataUrl;
+        if (!data) {
+          resolve(null);
+          return;
+        }
+        resolve({
+          preview: dataUrl,
+          payload: { mimeType: file.type || "image/jpeg", data },
+        });
+      };
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    });
+
+  const onPickImages = async (files: FileList | null) => {
+    if (!files?.length) return;
+    const next = [...pendingImages];
+    for (const file of Array.from(files).slice(0, 4 - next.length)) {
+      const item = await readImageAsPayload(file);
+      if (item) next.push(item);
+    }
+    setPendingImages(next.slice(0, 4));
+  };
+
+  const runAsk = async (text: string, baseMessages: AssistantMessage[], images: AssistantImage[] = []) => {
     const history = baseMessages.map((m) => ({ role: m.role, content: m.content }));
     const controller = new AbortController();
     abortRef.current = controller;
     setSending(true);
     try {
-      const res = await askAssistant(text, history, controller.signal);
+      const res = await askAssistant(text, history, controller.signal, images);
       if (controller.signal.aborted) return;
       if (res.ok) {
         persist([...baseMessages, createMessage("assistant", res.data.reply)]);
@@ -295,12 +338,17 @@ export function AssistantChat({ className }: Props) {
 
   const send = async (overrideText?: string) => {
     const text = (overrideText ?? input).trim();
-    if (!text || sending || !userId) return;
-    const userMsg = createMessage("user", text);
+    const imgs = pendingImages.map((p) => p.payload);
+    if ((!text && imgs.length === 0) || sending || !userId) return;
+    const display =
+      text ||
+      (imgs.length === 1 ? "[Photo jointe]" : `[${imgs.length} photos jointes]`);
+    const userMsg = createMessage("user", display);
     const withUser = [...messages, userMsg];
     persist(withUser);
     setInput("");
-    await runAsk(text, withUser);
+    setPendingImages([]);
+    await runAsk(text, withUser, imgs);
   };
 
   const regenerate = async (assistantMsgId: string) => {
@@ -367,18 +415,30 @@ export function AssistantChat({ className }: Props) {
 
   return (
     <div className={cn("flex h-full min-h-0 flex-col bg-background", className)}>
-      <div ref={scrollerRef} onScroll={() => void onScroll()} className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-2xl space-y-6 px-3 py-5 sm:max-w-3xl sm:px-5 sm:py-7">
-          {loadingOlder && <p className="text-center text-xs text-muted-foreground">Chargement…</p>}
+      <div
+        ref={scrollerRef}
+        onScroll={() => void onScroll()}
+        className="min-h-0 flex-1 overflow-y-auto scroll-smooth [scrollbar-gutter:stable]"
+      >
+        <div className="mx-auto w-full max-w-2xl space-y-5 px-3 py-5 sm:max-w-3xl sm:px-6 sm:py-7">
+          {loadingOlder && (
+            <p className="py-1.5 text-center text-[11px] font-medium tracking-wide text-muted-foreground/80">
+              Chargement…
+            </p>
+          )}
           {messages.length === 0 && !sending && (
-            <div className="flex flex-col items-center justify-center gap-7 py-12 sm:py-20">
+            <div className="flex flex-col items-center justify-center gap-7 py-16 sm:py-24">
+              <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl border border-border/60 bg-gradient-to-br from-primary/15 via-card to-card shadow-sm">
+                <span className="font-display text-lg font-semibold text-primary">AI</span>
+                <span className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-inset ring-primary/10" />
+              </div>
               <div className="max-w-md text-center">
-                <h2 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+                <h2 className="font-display text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
                   Comment puis-je vous aider ?
                 </h2>
-                <p className="mt-2.5 text-[15px] leading-relaxed text-muted-foreground">
-                  Classes, élèves, enseignants, établissements et résultats.
-                  Je consulte et j'agis dans la limite de vos droits. Toute modification vous est soumise avant exécution.
+                <p className="mt-2.5 text-sm leading-relaxed text-muted-foreground">
+                  Classes, élèves, enseignants, finance. Lecture immédiate ; toute écriture attend
+                  votre confirmation.
                 </p>
               </div>
               <div className="flex max-w-lg flex-wrap justify-center gap-2">
@@ -387,7 +447,7 @@ export function AssistantChat({ className }: Props) {
                     key={s}
                     type="button"
                     onClick={() => void send(s)}
-                    className="rounded-full border border-border/60 bg-card/80 px-3.5 py-2 text-left text-[13px] text-foreground transition-colors hover:border-border hover:bg-muted/50 sm:text-sm"
+                    className="rounded-full border border-border/55 bg-card/90 px-3.5 py-2 text-left text-[13px] text-foreground/90 shadow-sm transition hover:border-primary/35 hover:bg-muted/50 hover:shadow active:scale-[0.98]"
                   >
                     {s}
                   </button>
@@ -402,16 +462,19 @@ export function AssistantChat({ className }: Props) {
             return (
               <div
                 key={m.id}
-                className={cn("group flex w-full gap-3", isUser ? "justify-end" : "justify-start")}
+                className={cn(
+                  "group flex w-full gap-2.5",
+                  isUser ? "justify-end" : "justify-start",
+                )}
               >
                 <div
                   className={cn(
-                    "flex min-w-0 max-w-[min(100%,40rem)] flex-col gap-1.5",
+                    "flex min-w-0 max-w-[min(100%,38rem)] flex-col gap-1.5",
                     isUser && "items-end",
                   )}
                 >
                   {isEditing ? (
-                    <div className="w-full min-w-[min(100%,20rem)] space-y-2 rounded-2xl border border-border bg-card p-3 shadow-sm">
+                    <div className="w-full min-w-[min(100%,18rem)] space-y-2.5 rounded-2xl border border-border/70 bg-card p-3.5 shadow-sm">
                       <Textarea
                         value={editDraft}
                         onChange={(e) => setEditDraft(e.target.value)}
@@ -439,10 +502,10 @@ export function AssistantChat({ className }: Props) {
                   ) : (
                     <div
                       className={cn(
-                        "rounded-2xl px-4 py-3",
+                        "rounded-2xl px-4 py-3 text-[15px] leading-relaxed shadow-sm",
                         isUser
-                          ? "bg-primary text-primary-foreground shadow-sm"
-                          : "bg-muted/40 text-foreground ring-1 ring-border/40",
+                          ? "rounded-br-md bg-primary text-primary-foreground shadow-primary/10"
+                          : "rounded-bl-md border border-border/45 bg-card/95 text-foreground",
                       )}
                     >
                       <MessageContent content={m.content} isUser={isUser} />
@@ -450,22 +513,22 @@ export function AssistantChat({ className }: Props) {
                   )}
                   <div
                     className={cn(
-                      "flex items-center gap-1.5 px-1 text-[11px] tabular-nums text-muted-foreground",
+                      "flex items-center gap-1 px-1 text-[10px] tabular-nums text-muted-foreground/75",
                       isUser && "flex-row-reverse",
                     )}
                   >
                     <span>{formatMessageTime(m.at)}</span>
                     {!isEditing && (
-                      <div className="flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100 sm:focus-within:opacity-100">
+                      <div className="flex items-center gap-0.5 opacity-100 sm:opacity-0 sm:transition-opacity sm:duration-150 sm:group-hover:opacity-100 sm:focus-within:opacity-100">
                         <button
                           type="button"
-                          className="rounded-md p-1.5 hover:bg-muted hover:text-foreground"
+                          className="rounded-md p-1 transition hover:bg-muted hover:text-foreground"
                           onClick={() => void copyText(m)}
                           aria-label="Copier"
                           title="Copier"
                         >
                           {copiedId === m.id ? (
-                            <Check className="h-3.5 w-3.5 text-green-600" />
+                            <Check className="h-3.5 w-3.5 text-emerald-600" />
                           ) : (
                             <Copy className="h-3.5 w-3.5" />
                           )}
@@ -473,7 +536,7 @@ export function AssistantChat({ className }: Props) {
                         {isUser && (
                           <button
                             type="button"
-                            className="rounded-md p-1.5 hover:bg-muted hover:text-foreground"
+                            className="rounded-md p-1 transition hover:bg-muted hover:text-foreground"
                             onClick={() => startEdit(m)}
                             disabled={sending}
                             aria-label="Modifier"
@@ -485,7 +548,7 @@ export function AssistantChat({ className }: Props) {
                         {!isUser && (
                           <button
                             type="button"
-                            className="rounded-md p-1.5 hover:bg-muted hover:text-foreground"
+                            className="rounded-md p-1 transition hover:bg-muted hover:text-foreground"
                             onClick={() => void regenerate(m.id)}
                             disabled={sending}
                             aria-label="Régénérer"
@@ -504,16 +567,16 @@ export function AssistantChat({ className }: Props) {
 
           {sending && (
             <div className="flex justify-start">
-              <div className="inline-flex items-center gap-2.5 rounded-2xl bg-muted/40 px-4 py-3 text-sm text-muted-foreground ring-1 ring-border/40">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Analyse en cours…</span>
+              <div className="inline-flex items-center gap-2.5 rounded-2xl rounded-bl-md border border-border/45 bg-card/95 px-4 py-2.5 text-sm text-muted-foreground shadow-sm">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                <span className="text-[13px] font-medium">Réflexion…</span>
                 <button
                   type="button"
                   onClick={cancel}
-                  className="ml-1 inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs hover:bg-muted hover:text-foreground"
+                  className="ml-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition hover:bg-muted hover:text-foreground"
                   aria-label="Arrêter"
                 >
-                  <Square className="h-3 w-3 fill-current" />
+                  <Square className="h-2.5 w-2.5 fill-current" />
                   Arrêter
                 </button>
               </div>
@@ -523,18 +586,58 @@ export function AssistantChat({ className }: Props) {
         </div>
       </div>
 
-      <div className="shrink-0 border-t border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <div className="mx-auto w-full max-w-2xl px-3 py-3 sm:max-w-3xl sm:px-5 sm:py-4">
-          <div className="flex items-end gap-2 rounded-2xl border border-border/60 bg-card p-2 shadow-sm focus-within:border-border focus-within:ring-1 focus-within:ring-border/50">
+      <div className="shrink-0 border-t border-border/25 bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/80">
+        <div className="mx-auto w-full max-w-2xl px-3 py-3 sm:max-w-3xl sm:px-6 sm:py-3.5">
+          {pendingImages.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2 px-1">
+              {pendingImages.map((img, i) => (
+                <div key={i} className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/60 bg-muted">
+                  <img src={img.preview} alt="" className="h-full w-full object-cover" />
+                  <button
+                    type="button"
+                    className="absolute right-0.5 top-0.5 rounded-full bg-background/90 p-0.5 shadow"
+                    onClick={() => setPendingImages((prev) => prev.filter((_, j) => j !== i))}
+                    aria-label="Retirer la photo"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex items-end gap-2 rounded-2xl border border-border/55 bg-card px-2.5 py-2 shadow-sm transition focus-within:border-primary/30 focus-within:shadow-md focus-within:ring-2 focus-within:ring-primary/10">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                void onPickImages(e.target.files);
+                e.target.value = "";
+              }}
+            />
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              className="h-9 w-9 shrink-0 rounded-xl"
+              disabled={!userId || !!editingId || sending || pendingImages.length >= 4}
+              onClick={() => fileInputRef.current?.click()}
+              aria-label="Joindre une photo"
+              title="Joindre une photo (notes, document…)"
+            >
+              <ImagePlus className="h-4 w-4" />
+            </Button>
             <Textarea
               ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}
-              placeholder="Écrivez votre message…"
+              placeholder="Message ou photo (notes de classe, document…)"
               rows={1}
               disabled={!userId || !!editingId}
-              className="min-h-[44px] max-h-[160px] flex-1 resize-none border-0 bg-transparent px-2.5 py-2.5 text-[15px] leading-relaxed shadow-none focus-visible:ring-0"
+              className="min-h-[42px] max-h-[160px] flex-1 resize-none border-0 bg-transparent px-2.5 py-2 text-[15px] leading-relaxed shadow-none focus-visible:ring-0"
               maxLength={2000}
             />
             {sending ? (
@@ -542,28 +645,28 @@ export function AssistantChat({ className }: Props) {
                 type="button"
                 size="icon"
                 variant="secondary"
-                className="h-10 w-10 shrink-0 rounded-xl"
+                className="h-9 w-9 shrink-0 rounded-xl"
                 onClick={cancel}
                 aria-label="Arrêter"
               >
-                <Square className="h-4 w-4 fill-current" />
+                <Square className="h-3.5 w-3.5 fill-current" />
               </Button>
             ) : (
               <Button
                 type="button"
                 size="icon"
-                className="h-10 w-10 shrink-0 rounded-xl"
+                className="h-9 w-9 shrink-0 rounded-xl shadow-sm"
                 onClick={() => void send()}
-                disabled={!input.trim() || !userId || !!editingId}
+                disabled={(!input.trim() && pendingImages.length === 0) || !userId || !!editingId}
                 aria-label="Envoyer"
               >
-                <Send className="h-4 w-4" />
+                <Send className="h-3.5 w-3.5" />
               </Button>
             )}
           </div>
           <div className="mt-2 flex items-center justify-between gap-2 px-1">
-            <p className="text-[11px] text-muted-foreground">
-              Entrée pour envoyer · Maj+Entrée pour une nouvelle ligne
+            <p className="text-[10px] text-muted-foreground/75">
+              Entrée · Maj+Entrée nouvelle ligne
             </p>
             {messages.length > 0 && (
               <ConfirmDialog
@@ -572,7 +675,13 @@ export function AssistantChat({ className }: Props) {
                 confirmLabel="Réinitialiser"
                 onConfirm={clear}
                 trigger={
-                  <Button type="button" variant="ghost" size="sm" className="h-7 gap-1.5 px-2 text-[11px] text-muted-foreground hover:text-destructive" disabled={sending}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 gap-1 px-1.5 text-[10px] text-muted-foreground hover:text-destructive"
+                    disabled={sending}
+                  >
                     <Trash2 className="h-3 w-3" />
                     Réinitialiser
                   </Button>
