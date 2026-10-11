@@ -603,7 +603,7 @@ export function AssistantChat({ className }: Props) {
               ))}
             </div>
           )}
-          <div className="flex items-end gap-1.5 rounded-[1.35rem] border border-border/50 bg-muted/30 px-2 py-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition focus-within:border-border focus-within:bg-card focus-within:shadow-md dark:bg-muted/20">
+          <div className="flex items-end gap-2 rounded-[1.5rem] border border-border/50 bg-muted/30 px-2.5 py-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition focus-within:border-border focus-within:bg-card focus-within:shadow-md dark:bg-muted/20 sm:px-3 sm:py-3">
             <input
               ref={fileInputRef}
               type="file"
@@ -619,13 +619,13 @@ export function AssistantChat({ className }: Props) {
               type="button"
               size="icon"
               variant="ghost"
-              className="h-9 w-9 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
+              className="mb-0.5 h-10 w-10 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
               disabled={!userId || !!editingId || sending || pendingImages.length >= 4}
               onClick={() => fileInputRef.current?.click()}
               aria-label="Joindre une photo"
               title="Joindre une photo"
             >
-              <ImagePlus className="h-4 w-4" />
+              <ImagePlus className="h-[18px] w-[18px]" />
             </Button>
             <Textarea
               ref={textareaRef}
@@ -633,9 +633,9 @@ export function AssistantChat({ className }: Props) {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}
               placeholder="Écrivez un message…"
-              rows={1}
+              rows={2}
               disabled={!userId || !!editingId}
-              className="min-h-[40px] max-h-[160px] flex-1 resize-none border-0 bg-transparent px-1.5 py-2 text-[15px] leading-relaxed shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-0"
+              className="min-h-[56px] max-h-[220px] flex-1 resize-none border-0 bg-transparent px-2 py-2.5 text-base leading-relaxed shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-0 sm:min-h-[64px] sm:text-[16px]"
               maxLength={2000}
             />
             {sending ? (
@@ -643,7 +643,7 @@ export function AssistantChat({ className }: Props) {
                 type="button"
                 size="icon"
                 variant="secondary"
-                className="h-9 w-9 shrink-0 rounded-full"
+                className="mb-0.5 h-10 w-10 shrink-0 rounded-full"
                 onClick={cancel}
                 aria-label="Arrêter"
               >
@@ -653,12 +653,12 @@ export function AssistantChat({ className }: Props) {
               <Button
                 type="button"
                 size="icon"
-                className="h-9 w-9 shrink-0 rounded-full shadow-none disabled:opacity-40"
+                className="mb-0.5 h-10 w-10 shrink-0 rounded-full shadow-none disabled:opacity-40"
                 onClick={() => void send()}
                 disabled={(!input.trim() && pendingImages.length === 0) || !userId || !!editingId}
                 aria-label="Envoyer"
               >
-                <Send className="h-3.5 w-3.5" />
+                <Send className="h-4 w-4" />
               </Button>
             )}
           </div>
