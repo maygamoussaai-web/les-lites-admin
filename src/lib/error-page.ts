@@ -37,7 +37,7 @@ export function renderErrorPage(): string {
         display: grid;
         place-items: center;
         padding: 1.5rem;
-        font: 15px/1.55 "Inter", system-ui, -apple-system, sans-serif;
+        font: 15px/1.55 "Source Sans 3", system-ui, -apple-system, sans-serif;
         background: var(--bg);
         color: var(--fg);
       }
@@ -65,7 +65,7 @@ export function renderErrorPage(): string {
       .mark svg { width: 1.35rem; height: 1.35rem; }
       h1 {
         margin: 0;
-        font-family: Inter, system-ui, sans-serif;
+        font-family: Fraunces, Georgia, serif;
         font-size: 1.35rem;
         font-weight: 600;
         letter-spacing: -0.02em;
