@@ -420,34 +420,29 @@ export function AssistantChat({ className }: Props) {
         onScroll={() => void onScroll()}
         className="min-h-0 flex-1 overflow-y-auto scroll-smooth [scrollbar-gutter:stable]"
       >
-        <div className="mx-auto w-full max-w-2xl space-y-5 px-3 py-5 sm:max-w-3xl sm:px-6 sm:py-7">
+        <div className="mx-auto w-full max-w-2xl space-y-6 px-4 py-6 sm:max-w-[42rem] sm:px-6 sm:py-8">
           {loadingOlder && (
             <p className="py-1.5 text-center text-[11px] font-medium tracking-wide text-muted-foreground/80">
               Chargement…
             </p>
           )}
           {messages.length === 0 && !sending && (
-            <div className="flex flex-col items-center justify-center gap-7 py-16 sm:py-24">
-              <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl border border-border/60 bg-gradient-to-br from-primary/15 via-card to-card shadow-sm">
-                <span className="font-display text-lg font-semibold text-primary">AI</span>
-                <span className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-inset ring-primary/10" />
-              </div>
-              <div className="max-w-md text-center">
-                <h2 className="font-display text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
+            <div className="flex flex-col items-center justify-center gap-8 py-20 sm:py-28">
+              <div className="text-center">
+                <p className="font-display text-[1.65rem] font-semibold tracking-[-0.02em] text-foreground sm:text-[1.85rem]">
                   Comment puis-je vous aider ?
-                </h2>
-                <p className="mt-2.5 text-sm leading-relaxed text-muted-foreground">
-                  Classes, élèves, enseignants, finance. Lecture immédiate ; toute écriture attend
-                  votre confirmation.
+                </p>
+                <p className="mx-auto mt-3 max-w-sm text-[13.5px] leading-relaxed text-muted-foreground">
+                  Classes, élèves, notes, finance. Lecture immédiate — toute écriture attend votre confirmation.
                 </p>
               </div>
-              <div className="flex max-w-lg flex-wrap justify-center gap-2">
+              <div className="flex max-w-md flex-wrap justify-center gap-2">
                 {SUGGESTIONS.map((s) => (
                   <button
                     key={s}
                     type="button"
                     onClick={() => void send(s)}
-                    className="rounded-full border border-border/55 bg-card/90 px-3.5 py-2 text-left text-[13px] text-foreground/90 shadow-sm transition hover:border-primary/35 hover:bg-muted/50 hover:shadow active:scale-[0.98]"
+                    className="rounded-full border border-border/40 bg-transparent px-3.5 py-1.5 text-[12.5px] text-muted-foreground transition hover:border-border hover:bg-muted/40 hover:text-foreground active:scale-[0.98]"
                   >
                     {s}
                   </button>
@@ -502,10 +497,10 @@ export function AssistantChat({ className }: Props) {
                   ) : (
                     <div
                       className={cn(
-                        "rounded-2xl px-4 py-3 text-[15px] leading-relaxed shadow-sm",
+                        "text-[15px] leading-[1.65] tracking-[-0.01em]",
                         isUser
-                          ? "rounded-br-md bg-primary text-primary-foreground shadow-primary/10"
-                          : "rounded-bl-md border border-border/45 bg-card/95 text-foreground",
+                          ? "max-w-[min(100%,28rem)] rounded-[1.25rem] rounded-br-md bg-primary px-4 py-2.5 text-primary-foreground"
+                          : "w-full max-w-none text-foreground",
                       )}
                     >
                       <MessageContent content={m.content} isUser={isUser} />
@@ -513,7 +508,7 @@ export function AssistantChat({ className }: Props) {
                   )}
                   <div
                     className={cn(
-                      "flex items-center gap-1 px-1 text-[10px] tabular-nums text-muted-foreground/75",
+                      "flex items-center gap-1 px-0.5 text-[10px] tabular-nums text-muted-foreground/60",
                       isUser && "flex-row-reverse",
                     )}
                   >
@@ -566,36 +561,39 @@ export function AssistantChat({ className }: Props) {
           })}
 
           {sending && (
-            <div className="flex justify-start">
-              <div className="inline-flex items-center gap-2.5 rounded-2xl rounded-bl-md border border-border/45 bg-card/95 px-4 py-2.5 text-sm text-muted-foreground shadow-sm">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                <span className="text-[13px] font-medium">Réflexion…</span>
-                <button
-                  type="button"
-                  onClick={cancel}
-                  className="ml-0.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] transition hover:bg-muted hover:text-foreground"
-                  aria-label="Arrêter"
-                >
-                  <Square className="h-2.5 w-2.5 fill-current" />
-                  Arrêter
-                </button>
-              </div>
+            <div className="flex items-center gap-3 py-1 text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5 text-[13px]">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/40 opacity-75" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-primary/70" />
+                </span>
+                Réflexion…
+              </span>
+              <button
+                type="button"
+                onClick={cancel}
+                className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                aria-label="Arrêter"
+              >
+                <Square className="h-2.5 w-2.5 fill-current" />
+                Arrêter
+              </button>
             </div>
           )}
           <div ref={bottomRef} />
         </div>
       </div>
 
-      <div className="shrink-0 border-t border-border/25 bg-background/95 backdrop-blur-md supports-[backdrop-filter]:bg-background/80">
-        <div className="mx-auto w-full max-w-2xl px-3 py-3 sm:max-w-3xl sm:px-6 sm:py-3.5">
+      <div className="shrink-0 bg-background/90 backdrop-blur-md supports-[backdrop-filter]:bg-background/75">
+        <div className="mx-auto w-full max-w-2xl px-3 pb-3 pt-2 sm:max-w-3xl sm:px-6 sm:pb-4">
           {pendingImages.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2 px-1">
               {pendingImages.map((img, i) => (
-                <div key={i} className="relative h-16 w-16 overflow-hidden rounded-lg border border-border/60 bg-muted">
+                <div key={i} className="relative h-14 w-14 overflow-hidden rounded-xl border border-border/50 bg-muted">
                   <img src={img.preview} alt="" className="h-full w-full object-cover" />
                   <button
                     type="button"
-                    className="absolute right-0.5 top-0.5 rounded-full bg-background/90 p-0.5 shadow"
+                    className="absolute right-0.5 top-0.5 rounded-full bg-background/95 p-0.5 shadow-sm"
                     onClick={() => setPendingImages((prev) => prev.filter((_, j) => j !== i))}
                     aria-label="Retirer la photo"
                   >
@@ -605,7 +603,7 @@ export function AssistantChat({ className }: Props) {
               ))}
             </div>
           )}
-          <div className="flex items-end gap-2 rounded-2xl border border-border/55 bg-card px-2.5 py-2 shadow-sm transition focus-within:border-primary/30 focus-within:shadow-md focus-within:ring-2 focus-within:ring-primary/10">
+          <div className="flex items-end gap-1.5 rounded-[1.35rem] border border-border/50 bg-muted/30 px-2 py-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition focus-within:border-border focus-within:bg-card focus-within:shadow-md dark:bg-muted/20">
             <input
               ref={fileInputRef}
               type="file"
@@ -621,11 +619,11 @@ export function AssistantChat({ className }: Props) {
               type="button"
               size="icon"
               variant="ghost"
-              className="h-9 w-9 shrink-0 rounded-xl"
+              className="h-9 w-9 shrink-0 rounded-full text-muted-foreground hover:text-foreground"
               disabled={!userId || !!editingId || sending || pendingImages.length >= 4}
               onClick={() => fileInputRef.current?.click()}
               aria-label="Joindre une photo"
-              title="Joindre une photo (notes, document…)"
+              title="Joindre une photo"
             >
               <ImagePlus className="h-4 w-4" />
             </Button>
@@ -634,10 +632,10 @@ export function AssistantChat({ className }: Props) {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={onKeyDown}
-              placeholder="Message ou photo (notes de classe, document…)"
+              placeholder="Écrivez un message…"
               rows={1}
               disabled={!userId || !!editingId}
-              className="min-h-[42px] max-h-[160px] flex-1 resize-none border-0 bg-transparent px-2.5 py-2 text-[15px] leading-relaxed shadow-none focus-visible:ring-0"
+              className="min-h-[40px] max-h-[160px] flex-1 resize-none border-0 bg-transparent px-1.5 py-2 text-[15px] leading-relaxed shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-0"
               maxLength={2000}
             />
             {sending ? (
@@ -645,7 +643,7 @@ export function AssistantChat({ className }: Props) {
                 type="button"
                 size="icon"
                 variant="secondary"
-                className="h-9 w-9 shrink-0 rounded-xl"
+                className="h-9 w-9 shrink-0 rounded-full"
                 onClick={cancel}
                 aria-label="Arrêter"
               >
@@ -655,7 +653,7 @@ export function AssistantChat({ className }: Props) {
               <Button
                 type="button"
                 size="icon"
-                className="h-9 w-9 shrink-0 rounded-xl shadow-sm"
+                className="h-9 w-9 shrink-0 rounded-full shadow-none disabled:opacity-40"
                 onClick={() => void send()}
                 disabled={(!input.trim() && pendingImages.length === 0) || !userId || !!editingId}
                 aria-label="Envoyer"
