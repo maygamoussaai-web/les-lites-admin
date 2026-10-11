@@ -104,6 +104,7 @@ function mapError(rawMsg: string, parsed: { code: string; message: string } | nu
   if (parsed) return { code: parsed.code, message: parsed.message };
   const lower = (rawMsg || "").toLowerCase();
   if (lower.includes("failed to send") || lower.includes("failed to fetch") || lower.includes("network")) {
+    // NOTE POUR CLAUDE: en ligne = le serveur de l'assistant s'est interrompu (délai/crash), pas la connexion.
     if (typeof navigator !== "undefined" && navigator.onLine) {
       return { code: "UPSTREAM", message: "L'assistant ne répond pas (serveur interrompu ou délai dépassé). Réessayez dans un instant." };
     }
@@ -122,6 +123,7 @@ function isAffirmativeClient(msg: string): boolean {
 /**
  * Si l'utilisateur confirme un plan, enrichit le message pour forcer l'exécution.
  * Contourne partiellement la perte du pendingByUser côté Edge (cold start).
+ * Ne change pas le protocole serveur — uniquement le texte envoyé à Gemini.
  */
 function strengthenAffirmative(message: string, history: { role: "user" | "assistant"; content: string }[]): string {
   if (!isAffirmativeClient(message)) return message;
@@ -139,18 +141,27 @@ function strengthenAffirmative(message: string, history: { role: "user" | "assis
   ).slice(0, 2000);
 }
 
-export async function askAssistant(message: string, history: { role: "user" | "assistant"; content: string }[] = [], signal?: AbortSignal): Promise<AssistantResponse> {
+export type AssistantImage = { mimeType: string; data: string };
+
+export async function askAssistant(
+  message: string,
+  history: { role: "user" | "assistant"; content: string }[] = [],
+  signal?: AbortSignal,
+  images: AssistantImage[] = [],
+): Promise<AssistantResponse> {
   const trimmed = message.trim();
-  if (!trimmed) return { ok: false, error: { code: "VALIDATION", message: "Message vide." } };
+  if (!trimmed && images.length === 0) return { ok: false, error: { code: "VALIDATION", message: "Message vide." } };
   if (trimmed.length > 2000) return { ok: false, error: { code: "VALIDATION", message: "Message trop long (2000 caractères max)." } };
   try {
+    // Historique sans le dernier message utilisateur s'il est identique au message courant
+    // (évite le doublon « Oui » dans history + message qui désoriente le modèle).
     const histClean = history.filter((h, i) => {
       if (i === history.length - 1 && h.role === "user" && h.content.trim() === trimmed) return false;
       return true;
     });
     const protocolSlots = ASSISTANT_PROTOCOL.length * 2;
     const histBudget = Math.max(8, 24 - protocolSlots);
-    const outboundMessage = strengthenAffirmative(trimmed, histClean);
+    const outboundMessage = strengthenAffirmative(trimmed || (images.length ? "Analyse cette image." : ""), histClean);
 
     const { data, error } = await supabase.functions.invoke("ai-assistant", {
       body: {
@@ -162,6 +173,7 @@ export async function askAssistant(message: string, history: { role: "user" | "a
           ]),
           ...histClean.slice(-histBudget).map((h) => ({ role: h.role, content: h.content.slice(0, 2000) })),
         ],
+        ...(images.length ? { images: images.slice(0, 4) } : {}),
       },
       ...(signal ? { signal } : {}),
     });
