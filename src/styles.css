@@ -204,3 +204,26 @@
     -moz-osx-font-smoothing: grayscale;
   }
 }
+
+@utility surface-panel {
+  background-color: var(--color-card);
+  border: 1px solid color-mix(in oklab, var(--color-border) 90%, transparent);
+  border-radius: var(--radius-xl);
+  box-shadow:
+    0 1px 2px oklch(0.22 0.04 255 / 4%),
+    0 8px 24px -16px oklch(0.22 0.06 258 / 18%);
+}
+
+@utility soft-card {
+  background-color: var(--color-card);
+  border: 1px solid color-mix(in oklab, var(--color-border) 85%, transparent);
+  border-radius: var(--radius-xl);
+  box-shadow:
+    0 1px 2px oklch(0.22 0.04 255 / 5%),
+    0 12px 32px -20px oklch(0.22 0.06 258 / 22%);
+}
+
+@utility section-shell {
+  min-width: 0;
+  overflow: hidden;
+}
