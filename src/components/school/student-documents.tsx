@@ -168,8 +168,16 @@ export function StudentDocuments({
   const classNameById = useMemo(() => {
     const m = new Map<string, string>();
     for (const c of school.classes) m.set(c.id, c.name);
+    for (const c of school.archivedClasses ?? []) m.set(c.id, c.name);
     return m;
-  }, [school.classes]);
+  }, [school.classes, school.archivedClasses]);
+
+  /** Ids de classes archivées (générations) — exclus de la bibliothèque élève active. */
+  const archivedClassIds = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of school.archivedClasses ?? []) s.add(c.id);
+    return s;
+  }, [school.archivedClasses]);
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: ["student_documents"] });
@@ -250,6 +258,8 @@ export function StudentDocuments({
   const groups = useMemo(() => {
     const map = new Map<string, LibraryItem[]>();
     for (const item of items) {
+      // Générations archivées : visibles uniquement via Archives → classe figée, pas ici.
+      if (item.classId && archivedClassIds.has(item.classId)) continue;
       const key = item.classId ?? OTHER_GROUP;
       const list = map.get(key) ?? [];
       list.push(item);
@@ -271,7 +281,7 @@ export function StudentDocuments({
       return a.newest < b.newest ? 1 : -1;
     });
     return entries;
-  }, [items, classNameById, classId]);
+  }, [items, classNameById, classId, archivedClassIds]);
 
   const [uploading, setUploading] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -468,60 +478,314 @@ export function StudentDocuments({
     }
   };
 
-  // NOTE: UI render intentionally minimal restore - see full push file if incomplete
   return (
     <Card className={cn(compact && "border-0 shadow-none")}>
-      <CardHeader className={cn(compact && "px-0 pt-0")}>
+      <CardHeader className={cn("flex flex-row items-center justify-between gap-3 space-y-0", compact && "px-0 pt-0")}>
         <CardTitle className="flex items-center gap-2 text-base">
           <Paperclip className="h-4 w-4" />
           Bibliothèque
         </CardTitle>
+        {!readOnly && (
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              accept="image/*,application/pdf,.pdf,.xlsx,.xls,.doc,.docx"
+              onChange={(e) => {
+                onPick(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={uploading}
+              className="press"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {uploading ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <Upload className="mr-1.5 h-3.5 w-3.5" />}
+              Ajouter
+            </Button>
+          </div>
+        )}
       </CardHeader>
       <CardContent className={cn(compact && "px-0")}>
         {isLoading ? (
-          <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin" /></div>
+          <div className="flex justify-center py-10">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
         ) : items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Aucun document.</p>
+          <p className="rounded-xl border border-dashed border-border/70 bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
+            Aucun document pour le moment.
+          </p>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-6">
             {groups.map((g) => (
-              <div key={g.id}>
-                <h3 className="mb-2 text-xs font-medium text-muted-foreground">{g.label}</h3>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  {g.items.map((item) => (
-                    <div key={item.key} className="rounded-xl border p-3">
-                      <p className="truncate text-sm font-medium">{item.name}</p>
-                      <div className="mt-2 flex gap-1">
-                        <Button size="sm" variant="ghost" disabled={busyKey === item.key} onClick={() => void openItem(item, "view")}>
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button size="sm" variant="ghost" disabled={busyKey === item.key} onClick={() => void openItem(item, "download")}>
-                          <Download className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
+              <section key={g.id} className="space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    {g.label}
+                    {g.isCurrent ? (
+                      <Badge variant="secondary" className="ml-2 align-middle text-[10px] font-medium normal-case tracking-normal">
+                        Classe actuelle
+                      </Badge>
+                    ) : null}
+                  </h3>
+                  <span className="text-[11px] tabular-nums text-muted-foreground/80">
+                    {g.items.length} fichier{g.items.length > 1 ? "s" : ""}
+                  </span>
                 </div>
-              </div>
+                <ul className="grid gap-3 sm:grid-cols-2">
+                  {g.items.map((item) => {
+                    const busy = busyKey === item.key;
+                    const spreadsheet = isSpreadsheet(item.fileType, item.filePath, item.name);
+                    return (
+                      <li
+                        key={item.key}
+                        className="flex flex-col gap-2.5 rounded-xl border border-border/60 bg-card p-3.5 shadow-sm transition hover:border-border"
+                      >
+                        <div className="flex items-start gap-3">
+                          <span
+                            className={cn(
+                              "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+                              item.kind === "bulletin"
+                                ? "bg-primary/10 text-primary"
+                                : "bg-muted text-muted-foreground",
+                            )}
+                          >
+                            {spreadsheet ? (
+                              <FileSpreadsheet className="h-4 w-4" />
+                            ) : item.kind === "bulletin" ? (
+                              <GraduationCap className="h-4 w-4" />
+                            ) : (
+                              <FileText className="h-4 w-4" />
+                            )}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium leading-snug text-foreground" title={item.name}>
+                              {item.name}
+                            </p>
+                            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px] text-muted-foreground">
+                              <time dateTime={item.createdAt} className="tabular-nums">
+                                {formatDateTime(item.createdAt)}
+                              </time>
+                              <span aria-hidden className="text-border">·</span>
+                              <span>{formatSize(item.fileSize)}</span>
+                              {item.kind === "bulletin" && item.average != null && Number.isFinite(item.average) ? (
+                                <>
+                                  <span aria-hidden className="text-border">·</span>
+                                  <span className="font-medium text-foreground/80">
+                                    Moy. {Number(item.average).toFixed(2)}
+                                  </span>
+                                </>
+                              ) : null}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1 border-t border-border/40 pt-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 px-2 text-xs"
+                            disabled={busy}
+                            onClick={() => void openItem(item, "view")}
+                            title="Aperçu"
+                          >
+                            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}
+                            <span className="ml-1 hidden sm:inline">Voir</span>
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 px-2 text-xs"
+                            disabled={busy}
+                            onClick={() => void openItem(item, "download")}
+                            title="Télécharger"
+                          >
+                            <Download className="h-3.5 w-3.5" />
+                            <span className="ml-1 hidden sm:inline">Télécharger</span>
+                          </Button>
+                          {!readOnly && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 px-2 text-xs"
+                              disabled={busy}
+                              onClick={() => {
+                                const doc = documents.find((d) => d.id === item.documentId);
+                                if (!doc) {
+                                  toast.error("Document introuvable.");
+                                  return;
+                                }
+                                setRenaming(doc);
+                                setRenameValue(doc.name);
+                              }}
+                              title="Renommer"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                              <span className="ml-1 hidden sm:inline">Renommer</span>
+                            </Button>
+                          )}
+                          {!readOnly && (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-8 px-2 text-xs text-destructive hover:text-destructive"
+                                  disabled={busy}
+                                  title="Supprimer"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                  <span className="ml-1 hidden sm:inline">Supprimer</span>
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Supprimer ce document ?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    « {item.name} » sera définitivement retiré de la bibliothèque.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Annuler</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                    onClick={() => {
+                                      const doc = documents.find((d) => d.id === item.documentId);
+                                      if (doc) void remove(doc);
+                                    }}
+                                  >
+                                    Supprimer
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
             ))}
           </div>
         )}
       </CardContent>
+
+      {/* Nom à l'upload */}
+      <Dialog open={nameOpen} onOpenChange={(o) => { if (!o) { setNameOpen(false); setPendingFile(null); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Nom du document</DialogTitle>
+            <DialogDescription>
+              Choisissez un libellé clair. La date et l&apos;heure d&apos;ajout seront enregistrées automatiquement.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-1">
+            <Label htmlFor="doc-name">Libellé</Label>
+            <Input
+              id="doc-name"
+              value={docName}
+              onChange={(e) => setDocName(e.target.value)}
+              placeholder="Ex. Acte de naissance"
+              maxLength={120}
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void confirmUpload();
+                }
+              }}
+            />
+            {pendingFile && (
+              <p className="text-[12px] text-muted-foreground">
+                Fichier : {pendingFile.name} · {formatSize(pendingFile.size)}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => { setNameOpen(false); setPendingFile(null); }}>
+              Annuler
+            </Button>
+            <Button type="button" disabled={!docName.trim() || uploading} onClick={() => void confirmUpload()}>
+              Enregistrer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Renommer */}
+      <Dialog open={!!renaming} onOpenChange={(o) => { if (!o) setRenaming(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Renommer le document</DialogTitle>
+            <DialogDescription>
+              Seul le nom affiché change. Le fichier et sa date d&apos;ajout restent inchangés.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-1">
+            <Label htmlFor="rename-doc">Nouveau nom</Label>
+            <Input
+              id="rename-doc"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              maxLength={120}
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void rename();
+                }
+              }}
+            />
+            {renaming?.created_at && (
+              <p className="text-[12px] text-muted-foreground">
+                Ajouté le {formatDateTime(renaming.created_at)}
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setRenaming(null)}>
+              Annuler
+            </Button>
+            <Button type="button" disabled={!renameValue.trim()} onClick={() => void rename()}>
+              Enregistrer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!previewOffice} onOpenChange={(o) => !o && setPreviewOffice(null)}>
-        <DialogContent className="max-w-[95vw] w-[1100px] h-[85vh] flex flex-col gap-2 p-4">
+        <DialogContent className="flex h-[85vh] w-[1100px] max-w-[95vw] flex-col gap-2 p-4">
           <DialogHeader className="shrink-0">
             <DialogTitle className="truncate pr-8">{previewOffice?.title}</DialogTitle>
-            <DialogDescription>Bulletin formaté (identique au fichier téléchargé)</DialogDescription>
+            <DialogDescription>Aperçu du fichier</DialogDescription>
           </DialogHeader>
           {previewOffice?.url && (
-            <iframe title={previewOffice.title} src={previewOffice.url} className="min-h-0 flex-1 w-full rounded-md border bg-white" allowFullScreen />
+            <iframe
+              title={previewOffice.title}
+              src={previewOffice.url}
+              className="min-h-0 w-full flex-1 rounded-md border bg-white"
+              allowFullScreen
+            />
           )}
         </DialogContent>
       </Dialog>
       <Dialog open={!!previewImageUrl} onOpenChange={(o) => !o && setPreviewImageUrl(null)}>
         <DialogContent className="max-w-3xl">
-          <DialogHeader><DialogTitle>Aperçu</DialogTitle></DialogHeader>
-          {previewImageUrl && <img src={previewImageUrl} alt="" className="max-h-[70vh] w-full object-contain" />}
+          <DialogHeader>
+            <DialogTitle>Aperçu</DialogTitle>
+          </DialogHeader>
+          {previewImageUrl && (
+            <img src={previewImageUrl} alt="" className="max-h-[70vh] w-full object-contain" />
+          )}
         </DialogContent>
       </Dialog>
     </Card>
