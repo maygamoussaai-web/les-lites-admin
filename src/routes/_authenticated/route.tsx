@@ -56,7 +56,7 @@ function AuthenticatedLayout() {
         <AppSidebar />
         <div className="flex min-w-0 flex-1 flex-col">
           <NetworkBanner />
-          <header className="glass-panel safe-header sticky top-0 z-20 flex h-14 items-center gap-2 border-x-0 border-t-0 px-3 sm:px-4">
+          <header className="glass-panel safe-header sticky top-0 z-20 flex h-14 items-center gap-2 border-x-0 border-t-0 px-3 sm:px-4 transition-[box-shadow] duration-200">
             <SidebarTrigger className="shrink-0" />
             <div className="min-w-0 flex-1" />
             {!isAssistant && <GlobalSearch />}
