@@ -159,8 +159,17 @@ export function useEstablishmentStats(data: SchoolData, since?: string) {
   return useMemo(() => {
     const map = new Map<string, EstablishmentStats>();
     for (const est of data.establishments) {
+      // Classes actives de l'établissement uniquement.
       const estClasses = data.classes.filter((c) => c.establishment_id === est.id);
-      const estStudents = data.students.filter((s) => s.establishment_id === est.id);
+      const estClassIds = new Set(estClasses.map((c) => c.id));
+      // Élèves réellement affectés à une classe de cet établissement.
+      // Exclut les anciens (ex. TSE) restés sans class_id ou rattachés à une classe archivée.
+      const estStudents = data.students.filter(
+        (s) =>
+          s.establishment_id === est.id &&
+          !!s.class_id &&
+          estClassIds.has(s.class_id),
+      );
       const payments = data.tuitionPayments.filter(
         (p) => p.establishment_id === est.id && (!since || p.paid_at >= since),
       );
