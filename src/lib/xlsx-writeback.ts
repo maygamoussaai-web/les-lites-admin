@@ -24,7 +24,16 @@ import {
 } from "@/lib/xlsx-template";
 
 const toScale = (v: number | null, scale: number) =>
-  v === null ? null : Math.round(((v / 20) * scale) * 100) / 100;
+  v === null || v === undefined || (typeof v === "number" && !Number.isFinite(v))
+    ? null
+    : Math.round(((v / 20) * scale) * 100) / 100;
+
+/** Note de période à l'index (annuel) — null si trou / non renseigné. */
+const periodEval = (evals: number[], idx: number | null | undefined): number | null => {
+  if (idx == null || idx < 0 || idx >= evals.length) return null;
+  const v = evals[idx] as number | null | undefined;
+  return v != null && typeof v === "number" && Number.isFinite(v) ? v : null;
+};
 const fromScale = (v: unknown, scale: number): number | null =>
   typeof v === "number" && Number.isFinite(v) ? Math.round(((v / scale) * 20) * 100) / 100 : null;
 
@@ -266,32 +275,26 @@ export async function writeFilledWorkbook(
         const periodIdx = periodCols[letter];
         if (role === "composition") {
           const raw =
-            periodIdx != null && match.evaluations[periodIdx] != null
-              ? match.evaluations[periodIdx]
+            periodIdx != null
+              ? periodEval(match.evaluations, periodIdx)
               : match.composition;
           setInputCell(address, toScale(raw, data.scale));
         } else if (role === "evaluation") {
           const raw =
             periodIdx != null
-              ? (match.evaluations[periodIdx] ?? null)
+              ? periodEval(match.evaluations, periodIdx)
               : (() => {
                   const idx = evalLetters.indexOf(letter);
-                  return idx >= 0 ? (match.evaluations[idx] ?? null) : null;
+                  return periodEval(match.evaluations, idx >= 0 ? idx : null);
                 })();
           setInputCell(address, toScale(raw, data.scale));
         } else if (role === "evaluation_average") {
-          // Entrée légitime uniquement si index de période (bulletin annuel [moy_eval:1]).
-          // Sans période : jamais de moyenne inventée en JS — formule Excel uniquement.
-          const raw =
-            periodIdx != null ? (match.evaluations[periodIdx] ?? null) : null;
+          // Index de période = moyenne matière de cette période (entrée). Sinon formule Excel.
+          const raw = periodIdx != null ? periodEval(match.evaluations, periodIdx) : null;
           setInputCell(address, toScale(raw, data.scale));
         } else if (role === "subject_average") {
-          // Idem : moyennes matière sans formule = lecture seule Excel.
-          // Avec période ([moy:1]…) = moyenne de période déjà calculée par le modèle périodique.
-          const raw =
-            periodIdx != null
-              ? (match.evaluations[periodIdx] ?? null)
-              : null;
+          // Avec période : note/moyenne de période. Sans : formule annuelle du modèle.
+          const raw = periodIdx != null ? periodEval(match.evaluations, periodIdx) : null;
           setInputCell(address, toScale(raw, data.scale));
         }
       }
