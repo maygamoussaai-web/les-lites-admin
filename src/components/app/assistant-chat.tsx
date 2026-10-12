@@ -24,10 +24,11 @@ type Props = { className?: string };
 
 const SUGGESTIONS = [
   "Fais-moi une synthèse du complexe",
-  "Classement de la dernière période d'une classe",
-  "Enregistre les notes de maths composition pour toute la 11ème SC",
+  "Qui n'a pas encore toutes ses notes ?",
   "Quels élèves ont un reste à payer ?",
-  "Statistiques de réussite par classe",
+  "Classement de la dernière période",
+  "Séances d'aujourd'hui non validées",
+  "Enregistre les notes de maths composition pour toute une classe",
 ];
 
 /**
