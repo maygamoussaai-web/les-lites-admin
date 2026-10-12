@@ -369,6 +369,11 @@ export function AssistantChat({ className }: Props) {
     if (m.role !== "user" || sending) return;
     setEditingId(m.id);
     setEditDraft(m.content);
+    // Laisser le message édité visible au-dessus de la zone basse (masquée en édition).
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-msg-id="${m.id}"]`);
+      el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
   };
 
   const cancelEdit = () => {
@@ -458,6 +463,7 @@ export function AssistantChat({ className }: Props) {
             return (
               <div
                 key={m.id}
+                data-msg-id={m.id}
                 className={cn(
                   "group flex w-full gap-2.5",
                   isUser ? "justify-end" : "justify-start",
@@ -470,16 +476,23 @@ export function AssistantChat({ className }: Props) {
                   )}
                 >
                   {isEditing ? (
-                    <div className="w-full min-w-[min(100%,18rem)] space-y-2.5 rounded-2xl border border-border/70 bg-card p-3.5 shadow-sm">
+                    <div className="relative z-20 w-full min-w-[min(100%,18rem)] space-y-2.5 rounded-2xl border border-primary/30 bg-card p-3.5 shadow-md">
                       <Textarea
                         value={editDraft}
                         onChange={(e) => setEditDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            void submitEdit();
+                          }
+                          if (e.key === "Escape") cancelEdit();
+                        }}
                         rows={3}
                         className="min-h-[72px] resize-none text-[15px]"
                         maxLength={2000}
                         autoFocus
                       />
-                      <div className="flex justify-end gap-1.5">
+                      <div className="flex flex-wrap items-center justify-end gap-1.5">
                         <Button type="button" variant="ghost" size="sm" onClick={cancelEdit}>
                           <X className="mr-1 h-3.5 w-3.5" />
                           Annuler
@@ -487,7 +500,8 @@ export function AssistantChat({ className }: Props) {
                         <Button
                           type="button"
                           size="sm"
-                          disabled={!editDraft.trim()}
+                          className="min-w-[7rem]"
+                          disabled={!editDraft.trim() || sending}
                           onClick={() => void submitEdit()}
                         >
                           <Check className="mr-1 h-3.5 w-3.5" />
@@ -585,7 +599,15 @@ export function AssistantChat({ className }: Props) {
         </div>
       </div>
 
-      <div className="shrink-0 bg-background/90 backdrop-blur-md supports-[backdrop-filter]:bg-background/75">
+      {/* Zone de saisie principale : masquée pendant l'édition d'un message
+          pour ne pas recouvrir les boutons Annuler / Envoyer de la carte d'édition. */}
+      <div
+        className={cn(
+          "shrink-0 bg-background/90 backdrop-blur-md supports-[backdrop-filter]:bg-background/75",
+          editingId && "pointer-events-none invisible h-0 overflow-hidden opacity-0",
+        )}
+        aria-hidden={!!editingId}
+      >
         <div className="mx-auto w-full max-w-2xl px-3 pb-3 pt-2 sm:max-w-3xl sm:px-6 sm:pb-4">
           {pendingImages.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2 px-1">
