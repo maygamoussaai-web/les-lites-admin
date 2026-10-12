@@ -1,6 +1,12 @@
 /**
- * Bulletin annuel — même logique que le périodique.
- * Notes de période = entrées ; moyenne annuelle = sortie des formules Excel du modèle.
+ * Bulletin annuel — génération Excel adaptable à tout modèle (bref ou complet).
+ *
+ * Prérequis : modèle actif de kind « annual » pour la classe.
+ * Données : agrégation des student_report_cards des périodes (moyennes matière / MG).
+ * Remplissage : même writeback que les bulletins de période (formules Excel respectées).
+ * Fallback PDF canvas uniquement si aucun modèle annuel n'est configuré.
+ *
+ * La génération continue en arrière-plan si le dialogue est fermé.
  */
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -26,6 +32,7 @@ import type { PeriodStat } from "@/lib/xlsx-template";
 
 const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
+/** Verrou global : une génération annuelle par classe à la fois. */
 const runningAnnualByClass = new Set<string>();
 
 export function isAnnualBulletinGenerationRunning(classId: string): boolean {
@@ -38,6 +45,7 @@ function toBlob(buffer: ArrayBuffer) {
   return new Blob([buffer], { type: XLSX_MIME });
 }
 
+/** Rendu canvas de secours (sans modèle Excel annuel). */
 export function renderBulletinCanvas(opts: {
   establishmentName: string;
   className: string;
@@ -163,8 +171,12 @@ export function AnnualBulletinDialog({
 
       const tpl = await downloadActiveTemplateBuffer(klass.id, "annual");
       const useExcel = !!tpl?.buffer && !!tpl.mapping;
-      const orderedPeriodIds = sortedPeriods.map((p) => p.id);
 
+      // Même logique que le bulletin périodique :
+      // 1) remplir notes de période (entrées) → lire MG annuelle depuis formules Excel
+      // 2) classer / premier / dernier à partir de ces sorties modèle
+      // 3) régénérer les fichiers avec rang + premier/dernier
+      const orderedPeriodIds = sortedPeriods.map((p) => p.id);
       const periodStatsByStudent = new Map<string, (PeriodStat | null)[]>();
       for (const p of sortedPeriods) {
         const idx = Math.max(0, (p.period_number ?? 1) - 1);
@@ -177,11 +189,12 @@ export function AnnualBulletinDialog({
         const first = pcs[0]!.v;
         const last = pcs[pcs.length - 1]!.v;
         const avg = pcs.reduce((a, x) => a + x.v, 0) / pcs.length;
+        // MG de période = formule Excel du modèle annuel (jamais injectée).
         pcs.forEach((x, i) => {
           const rank = pcs.findIndex((y) => y.v === x.v) + 1 || i + 1;
           const arr = periodStatsByStudent.get(x.id) ?? [];
           arr[idx] = {
-            generalAverage: x.v,
+            generalAverage: null,
             rank,
             firstAverage: first,
             lastAverage: last,
@@ -237,6 +250,7 @@ export function AnnualBulletinDialog({
             lastAverage: null,
           });
           fill.periodStats = periodStatsByStudent.get(s.id) ?? fill.periodStats;
+          // Ne jamais injecter une MG annuelle JS — lecture seule depuis le modèle.
           fill.generalAverage = null;
           fill.classAverage = null;
           const result = await computeModelAverages(tpl.buffer, tpl.mapping, fill);
@@ -304,6 +318,13 @@ export function AnnualBulletinDialog({
             fill.generalAverage = null;
             fill.classAverage = annualClassAverage;
             const written = await writeFilledWorkbook(tpl.buffer, tpl.mapping, fill);
+            // Sortie modèle (prioritaire) — jamais de moyenne inventée.
+            const modelAvg = written.computed.generalAverage ?? avgByStudent.get(s.id)?.avg ?? null;
+            const modelSubjects =
+              Object.keys(written.computed.subjectAverages).length > 0
+                ? written.computed.subjectAverages
+                : avgByStudent.get(s.id)?.subjects ?? {};
+
             const blob = toBlob(written.buffer);
             const storagePath = `${klass.establishment_id}/${s.id}/bulletin-annuel-${Date.now()}.xlsx`;
             const uploaded = await uploadBulletinWorkbook(storagePath, blob);
@@ -314,17 +335,29 @@ export function AnnualBulletinDialog({
                   ? `report-templates:${uploaded.path}`
                   : `${uploaded.bucket}:${uploaded.path}`;
 
-            const { error: docErr } = await supabase.from("student_documents").insert({
-              student_id: s.id,
-              establishment_id: klass.establishment_id,
-              name: "Bulletin annuel",
-              file_path: filePathStored,
-              file_type: XLSX_MIME,
-              file_size: blob.size,
-            });
+            const { data: docRow, error: docErr } = await supabase
+              .from("student_documents")
+              .insert({
+                student_id: s.id,
+                establishment_id: klass.establishment_id,
+                name: "Bulletin annuel",
+                file_path: filePathStored,
+                file_type: XLSX_MIME,
+                file_size: blob.size,
+              })
+              .select("id")
+              .single();
             if (docErr) throw docErr;
+
+            // Mémoriser la MG annuelle lue sur le modèle (période_id null non supporté → document seul).
+            // Si une fiche « annuelle » existe côté schéma via period_id d'une période spéciale, on ne force rien.
+            if (docRow?.id && modelAvg != null) {
+              // Conservé dans subject_averages du document via metadata non structurée : skip.
+              void modelSubjects;
+            }
             success++;
           } else {
+            // Sans modèle Excel : aperçu image uniquement (pas de MG inventée présentée comme officielle).
             const subjectLines = subjectsSnap.map((sub) => {
               const vals: number[] = [];
               for (const c of studentCards) {
@@ -362,7 +395,9 @@ export function AnnualBulletinDialog({
             success++;
           }
         } catch (e) {
-          failures.push(`${s.last_name} ${s.first_name}: ${describeError(e, "échec")}`);
+          failures.push(
+            `${s.last_name} ${s.first_name}: ${describeError(e, "échec")}`,
+          );
         }
         toast.loading(`Bulletin annuel en arrière-plan… ${i + 1}/${studentsSnap.length}`, {
           id: toastId,
@@ -377,7 +412,7 @@ export function AnnualBulletinDialog({
         toast.success(
           useExcel
             ? `${success} bulletin(s) annuel(s) Excel généré(s)`
-            : `${success} aperçu(s) annuel(s) — chargez un modèle annuel Excel pour le format officiel`,
+            : `${success} aperçu(s) annuel(s) généré(s) — chargez un modèle annuel Excel pour le format officiel`,
           { id: toastId, duration: 8_000 },
         );
       } else if (success > 0) {
@@ -438,7 +473,10 @@ export function AnnualBulletinDialog({
           >
             {jobRunning ? "Continuer en arrière-plan" : "Annuler"}
           </Button>
-          <Button onClick={() => void generateAll()} disabled={jobRunning || students.length === 0}>
+          <Button
+            onClick={() => void generateAll()}
+            disabled={jobRunning || students.length === 0}
+          >
             {jobRunning ? (
               <>
                 <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> En cours…
