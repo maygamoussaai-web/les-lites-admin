@@ -238,7 +238,7 @@ function Page() {
           <CardHeader className="pb-2">
             <CardTitle className="font-display text-base">Taux de recouvrement</CardTitle>
             <CardDescription>
-              {recoveryRatio}% encaissé sur l'ensemble du complexe
+              {recoveryRatio}% encaissé sur l&apos;ensemble du complexe
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
