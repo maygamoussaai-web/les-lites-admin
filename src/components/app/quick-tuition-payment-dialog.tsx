@@ -193,3 +193,4 @@ export function QuickTuitionPaymentDialog({
     </Dialog>
   );
 }
+
