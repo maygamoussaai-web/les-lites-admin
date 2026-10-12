@@ -2,7 +2,8 @@ import { useMemo, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Copy, Share2, UserPlus, Link2, Clock, Building2, Trash2 } from "lucide-react";
+import { Copy, UserPlus, Link2, Clock, Building2, Trash2 } from "lucide-react";
+import { ShareSheet } from "@/components/app/share-sheet";
 import { PageHeader } from "@/components/app/page-header";
 import { DataTable, type Column } from "@/components/app/data-table";
 import { RecordDialog } from "@/components/app/record-dialog";
@@ -343,16 +344,16 @@ function Page() {
                               <Copy className="mr-1.5 h-3.5 w-3.5" />
                               Copier
                             </Button>
-                            <Button
+                            <ShareSheet
                               size="sm"
                               variant="default"
-                              className="press h-9"
-                              onClick={() => void shareInvite(url, estName)}
-                              aria-label="Partager le lien"
-                            >
-                              <Share2 className="mr-1.5 h-3.5 w-3.5" />
-                              Partager
-                            </Button>
+                              triggerClassName="h-9"
+                              payload={{
+                                url,
+                                title: "Invitation – Les Élites de Gao",
+                                text: `Vous êtes invité(e) à rejoindre l'administration de ${estName || "notre établissement"}. Activez votre compte via ce lien :`,
+                              }}
+                            />
                           </>
                         ) : (
                           <Button
