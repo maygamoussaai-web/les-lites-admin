@@ -6,7 +6,7 @@
 import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { CalendarDays, Plus, Trash2, Check } from "lucide-react";
+import { CalendarDays, Plus, Trash2, Check, Loader2, CheckCircle2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,8 @@ import {
 } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { writeAudit } from "@/lib/data";
+import { enqueue } from "@/lib/offline-queue";
+import { flushQueue } from "@/lib/offline-sync";
 import {
   WEEKDAYS, weekdayLabel, formatDuration, currentWeekStart,
   teacherDue, validatedHours, type TeacherAssignment, type TeacherSession,
@@ -28,6 +30,21 @@ import {
 import { formatFCFA } from "@/lib/format";
 import { describeError } from "@/lib/errors";
 import type { SchoolData } from "@/lib/school-data";
+
+function isOnline() {
+  return typeof navigator === "undefined" || navigator.onLine;
+}
+
+function patchCompletions(
+  qc: ReturnType<typeof useQueryClient>,
+  updater: (rows: Array<Record<string, unknown>>) => Array<Record<string, unknown>>,
+) {
+  const queries = qc.getQueryCache().findAll({ queryKey: ["teacher_session_completions"] });
+  for (const query of queries) {
+    const old = query.state.data;
+    if (Array.isArray(old)) qc.setQueryData(query.queryKey, updater(old as Array<Record<string, unknown>>));
+  }
+}
 
 export function TeacherScheduleSection({
   assignment,
@@ -100,28 +117,88 @@ export function TeacherScheduleSection({
     setBusy(session.id);
     try {
       if (checked) {
-        const { error } = await supabase.from("teacher_session_completions").insert({
+        const rowId = crypto.randomUUID();
+        const values = {
           session_id: session.id,
           week_start: weekStart,
+          completed_at: new Date().toISOString(),
+        };
+        patchCompletions(qc, (rows) => [...rows, { id: rowId, ...values }]);
+        enqueue({
+          id: crypto.randomUUID(),
+          table: "teacher_session_completions",
+          op: "insert",
+          rowId,
+          values,
+          createdAt: Date.now(),
+          label: "Validation séance",
         });
-        if (error) throw error;
+        if (isOnline()) await flushQueue(qc);
+        else toast.message("Séance validée — synchronisation à la reconnexion");
       } else {
-        const { error } = await supabase
-          .from("teacher_session_completions")
-          .delete()
-          .eq("session_id", session.id)
-          .eq("week_start", weekStart);
-        if (error) throw error;
+        const existing = completions.find((c) => c.session_id === session.id);
+        const rowId = existing?.id;
+        if (rowId) {
+          patchCompletions(qc, (rows) => rows.filter((r) => r.id !== rowId));
+          enqueue({
+            id: crypto.randomUUID(),
+            table: "teacher_session_completions",
+            op: "delete",
+            rowId,
+            createdAt: Date.now(),
+            label: "Annulation séance",
+          });
+          if (isOnline()) await flushQueue(qc);
+          else toast.message("Validation annulée — synchronisation à la reconnexion");
+        } else if (isOnline()) {
+          const { error } = await supabase
+            .from("teacher_session_completions")
+            .delete()
+            .eq("session_id", session.id)
+            .eq("week_start", weekStart);
+          if (error) throw error;
+          await qc.invalidateQueries({ queryKey: ["teacher_session_completions"] });
+        }
       }
-      await qc.invalidateQueries({ queryKey: ["teacher_session_completions"] });
     } catch (e) {
       toast.error(describeError(e, "Mise à jour impossible"));
+      await qc.invalidateQueries({ queryKey: ["teacher_session_completions"] });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** Raccourci : valider toutes les séances prévues aujourd'hui (jour de la semaine). */
+  const validateToday = async () => {
+    const todayWeekday = ((new Date().getDay() + 6) % 7) + 1; // lun=1 … dim=7
+    const targets = sessions.filter((s) => s.weekday === todayWeekday && !completedIds.has(s.id));
+    if (targets.length === 0) {
+      toast.message(
+        sessions.some((s) => s.weekday === todayWeekday)
+          ? "Séances d'aujourd'hui déjà validées."
+          : "Aucune séance prévue aujourd'hui.",
+      );
+      return;
+    }
+    setBusy("__today__");
+    try {
+      for (const s of targets) {
+        await toggleSession(s, true);
+      }
+      toast.success(
+        targets.length === 1
+          ? "Séance d'aujourd'hui validée."
+          : `${targets.length} séances d'aujourd'hui validées.`,
+      );
+    } catch (e) {
+      toast.error(describeError(e, "Validation impossible"));
     } finally {
       setBusy(null);
     }
   };
 
   const removeSession = async (sessionId: string) => {
+
     setBusy(sessionId);
     try {
       await supabase.from("teacher_session_completions").delete().eq("session_id", sessionId);
@@ -191,6 +268,21 @@ export function TeacherScheduleSection({
           <Badge variant="outline" className="tabular-nums">
             {formatNumberHours(hours)} h validées · {formatFCFA(due)}
           </Badge>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="press"
+            disabled={busy === "__today__" || sessions.length === 0}
+            onClick={() => void validateToday()}
+            title="Valider les séances prévues aujourd'hui"
+          >
+            {busy === "__today__" ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Valider aujourd&apos;hui
+          </Button>
           <Button size="sm" className="press" onClick={() => setAddOpen(true)}>
             <Plus className="mr-1.5 h-4 w-4" /> Séance
           </Button>
