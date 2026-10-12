@@ -64,8 +64,23 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   update: "Modification",
   delete: "Suppression",
   archive: "Archivage",
+  unarchive: "Désarchivage",
+  upsert: "Enregistrement",
+  bulk_upsert: "Saisie groupée",
+  open: "Ouverture",
+  close: "Clôture",
+  reopen: "Réouverture",
   login: "Connexion",
   logout: "Déconnexion",
+  mark_completed: "Validation séance",
+  transfer: "Transfert",
+  enroll: "Inscription",
+  end_enrollment: "Fin d'inscription",
+  assign: "Affectation",
+  unassign: "Désaffectation",
+  renew: "Renouvellement",
+  generate: "Génération",
+  record: "Enregistrement",
 };
 
 export const AUDIT_TABLE_LABELS: Record<string, string> = {
@@ -101,4 +116,35 @@ export function auditActionLabel(action?: string | null) {
 export function auditEntityLabel(entity?: string | null) {
   if (!entity) return "—";
   return AUDIT_TABLE_LABELS[entity] ?? entity;
+}
+
+/** Libellé riche pour une entrée d'audit (outil IA + action + entité). */
+export function auditLogTitle(log: {
+  action?: string | null;
+  entity_type?: string | null;
+  metadata?: unknown;
+}): string {
+  const meta = (log.metadata ?? {}) as Record<string, unknown>;
+  const tool = typeof meta.tool === "string" ? meta.tool : typeof meta.tool_name === "string" ? meta.tool_name : null;
+  const viaAi = !!meta.via_ai;
+  const action = auditActionLabel(log.action);
+  const entity = auditEntityLabel(log.entity_type);
+  if (viaAi && tool) return `IA · ${tool} · ${action} · ${entity}`;
+  if (viaAi) return `IA · ${action} · ${entity}`;
+  return `${action} · ${entity}`;
+}
+
+export function auditLogSummary(log: { metadata?: unknown }): string {
+  const meta = (log.metadata ?? {}) as Record<string, unknown>;
+  const parts: string[] = [];
+  if (meta.name) parts.push(String(meta.name));
+  if (meta.fields && Array.isArray(meta.fields)) parts.push(`champs: ${(meta.fields as string[]).join(", ")}`);
+  if (meta.value !== undefined) parts.push(`note: ${meta.value}${meta.scale ? `/${meta.scale}` : ""}`);
+  if (meta.nature) parts.push(String(meta.nature));
+  if (meta.count !== undefined) parts.push(`${meta.count} élément(s)`);
+  if (meta.period_number !== undefined) parts.push(`période ${meta.period_number}`);
+  if (meta.amount !== undefined) parts.push(`${meta.amount} FCFA`);
+  if (meta.weekday !== undefined) parts.push(`jour ${meta.weekday}`);
+  if (meta.summary && typeof meta.summary === "string") parts.push(meta.summary);
+  return parts.join(" · ") || "—";
 }
