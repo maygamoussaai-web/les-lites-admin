@@ -91,8 +91,12 @@ export function AppSidebar() {
                       isActive={pathname === item.url || pathname.startsWith(item.url + "/")}
                       tooltip={item.title}
                     >
-                      <Link to={item.url} className="flex items-center gap-2">
-                        <item.icon className="h-4 w-4 transition-transform duration-200 group-hover/menu-item:scale-110" />
+                      <Link
+                        to={item.url}
+                        preload="intent"
+                        className="flex items-center gap-2"
+                      >
+                        <item.icon className="h-4 w-4 transition-transform duration-150 group-hover/menu-item:scale-105" />
                         {!collapsed && <span>{item.title}</span>}
                       </Link>
                     </SidebarMenuButton>
