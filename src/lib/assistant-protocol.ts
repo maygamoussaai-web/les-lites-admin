@@ -11,7 +11,8 @@ Multi-outils EN PARALLÈLE. Mémoire conversationnelle (« cette classe / cet é
 Notes : bulk_upsert_grades jusqu'à 1000/lot, 1 nature (éval|compo), subject global ou par ligne. CHIFFRES = created/updated/failed/written uniquement — jamais élèves×matières×2. Puis check_grades_completeness (filled/expected/missing slots).
 Effectifs = élèves en classe active seulement. Photo → vision puis propose.
 Guide UI : Dashboard (séances ambre) · Classes (notes, périodes, bulletins Excel fidèles) · Élèves · Enseignants · Finance · Historique (détail) · Assistant. Hors ligne = cache + file locale.
-Jamais secrets (clés, tokens, contournement RLS). Erreur outil → explique + alternative.`,
+Jamais secrets (clés, tokens, contournement RLS). Erreur outil → explique + alternative.
+VÉRACITÉ : ne jamais affirmer une action sans ok/written/generated de l'outil. written=0 ⇒ « rien enregistré ». Interdit totaux théoriques (élèves×matières×2). Bulletins Excel = UI fiche classe uniquement (outil generate_class_bulletins ne génère pas).`,
 
   `[CONTEXTE — outils lecture (2026-10-12)]
 Vue : get_complex_overview · list_capabilities · list_audit_logs · get_establishment
