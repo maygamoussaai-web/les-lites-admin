@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
-import { History } from "lucide-react";
+import { createFileRoute, Link } from "@tanstack/react-router";
+import { ChevronRight, History } from "lucide-react";
 import { PageHeader } from "@/components/app/page-header";
 import { EmptyState } from "@/components/app/empty-state";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/select";
 import { useRows } from "@/lib/data";
 import { useAdminProfile } from "@/hooks/use-auth";
-import { auditActionLabel, auditEntityLabel, formatDateTime } from "@/lib/format";
+import { auditLogTitle, formatDateTime } from "@/lib/format";
 import type { Tables } from "@/integrations/supabase/types";
 
 export const Route = createFileRoute("/_authenticated/historique")({
@@ -27,10 +27,12 @@ export const Route = createFileRoute("/_authenticated/historique")({
 });
 
 function Page() {
- const { isDG, establishmentIds } = useAdminProfile();
+  const { isDG, establishmentIds } = useAdminProfile();
   const [establishmentFilter, setEstablishmentFilter] = useState("");
 
-  const { data: establishments = [] } = useRows<Tables<"establishments">>("establishments", { order: { column: "name" } });
+  const { data: establishments = [] } = useRows<Tables<"establishments">>("establishments", {
+    order: { column: "name" },
+  });
   const { data: admins = [] } = useRows<Tables<"admin_profiles">>("admin_profiles");
 
   const { data: logs = [], isLoading } = useRows<Tables<"audit_logs">>("audit_logs", {
@@ -54,7 +56,10 @@ function Page() {
         }
         actions={
           isDG ? (
-            <Select value={establishmentFilter || "all"} onValueChange={(v) => setEstablishmentFilter(v === "all" ? "" : v)}>
+            <Select
+              value={establishmentFilter || "all"}
+              onValueChange={(v) => setEstablishmentFilter(v === "all" ? "" : v)}
+            >
               <SelectTrigger className="w-56">
                 <SelectValue placeholder="Tous les établissements" />
               </SelectTrigger>
@@ -72,35 +77,47 @@ function Page() {
       />
 
       {!isLoading && logs.length === 0 ? (
-        <EmptyState icon={History} title="Aucune action enregistrée" description="Les actions apparaîtront ici au fur et à mesure." />
+        <EmptyState
+          icon={History}
+          title="Aucune action enregistrée"
+          description="Les actions apparaîtront ici au fur et à mesure."
+        />
       ) : (
         <ol className="space-y-2.5">
           {logs.map((log, index) => {
             const actor = adminsById.get(log.actor_id ?? "");
             const est = establishments.find((e) => e.id === log.establishment_id);
+            const meta = (log.metadata ?? {}) as { via_ai?: boolean };
             return (
               <li
                 key={log.id}
-                className="animate-rise flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-card px-4 py-3 text-sm shadow-sm"
+                className="animate-rise"
                 style={{ animationDelay: `${Math.min(index, 15) * 30}ms` }}
               >
-                <div className="min-w-0">
-                  <p className="font-medium text-foreground">
-                    {auditActionLabel(log.action)} · {auditEntityLabel(log.entity_type)}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {actor ? `${actor.last_name} ${actor.first_name}` : "Direction générale"}
-                    {isDG && est ? ` · ${est.name}` : ""}
-                    {(log.metadata as { via_ai?: boolean } | null)?.via_ai && (
-                      <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary" title="Effectué via l'Assistant IA">
-                        🤖 via l'Assistant IA
-                      </span>
-                    )}
-                  </p>
-                </div>
-                <Badge variant="outline" className="shrink-0 text-xs font-normal text-muted-foreground">
-                  {formatDateTime(log.created_at)}
-                </Badge>
+                <Link
+                  to="/historique/$logId"
+                  params={{ logId: log.id }}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border/70 bg-card px-4 py-3 text-sm shadow-sm transition hover:border-primary/40 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-foreground">{auditLogTitle(log)}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {actor ? `${actor.last_name} ${actor.first_name}` : "Direction générale"}
+                      {isDG && est ? ` · ${est.name}` : ""}
+                      {meta.via_ai && (
+                        <span className="ml-1.5 inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                          🤖 Assistant IA
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Badge variant="outline" className="text-xs font-normal text-muted-foreground">
+                      {formatDateTime(log.created_at)}
+                    </Badge>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground" aria-hidden />
+                  </div>
+                </Link>
               </li>
             );
           })}
