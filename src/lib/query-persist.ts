@@ -8,10 +8,10 @@ import type { QueryClient, QueryKey } from "@tanstack/react-query";
 
 export const QUERY_PERSIST_MAX_AGE = 1000 * 60 * 60 * 24 * 7;
 const STORAGE_KEY = "eg-rq-cache-v1";
-const MAX_ENTRIES = 80;
-const MAX_BYTES = 1_800_000;
+const MAX_ENTRIES = 120;
+const MAX_BYTES = 2_400_000;
 
-/** Tables stables à persister (pas les notes volatiles). */
+/** Tables à persister pour lecture hors ligne (écritures restent en file d'attente). */
 const PERSIST_TABLES = new Set([
   "establishments",
   "classes",
@@ -25,6 +25,17 @@ const PERSIST_TABLES = new Set([
   "teacher_session_completions",
   "tuition_payments",
   "teacher_payments",
+  // Lecture hors ligne élargie (sans risque de corruption)
+  "grade_periods",
+  "class_subjects",
+  "grades",
+  "student_documents",
+  "student_report_cards",
+  "admin_profiles",
+  "admin_profile_establishments",
+  "invitations",
+  "class_reports",
+  "report_templates",
 ]);
 
 type StoredEntry = {
