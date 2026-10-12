@@ -231,12 +231,14 @@ export async function writeFilledWorkbook(
         const key = STAT_KEYS[rawKey] ?? STAT_KEYS[normalize(rawKey)];
         if (!key) continue;
         const idx = m[2] && /^\d+$/.test(m[2]) ? Number(m[2]) - 1 : null;
+        // Moyenne générale (période [mg:1] OU annuelle [mg] / sans indice) =
+        // TOUJOURS sortie formule Excel → jamais d'écriture.
+        // Le modèle recalcule les MG de période à partir des notes remplies.
+        if (key === "generalAverage") continue;
         // Sans indice : rang/effectif/premier/dernier déjà gérés plus haut.
-        // generalAverage sans indice = sortie (formule Excel) → on n'écrit jamais.
         // classAverage sans indice = entrée légitime (moyenne de classe connue).
-        // Avec indice ([mg:1], [rang:2]…) = stats de période (bulletin annuel).
+        // Avec indice ([rang:2], [premier:1]…) = stats de période (bulletin annuel).
         if (idx === null && !m[2]) {
-          if (key === "generalAverage") continue;
           if (key !== "classAverage") continue;
         }
         const stat = idx === null ? current : data.periodStats?.[idx];
