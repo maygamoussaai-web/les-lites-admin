@@ -1,7 +1,9 @@
 /**
- * NOTE POUR CLAUDE: checklist d'intégrité des notes avant génération des bulletins
- * (étape 3 du plan). Lecture seule, calcul 100 % client sur les données déjà chargées
- * par useClassPage — aucune requête supplémentaire. Case vide ≠ 0 : on signale, on n'invente rien.
+ * Contrôle d'intégrité des notes avant bulletins.
+ * Compteurs explicites :
+ * - cases attendues = élèves × matières × natures (éval + compo)
+ * - cases remplies / manquantes (slots)
+ * - paires élève×matière incomplètes (détail déroulant)
  */
 import { useMemo, useState } from "react";
 import { CheckCircle2, AlertTriangle, XCircle, ChevronDown } from "lucide-react";
@@ -29,7 +31,7 @@ export function GradesIntegrityCard({
 }) {
   const [open, setOpen] = useState(false);
 
-  const { blocking, missing } = useMemo(() => {
+  const stats = useMemo(() => {
     const blocking: Issue[] = [];
     const missing: Issue[] = [];
     const name = (s: StudentLite) => `${s.last_name} ${s.first_name}`;
@@ -39,9 +41,24 @@ export function GradesIntegrityCard({
       list.push(g);
       byStudent.set(g.student_id, list);
     }
+
+    const natureCount = Math.max(1, natures.length);
+    const expectedSlots = students.length * subjects.length * natureCount;
+    // Cases uniques (élève × matière × nature) présentes — pas les doublons de séquence.
+    const filledKeys = new Set<string>();
+    for (const g of grades) {
+      if (!subjects.some((sub) => sub.id === g.subject_id)) continue;
+      if (!natures.includes(g.nature as GradeNature)) continue;
+      if (!students.some((st) => st.id === g.student_id)) continue;
+      filledKeys.add(`${g.student_id}|${g.subject_id}|${g.nature}`);
+    }
+    const filledSlots = filledKeys.size;
+    const missingSlots = Math.max(0, expectedSlots - filledSlots);
+
+    const incompleteBySubject = new Map<string, number>();
+
     for (const s of students) {
       const list = byStudent.get(s.id) ?? [];
-      // Anomalies bloquantes : note hors barème / doublon exact (même matière, nature, rang).
       const seen = new Set<string>();
       for (const g of list) {
         const v = Number(g.value);
@@ -54,14 +71,17 @@ export function GradesIntegrityCard({
         if (seen.has(key)) blocking.push({ student: name(s), detail: `${subj} : note en double` });
         seen.add(key);
       }
-      // Notes manquantes (non bloquantes).
       if (!list.length) {
         missing.push({ student: name(s), detail: "Aucune note sur la période" });
+        for (const sub of subjects) {
+          incompleteBySubject.set(sub.name, (incompleteBySubject.get(sub.name) ?? 0) + 1);
+        }
         continue;
       }
       for (const sub of subjects) {
         const lacks = natures.filter((n) => !list.some((g) => g.subject_id === sub.id && g.nature === n));
         if (lacks.length) {
+          incompleteBySubject.set(sub.name, (incompleteBySubject.get(sub.name) ?? 0) + 1);
           missing.push({
             student: name(s),
             detail: `${sub.name} : ${lacks.map((n) => natureLabels[n]).join(" et ")} manquante(s)`,
@@ -69,12 +89,27 @@ export function GradesIntegrityCard({
         }
       }
     }
-    return { blocking, missing };
+
+    const subjectsIncomplete = [...incompleteBySubject.entries()]
+      .filter(([, n]) => n > 0)
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "fr"));
+
+    return {
+      blocking,
+      missing,
+      expectedSlots,
+      filledSlots,
+      missingSlots,
+      subjectsIncomplete,
+      completionPct: expectedSlots ? Math.round((filledSlots / expectedSlots) * 100) : 100,
+    };
   }, [students, subjects, grades, natures, natureLabels]);
 
   if (!students.length || !subjects.length) return null;
 
-  const status = blocking.length ? "red" : missing.length ? "orange" : "green";
+  const { blocking, missing, expectedSlots, filledSlots, missingSlots, subjectsIncomplete, completionPct } =
+    stats;
+  const status = blocking.length ? "red" : missingSlots > 0 ? "orange" : "green";
   const Icon = status === "green" ? CheckCircle2 : status === "orange" ? AlertTriangle : XCircle;
   const tone =
     status === "green"
@@ -82,12 +117,14 @@ export function GradesIntegrityCard({
       : status === "orange"
         ? "text-accent-foreground border-accent/40 bg-accent/10"
         : "text-destructive border-destructive/30 bg-destructive/5";
+
   const title =
     status === "green"
       ? "Prêt pour les bulletins"
       : status === "orange"
-        ? `${missing.length} note(s) manquante(s)`
+        ? `${missingSlots} case${missingSlots > 1 ? "s" : ""} manquante${missingSlots > 1 ? "s" : ""} sur ${expectedSlots}`
         : `${blocking.length} anomalie(s) à corriger`;
+
   const issues = [...blocking, ...missing];
 
   return (
@@ -96,29 +133,58 @@ export function GradesIntegrityCard({
         type="button"
         className="flex w-full items-center justify-between gap-3 text-left"
         onClick={() => setOpen((v) => !v)}
-        disabled={!issues.length}
+        disabled={!issues.length && status === "green"}
       >
         <span className="flex items-center gap-2">
           <Icon className="h-5 w-5 shrink-0" />
           <span>
             <span className="block text-sm font-semibold text-foreground">Contrôle des notes — {title}</span>
-            <span className="block text-xs text-muted-foreground">{periodLabel}</span>
+            <span className="block text-xs text-muted-foreground">
+              {periodLabel}
+              {" · "}
+              {filledSlots}/{expectedSlots} cases ({completionPct} %)
+              {subjectsIncomplete.length > 0
+                ? ` · ${subjectsIncomplete.length} matière${subjectsIncomplete.length > 1 ? "s" : ""} incomplète${subjectsIncomplete.length > 1 ? "s" : ""}`
+                : ""}
+            </span>
           </span>
         </span>
         {issues.length > 0 && (
           <ChevronDown className={`h-4 w-4 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
         )}
       </button>
-      {open && issues.length > 0 && (
-        <ul className="mt-3 max-h-64 space-y-1 overflow-y-auto text-xs text-foreground">
-          {issues.slice(0, 200).map((i, idx) => (
-            <li key={idx} className="flex gap-2">
-              <span className="font-medium">{i.student}</span>
-              <span className="text-muted-foreground">— {i.detail}</span>
-            </li>
-          ))}
-          {issues.length > 200 && <li className="text-muted-foreground">… et {issues.length - 200} autre(s)</li>}
-        </ul>
+
+      {open && (subjectsIncomplete.length > 0 || issues.length > 0) && (
+        <div className="mt-3 space-y-3 text-xs text-foreground">
+          {subjectsIncomplete.length > 0 && (
+            <div>
+              <p className="mb-1 font-medium text-muted-foreground">Matières incomplètes (élèves concernés)</p>
+              <ul className="flex flex-wrap gap-1.5">
+                {subjectsIncomplete.map(([sub, n]) => (
+                  <li
+                    key={sub}
+                    className="rounded-full border border-border/60 bg-background/60 px-2.5 py-0.5 tabular-nums"
+                  >
+                    {sub} · {n}/{students.length}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {issues.length > 0 && (
+            <ul className="max-h-64 space-y-1 overflow-y-auto">
+              {issues.slice(0, 200).map((i, idx) => (
+                <li key={idx} className="flex gap-2">
+                  <span className="font-medium">{i.student}</span>
+                  <span className="text-muted-foreground">— {i.detail}</span>
+                </li>
+              ))}
+              {issues.length > 200 && (
+                <li className="text-muted-foreground">… et {issues.length - 200} autre(s)</li>
+              )}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   );
