@@ -80,6 +80,7 @@ export function ShareSheet({
   };
   const sms = () => {
     const body = encodeURIComponent(text ? `${text} ${url}` : url);
+    // iOS uses &body=, Android uses ?body=
     openExternal(`sms:?&body=${body}`);
   };
   const email = () => {
