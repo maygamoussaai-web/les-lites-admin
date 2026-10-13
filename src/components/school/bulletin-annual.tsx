@@ -145,13 +145,9 @@ export function AnnualBulletinDialog({
         return;
       }
 
-      const sortedPeriods = [...periodsSnap].sort(
+      let sortedPeriods = [...periodsSnap].sort(
         (a, b) => (a.period_number ?? 0) - (b.period_number ?? 0),
       );
-      const yearLabel =
-        sortedPeriods.length > 0
-          ? `Année — ${sortedPeriods.length} période${sortedPeriods.length > 1 ? "s" : ""}`
-          : "Année scolaire";
 
       const { data: cards, error } = await supabase
         .from("student_report_cards")
@@ -168,6 +164,20 @@ export function AnnualBulletinDialog({
         );
         return;
       }
+
+      // Périodes sans bulletin/notes : aucun effet sur l'annuel
+      {
+        const withData = new Set(list.map((c) => c.period_id));
+        sortedPeriods = sortedPeriods.filter((p) => withData.has(p.id));
+        if (!sortedPeriods.length) {
+          toast.error("Aucune période avec bulletins — rien à synthétiser pour l'annuel.", { id: toastId });
+          return;
+        }
+      }
+      const yearLabel =
+        sortedPeriods.length > 0
+          ? `Année — ${sortedPeriods.length} période${sortedPeriods.length > 1 ? "s" : ""}`
+          : "Année scolaire";
 
       const tpl = await downloadActiveTemplateBuffer(klass.id, "annual");
       const useExcel = !!tpl?.buffer && !!tpl.mapping;
