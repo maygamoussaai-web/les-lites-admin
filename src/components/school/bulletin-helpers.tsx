@@ -28,7 +28,7 @@ import { uploadBulletinWorkbook } from "@/lib/storage-upload";
 import { useActiveReportTemplate, downloadActiveTemplateBuffer } from "@/lib/report-template";
 import { writeFilledWorkbook } from "@/lib/xlsx-writeback";
 import { buildModelFillData, computeModelAverages } from "@/lib/model-averages";
-import { closeOpenPeriodOnly } from "@/lib/period-lifecycle";
+import { closePeriodAfterFirstBulletin } from "@/lib/period-lifecycle";
 import { type ClassSubject, type GradePeriod, type Grade } from "@/lib/grades";
 import type { ClassRow } from "@/lib/school";
 
@@ -311,29 +311,26 @@ export function BulletinWalkthroughDialog({
             /* mobile / background may block */
           }
         }
+        // Dès qu'au moins un bulletin est classé → période clôturée (notes verrouillées).
+        try {
+          const { closedPeriodNumber, alreadyClosed } = await closePeriodAfterFirstBulletin(klass.id);
+          qc.invalidateQueries({ queryKey: ["grade_periods"] });
+          if (!alreadyClosed && closedPeriodNumber != null) {
+            toast.success(
+              `Période ${closedPeriodNumber} clôturée (bulletin classé). Les notes ne sont plus modifiables — régénération des bulletins toujours possible. Ouvrez une « Nouvelle période » pour la suite.`,
+              { duration: 10_000 },
+            );
+          }
+        } catch (e) {
+          toast.error(describeError(e, "Bulletins OK, clôture de période impossible"));
+        }
         const needBulletinIds = studentsSnap
           .filter((s) => gradesSnap.some((g) => g.student_id === s.id))
           .map((s) => s.id);
         const covered = new Set<string>([...alreadySnap, ...successIds]);
-        const allCovered =
-          needBulletinIds.length > 0 &&
-          failures.length === 0 &&
-          needBulletinIds.every((id) => covered.has(id));
-
-        if (allCovered) {
-          try {
-            const { closedPeriodNumber } = await closeOpenPeriodOnly(klass.id);
-            qc.invalidateQueries({ queryKey: ["grade_periods"] });
-            toast.success(
-              closedPeriodNumber != null
-                ? `Tous les bulletins sont en bibliothèque — période ${closedPeriodNumber} clôturée. La prochaine s'ouvrira à la première note.`
-                : "Tous les bulletins sont en bibliothèque — période clôturée.",
-            );
-          } catch (e) {
-            toast.error(describeError(e, "Bulletins OK, clôture de période impossible"));
-          }
-        } else if (successCount > 0) {
-          toast.message("Il reste des bulletins à générer. La période reste ouverte.");
+        const remaining = needBulletinIds.filter((id) => !covered.has(id)).length;
+        if (remaining > 0) {
+          toast.message(`Il reste ${remaining} bulletin(s) à générer pour cette période.`);
         }
       }
       if (failures.length) {
@@ -351,7 +348,7 @@ export function BulletinWalkthroughDialog({
             needIds.length > 0 && needIds.every((id) => alreadySnap.has(id));
           if (allAlready) {
             try {
-              const { closedPeriodNumber } = await closeOpenPeriodOnly(klass.id);
+              const { closedPeriodNumber } = await closePeriodAfterFirstBulletin(klass.id);
               qc.invalidateQueries({ queryKey: ["grade_periods"] });
               toast.success(
                 closedPeriodNumber != null
