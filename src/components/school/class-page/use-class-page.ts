@@ -15,6 +15,14 @@ import {
   type ClassSubject, type GradePeriod, type Grade, type StudentReportCard,
 } from "@/lib/grades";
 import { describeError } from "@/lib/errors";
+import {
+  closeAndStartNextPeriod,
+  isYearClosedForClass,
+} from "@/lib/period-lifecycle";
+import {
+  downloadPeriodBulletinsWorkbook,
+  downloadAnnualBulletinsWorkbook,
+} from "@/lib/bulletin-zip";
 import { computeLiveClassStats } from "@/lib/class-model-stats";
 import { EMPTY_STATS, type AveragedStudent, type ClassStats } from "./types";
 
@@ -67,6 +75,8 @@ export function useClassPage() {
   const [bulletinsOpen, setBulletinsOpen] = useState(false);
   const [annualOpen, setAnnualOpen] = useState(false);
   const [pendingForcePeriod, setPendingForcePeriod] = useState(false);
+  const [yearClosed, setYearClosed] = useState(false);
+  const [downloadBusy, setDownloadBusy] = useState(false);
   const [stats, setStats] = useState<ClassStats>(EMPTY_STATS);
 
   const periodsQuery = useSupabaseRows<GradePeriod>("grade_periods", { class_id: classId }, "period_number");
@@ -97,8 +107,22 @@ export function useClassPage() {
     [cardsQuery.data, latestPeriod],
   );
 
+  useEffect(() => {
+    let cancelled = false;
+    void isYearClosedForClass(classId).then((v) => {
+      if (!cancelled) setYearClosed(v);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [classId, classStudents, annualOpen]);
+
   const startNewPeriod = async (force = false) => {
     if (!klass || isClassArchived) return;
+    if (yearClosed) {
+      toast.error("Année clôturée (bulletin annuel classé) — impossible d'ouvrir une nouvelle période.");
+      return;
+    }
     try {
       if (currentPeriod && !force) {
         const studentIdsWithNotes = new Set(gradesForPeriod.map((g) => g.student_id));
@@ -117,31 +141,65 @@ export function useClassPage() {
           return;
         }
       }
-      if (currentPeriod) {
-        const { error } = await supabase
-          .from("grade_periods")
-          .update({ ended_at: new Date().toISOString() })
-          .eq("id", currentPeriod.id);
-        if (error) throw error;
-      }
-      const nextNumber =
-        (periodsQuery.data.reduce((max, p) => Math.max(max, p.period_number), 0) || 0) + 1;
-      const { error } = await supabase.from("grade_periods").insert({
-        class_id: classId,
-        establishment_id: klass.establishment_id,
-        period_number: nextNumber,
-      });
-      if (error) throw error;
+      const { closedPeriodNumber, newPeriodNumber } = await closeAndStartNextPeriod(
+        classId,
+        klass.establishment_id,
+      );
       await writeAudit("create", "grade_periods" as never, null, {
         class_id: classId,
-        period_number: nextNumber,
+        period_number: newPeriodNumber,
+        closed_period: closedPeriodNumber,
       });
       qc.invalidateQueries({ queryKey: ["grade_periods"] });
       qc.invalidateQueries({ queryKey: ["student_report_cards"] });
-      toast.success(`Période ${nextNumber} démarrée`);
+      toast.success(`Période ${newPeriodNumber} démarrée`);
       setPendingForcePeriod(false);
     } catch (e) {
       toast.error(describeError(e, "Impossible de démarrer la période"));
+    }
+  };
+
+  const downloadClassPeriodBulletins = async () => {
+    const period = currentPeriod ?? latestPeriod;
+    if (!period || !klass) return;
+    setDownloadBusy(true);
+    try {
+      const n = await downloadPeriodBulletinsWorkbook({
+        classId,
+        periodId: period.id,
+        periodNumber: period.period_number,
+        className: klass.name,
+        students: classStudents.map((s) => ({
+          id: s.id,
+          first_name: s.first_name,
+          last_name: s.last_name,
+        })),
+      });
+      toast.success(`Classeur multi-feuilles téléchargé (${n} élève(s)).`);
+    } catch (e) {
+      toast.error(describeError(e, "Téléchargement impossible"));
+    } finally {
+      setDownloadBusy(false);
+    }
+  };
+
+  const downloadClassAnnualBulletins = async () => {
+    if (!klass) return;
+    setDownloadBusy(true);
+    try {
+      const n = await downloadAnnualBulletinsWorkbook({
+        className: klass.name,
+        students: classStudents.map((s) => ({
+          id: s.id,
+          first_name: s.first_name,
+          last_name: s.last_name,
+        })),
+      });
+      toast.success(`Classeur annuel multi-feuilles téléchargé (${n} élève(s)).`);
+    } catch (e) {
+      toast.error(describeError(e, "Téléchargement annuel impossible"));
+    } finally {
+      setDownloadBusy(false);
     }
   };
 
@@ -300,6 +358,16 @@ export function useClassPage() {
     else bulletinsMissing++;
   }
 
+
+  const studentIds = classStudents.map((s) => s.id);
+  const periodBulletinsComplete =
+    studentIds.length > 0 &&
+    !!latestPeriod &&
+    studentIds.every((id) => withBulletins.has(id));
+  // Notes verrouillées si pas de période ouverte ou année clôturée
+  const gradesLocked = yearClosed || !currentPeriod;
+  const canOpenNewPeriod = !isClassArchived && !yearClosed;
+
   return {
     classId,
     data,
@@ -332,6 +400,13 @@ export function useClassPage() {
     bulletinsDone,
     bulletinsMissing,
     notesWithoutPeriod: !currentPeriod && !latestPeriod,
+    yearClosed,
+    gradesLocked,
+    canOpenNewPeriod,
+    periodBulletinsComplete,
+    downloadBusy,
+    downloadClassPeriodBulletins,
+    downloadClassAnnualBulletins,
     loading: data.loading || establishmentIdsLoading,
   };
 }
