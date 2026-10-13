@@ -75,34 +75,6 @@ export function ClassPageView(m: ClassPageModel) {
         </div>
       )}
 
-      {!currentPeriod && latestPeriod && !isClassArchived && (
-        <div className="mb-4 rounded-xl border border-border/70 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-          Période {latestPeriod.period_number} clôturée. La prochaine période s'ouvrira automatiquement
-          à la <strong className="text-foreground">première note</strong> enregistrée.
-        </div>
-      )}
-
-      {currentPeriod && bulletinsMissing > 0 && !isClassArchived && (
-        <div
-          role="status"
-          className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm"
-        >
-          <p className="text-amber-900 dark:text-amber-100">
-            <strong>{bulletinsMissing}</strong> élève(s) ont des notes sans bulletin pour la période{" "}
-            {currentPeriod.period_number}
-            {bulletinsDone > 0 ? ` · ${bulletinsDone} déjà généré(s)` : ""}.
-          </p>
-          <Button
-            size="sm"
-            variant="outline"
-            className="press shrink-0 border-amber-600/40"
-            onClick={() => setBulletinsOpen(true)}
-          >
-            Compléter les bulletins
-          </Button>
-        </div>
-      )}
-
       {yearClosed && !isClassArchived && (
         <div
           role="status"
@@ -127,6 +99,27 @@ export function ClassPageView(m: ClassPageModel) {
           className="mb-3 rounded-xl border border-border/70 bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground"
         >
           Période {latestPeriod.period_number} clôturée — notes verrouillées. Régénération des bulletins possible. Ouvrez une « Nouvelle période » pour saisir de nouvelles notes.
+        </div>
+      )}
+
+      {currentPeriod && bulletinsMissing > 0 && !isClassArchived && (
+        <div
+          role="status"
+          className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm"
+        >
+          <p className="text-amber-900 dark:text-amber-100">
+            <strong>{bulletinsMissing}</strong> élève(s) ont des notes sans bulletin pour la période{" "}
+            {currentPeriod.period_number}
+            {bulletinsDone > 0 ? ` · ${bulletinsDone} déjà généré(s)` : ""}.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="press shrink-0 border-amber-600/40"
+            onClick={() => setBulletinsOpen(true)}
+          >
+            Compléter les bulletins
+          </Button>
         </div>
       )}
 
@@ -165,7 +158,7 @@ export function ClassPageView(m: ClassPageModel) {
                   className="press"
                   onClick={() => {
                     if (!(currentPeriod ?? latestPeriod)) {
-                      toast.message("Saisissez une note pour ouvrir une période, ou démarrez-en une.");
+                      toast.message("Ouvrez une période (Nouvelle période) avant de générer les bulletins.");
                       return;
                     }
                     setBulletinsOpen(true);
@@ -178,6 +171,7 @@ export function ClassPageView(m: ClassPageModel) {
                     </span>
                   )}
                 </Button>
+              )}
               {!isClassArchived && periodBulletinsComplete && (currentPeriod ?? latestPeriod) && (
                 <Button
                   variant="secondary"
@@ -201,7 +195,6 @@ export function ClassPageView(m: ClassPageModel) {
                   <Download className="mr-1.5 h-4 w-4" />
                   {downloadBusy ? "Préparation…" : "Télécharger annuels classe"}
                 </Button>
-              )}
               )}
               {!isClassArchived && (
                 <Button variant="outline" size="sm" className="press" onClick={() => setAnnualOpen(true)}>
