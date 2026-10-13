@@ -4,57 +4,49 @@
 import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
-  ArrowLeft, Users, Plus, FileBarChart, FileText, RotateCcw, GraduationCap, Trophy, TrendingDown,
+  ArrowLeft, Trophy, TrendingDown, Users, GraduationCap,
+  Plus, RotateCcw, FileBarChart, FileText, Download,
 } from "lucide-react";
+import { StatCard } from "@/components/app/stat-card";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { StudentsDialog } from "@/components/school/students-dialog";
+import { ReportTemplateManager } from "@/components/school/report-template-manager";
 import { NoteEntryDialog } from "@/components/school/note-entry-dialog";
 import { ClassActionsMenu } from "@/components/school/class-actions-menu";
 import { BulletinWalkthroughDialog, AnnualBulletinDialog } from "@/components/school/bulletin-helpers";
 import { StudentGroupCard, ClassReportsSection } from "@/components/school/class-results-helpers";
-import { GradesIntegrityCard } from "@/components/school/grades-integrity-card";
-import { ReportTemplateManager } from "@/components/school/report-template-manager";
 import { PeriodComparisonChart } from "@/components/school/period-comparison-chart";
+import { GradesIntegrityCard } from "@/components/school/grades-integrity-card";
 import { formatDateTime } from "@/lib/format";
-import { useClassPage } from "./use-class-page";
+import { PASS_THRESHOLD, EXCELLENT_THRESHOLD } from "@/lib/grades";
+import type { ClassPageModel } from "./use-class-page";
 
-function StatCard({
-  label, value, hint, icon: Icon,
-}: {
-  label: string; value: string; hint: string; icon: React.ComponentType<{ className?: string }>;
-}) {
-  return (
-    <div className="bg-card px-4 py-3">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Icon className="h-3.5 w-3.5" />
-        {label}
-      </div>
-      <p className="mt-1 text-2xl font-semibold tabular-nums">{value}</p>
-      <p className="mt-0.5 text-[11px] text-muted-foreground">{hint}</p>
-    </div>
-  );
-}
-
-export function ClassPageView() {
+export function ClassPageView(m: ClassPageModel) {
   const {
     classId, data, klass, isClassArchived, establishment, classStudents,
-    currentPeriod, latestPeriod, periodsQuery, subjectsQuery, gradesForPeriod, periodCards,
-    stats, periodLabelText, studentsWithNotes, bulletinsDone, bulletinsMissing, notesWithoutPeriod,
     studentsOpen, setStudentsOpen, noteEntryOpen, setNoteEntryOpen,
-    bulletinsOpen, setBulletinsOpen, annualOpen, setAnnualOpen,
-    pendingForcePeriod, setPendingForcePeriod, startNewPeriod, activeTemplate,
-  } = useClassPage();
+    bulletinsOpen, setBulletinsOpen,
+    annualOpen, setAnnualOpen, pendingForcePeriod, setPendingForcePeriod,
+    stats, periodsQuery, subjectsQuery, activeTemplate,
+    currentPeriod, latestPeriod, gradesForPeriod, periodCards,
+    startNewPeriod, periodLabelText, studentsWithNotes,
+    bulletinsDone, bulletinsMissing, notesWithoutPeriod,
+    yearClosed = false,
+    gradesLocked = false,
+    canOpenNewPeriod = true,
+    periodBulletinsComplete = false,
+    downloadBusy = false,
+    downloadClassPeriodBulletins = async () => {},
+    downloadClassAnnualBulletins = async () => {},
+  } = m;
 
-  if (!klass) {
-    return (
-      <div className="p-6 text-sm text-muted-foreground">Classe introuvable.</div>
-    );
-  }
+  if (!klass) return null;
 
   return (
     <>
@@ -69,40 +61,87 @@ export function ClassPageView() {
       </Button>
 
       {isClassArchived && (
-        <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-900 dark:text-amber-100">
-          Génération archivée — consultation seule. Aucune modification possible.
+        <div
+          role="status"
+          className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border/80 bg-muted/40 px-3 py-2.5 text-sm"
+        >
+          <p className="text-muted-foreground">
+            <strong className="text-foreground">Classe archivée</strong>
+            {" "}— consultation des notes, bulletins et stats conservés. Les actions de saisie sont désactivées.
+          </p>
+          <Button variant="outline" size="sm" className="press shrink-0" asChild>
+            <Link to="/archives">Voir les archives</Link>
+          </Button>
         </div>
       )}
 
       {!currentPeriod && latestPeriod && !isClassArchived && (
-        <div className="mb-3 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-          Aucune période ouverte. Démarrez une nouvelle période pour saisir des notes.
+        <div className="mb-4 rounded-xl border border-border/70 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+          Période {latestPeriod.period_number} clôturée. La prochaine période s'ouvrira automatiquement
+          à la <strong className="text-foreground">première note</strong> enregistrée.
         </div>
       )}
 
       {currentPeriod && bulletinsMissing > 0 && !isClassArchived && (
-        <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm">
-          {bulletinsMissing} élève(s) noté(s) sans bulletin sur la période en cours.
+        <div
+          role="status"
+          className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm"
+        >
+          <p className="text-amber-900 dark:text-amber-100">
+            <strong>{bulletinsMissing}</strong> élève(s) ont des notes sans bulletin pour la période{" "}
+            {currentPeriod.period_number}
+            {bulletinsDone > 0 ? ` · ${bulletinsDone} déjà généré(s)` : ""}.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="press shrink-0 border-amber-600/40"
+            onClick={() => setBulletinsOpen(true)}
+          >
+            Compléter les bulletins
+          </Button>
         </div>
       )}
 
-      {notesWithoutPeriod && !isClassArchived && (
-        <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm">
-          Des notes existent hors période ouverte.
+      {yearClosed && !isClassArchived && (
+        <div
+          role="status"
+          className="mb-3 rounded-xl border border-primary/30 bg-primary/5 px-3 py-2.5 text-sm text-foreground"
+        >
+          Année clôturée (un bulletin annuel a été classé). Saisie de notes et nouvelles périodes indisponibles — consultation, régénération de bulletins et téléchargements restent possibles.
         </div>
       )}
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <div className="border-b border-border px-4 py-4 sm:px-6">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <h1 className="font-display text-2xl font-semibold tracking-tight">
-                {klass.name}
+      {!yearClosed && notesWithoutPeriod && !isClassArchived && (
+        <div
+          role="status"
+          className="mb-3 rounded-xl border border-border/70 bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground"
+        >
+          Aucune période active. Utilisez le bouton « Nouvelle période » pour en ouvrir une avant de saisir des notes.
+        </div>
+      )}
+
+      {!yearClosed && !currentPeriod && latestPeriod && !isClassArchived && (
+        <div
+          role="status"
+          className="mb-3 rounded-xl border border-border/70 bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground"
+        >
+          Période {latestPeriod.period_number} clôturée — notes verrouillées. Régénération des bulletins possible. Ouvrez une « Nouvelle période » pour saisir de nouvelles notes.
+        </div>
+      )}
+
+      <div className="overflow-hidden rounded-2xl border border-border/80 bg-gradient-to-br from-card via-card to-primary/[0.04] shadow-sm">
+        <div className="border-b border-border/60 px-5 py-5 sm:px-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0 space-y-1.5">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {establishment?.name ?? "Classe"}
                 {isClassArchived ? " · Archivée" : ""}
+              </p>
+              <h1 className="font-display text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+                {klass.name}
               </h1>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {establishment?.name ?? "—"}
-                {" · "}
+              <p className="text-sm text-muted-foreground">
                 {currentPeriod
                   ? `Période ${currentPeriod.period_number} en cours · démarrée le ${formatDateTime(currentPeriod.started_at)}`
                   : latestPeriod
@@ -115,7 +154,7 @@ export function ClassPageView() {
                 <Users className="mr-1.5 h-4 w-4" /> {isClassArchived ? "Voir les élèves" : "Élèves"}
               </Button>
               {!isClassArchived && (
-                <Button size="sm" className="press" onClick={() => setNoteEntryOpen(true)}>
+                <Button size="sm" className="press" onClick={() => { if (gradesLocked) { toast.message(yearClosed ? "Année clôturée — saisie impossible." : "Période clôturée — ouvrez une nouvelle période pour saisir des notes."); return; } setNoteEntryOpen(true); }}>
                   <Plus className="mr-1.5 h-4 w-4" /> Note
                 </Button>
               )}
@@ -139,6 +178,30 @@ export function ClassPageView() {
                     </span>
                   )}
                 </Button>
+              {!isClassArchived && periodBulletinsComplete && (currentPeriod ?? latestPeriod) && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="press"
+                  disabled={downloadBusy}
+                  onClick={() => void downloadClassPeriodBulletins()}
+                >
+                  <Download className="mr-1.5 h-4 w-4" />
+                  {downloadBusy ? "Préparation…" : "Télécharger bulletins classe"}
+                </Button>
+              )}
+              {!isClassArchived && yearClosed && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="press"
+                  disabled={downloadBusy}
+                  onClick={() => void downloadClassAnnualBulletins()}
+                >
+                  <Download className="mr-1.5 h-4 w-4" />
+                  {downloadBusy ? "Préparation…" : "Télécharger annuels classe"}
+                </Button>
+              )}
               )}
               {!isClassArchived && (
                 <Button variant="outline" size="sm" className="press" onClick={() => setAnnualOpen(true)}>
@@ -146,7 +209,7 @@ export function ClassPageView() {
                 </Button>
               )}
               {!isClassArchived && (
-                <Button variant="outline" size="sm" className="press" onClick={() => void startNewPeriod()}>
+                <Button variant="outline" size="sm" className="press" onClick={() => { if (!canOpenNewPeriod) { toast.message("Année clôturée — nouvelle période impossible."); return; } void startNewPeriod(); }}>
                   <RotateCcw className="mr-1.5 h-4 w-4" /> Nouvelle période
                 </Button>
               )}
@@ -199,24 +262,73 @@ export function ClassPageView() {
       </div>
 
       <div className="mb-6 mt-4 grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Répartition</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div>
+              <div className="mb-1 flex justify-between text-sm">
+                <span>Réussite (≥ {PASS_THRESHOLD})</span>
+                <span>
+                  {stats.withAvg.length
+                    ? Math.round((stats.passing.length / stats.withAvg.length) * 100)
+                    : 0}
+                  %
+                </span>
+              </div>
+              <Progress
+                value={
+                  stats.withAvg.length
+                    ? (stats.passing.length / stats.withAvg.length) * 100
+                    : 0
+                }
+              />
+            </div>
+            <div>
+              <div className="mb-1 flex justify-between text-sm">
+                <span>Excellence (≥ {EXCELLENT_THRESHOLD})</span>
+                <span>
+                  {stats.withAvg.length
+                    ? Math.round((stats.excellent.length / stats.withAvg.length) * 100)
+                    : 0}
+                  %
+                </span>
+              </div>
+              <Progress
+                value={
+                  stats.withAvg.length
+                    ? (stats.excellent.length / stats.withAvg.length) * 100
+                    : 0
+                }
+              />
+            </div>
+            {stats.bestSubject ? (
+              <p className="text-sm text-muted-foreground">
+                Meilleure matière : <strong>{stats.bestSubject.subject.name}</strong>{" "}
+                ({stats.bestSubject.avg.toFixed(2)})
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">Meilleure matière : —</p>
+            )}
+            {stats.worstSubject ? (
+              <p className="text-sm text-muted-foreground">
+                Matière à renforcer : <strong>{stats.worstSubject.subject.name}</strong>{" "}
+                ({stats.worstSubject.avg.toFixed(2)})
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">Matière à renforcer : —</p>
+            )}
+            {!stats.withAvg.length && (
+              <p className="text-xs text-muted-foreground">
+                Saisissez des notes ou générez les bulletins pour afficher les stats.
+              </p>
+            )}
+          </CardContent>
+        </Card>
         <StudentGroupCard
-          title="Meilleurs moyennes"
-          tone="success"
-          students={
-            stats.withAvg.length
-              ? stats.withAvg.slice(0, 5).map((r, i) => ({
-                  id: r.student.id,
-                  name: `${r.student.last_name} ${r.student.first_name}`,
-                  value: r.average.toFixed(2),
-                  rank: i + 1,
-                }))
-              : []
-          }
-        />
-        <StudentGroupCard
-          title="Classement complet"
-          tone="success"
-          emptyLabel="Aucune moyenne calculée pour le moment"
+          title="Classement"
+          emptyLabel="Aucun classement pour le moment"
           students={
             stats.withAvg.length
               ? stats.withAvg.map((r, i) => ({
