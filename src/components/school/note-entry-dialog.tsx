@@ -29,7 +29,7 @@ import { flushQueue } from "@/lib/offline-sync";
 import { isSubjectLabel } from "@/lib/xlsx-template";
 import { subjectsOfTemplate, type GradeNature } from "@/lib/report-template";
 import { evaluationColumnAverage, type ClassSubject, type GradePeriod, type Grade } from "@/lib/grades";
-import { ensureOpenPeriod } from "@/lib/period-lifecycle";
+import { requireOpenPeriod, isYearClosedForClass } from "@/lib/period-lifecycle";
 
 type StudentRef = { id: string; first_name: string; last_name: string };
 
@@ -162,7 +162,15 @@ export function NoteEntryDialog({
     try {
       let period = currentPeriod;
       if (!period) {
-        period = await ensureOpenPeriod(classId, establishmentId);
+        if (await isYearClosedForClass(classId)) {
+          toast.error("Année clôturée (bulletin annuel classé) — saisie de notes impossible.");
+          return;
+        }
+        period = await requireOpenPeriod(classId);
+        if (!period) {
+          toast.error("Aucune période ouverte. Utilisez « Nouvelle période » sur la fiche classe.");
+          return;
+        }
         qc.invalidateQueries({ queryKey: ["grade_periods"] });
         toast.message(`Période ${period.period_number} ouverte — enregistrement des notes.`);
       }
