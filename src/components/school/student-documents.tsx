@@ -56,6 +56,8 @@ type LibraryItem = {
   average?: number | null;
   cardId?: string | null;
   classId: string | null;
+  /** Doublon (même nom normalisé, plus ancien que le fichier gardé) */
+  isDuplicate?: boolean;
 };
 
 function isSpreadsheet(fileType: string, filePath: string, name: string) {
@@ -72,6 +74,17 @@ function isSpreadsheet(fileType: string, filePath: string, name: string) {
   );
 }
 
+
+function normalizeDocName(name: string) {
+  return (name || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const DUPLICATE_TTL_MS = 24 * 60 * 60 * 1000;
 function formatSize(bytes: number) {
   if (!bytes || bytes < 0) return "—";
   if (bytes < 1024) return `${bytes} o`;
@@ -251,9 +264,70 @@ export function StudentDocuments({
         classId: card?.class_id ?? (bulletin ? classId : null),
       });
     }
-    out.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-    return out;
+    // Doublons : même nom normalisé + même classe (ou docs perso). Le plus récent reste maître.
+    const byNorm = new Map<string, LibraryItem[]>();
+    for (const it of out) {
+      const k = `${it.classId ?? OTHER_GROUP}::${normalizeDocName(it.name)}`;
+      const list = byNorm.get(k) ?? [];
+      list.push(it);
+      byNorm.set(k, list);
+    }
+    const now = Date.now();
+    for (const list of byNorm.values()) {
+      if (list.length < 2) continue;
+      list.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+      for (let i = 1; i < list.length; i++) {
+        list[i]!.isDuplicate = true;
+      }
+    }
+    // Masquer les doublons de plus de 24 h (purge UI ; suppression réelle via effect)
+    const visible = out.filter((it) => {
+      if (!it.isDuplicate) return true;
+      const age = now - new Date(it.createdAt).getTime();
+      return age < DUPLICATE_TTL_MS;
+    });
+    visible.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    return visible;
   }, [documents, cards, classId]);
+
+
+  // Purge auto des doublons > 24 h (une fois par chargement bibliothèque)
+  useEffect(() => {
+    if (!documents.length) return;
+    const byNorm = new Map<string, StudentDocument[]>();
+    for (const doc of documents) {
+      const k = normalizeDocName(doc.name);
+      const list = byNorm.get(k) ?? [];
+      list.push(doc);
+      byNorm.set(k, list);
+    }
+    const now = Date.now();
+    const toDelete: string[] = [];
+    for (const list of byNorm.values()) {
+      if (list.length < 2) continue;
+      list.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
+      for (let i = 1; i < list.length; i++) {
+        const d = list[i]!;
+        if (now - new Date(d.created_at).getTime() >= DUPLICATE_TTL_MS) {
+          toDelete.push(d.id);
+        }
+      }
+    }
+    if (!toDelete.length) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { error } = await supabase.from("student_documents").delete().in("id", toDelete);
+        if (error || cancelled) return;
+        void qc.invalidateQueries({ queryKey: ["student_documents"] });
+      } catch {
+        /* silencieux */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [documents, qc]);
 
   const groups = useMemo(() => {
     const map = new Map<string, LibraryItem[]>();
@@ -566,6 +640,11 @@ export function StudentDocuments({
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium leading-snug text-foreground" title={item.name}>
                               {item.name}
+                              {item.isDuplicate ? (
+                                <Badge variant="outline" className="ml-1.5 align-middle text-[10px] font-medium normal-case text-amber-700 dark:text-amber-300">
+                                  Doublon · suppression auto 24h
+                                </Badge>
+                              ) : null}
                             </p>
                             <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px] text-muted-foreground">
                               <time dateTime={item.createdAt} className="tabular-nums">
