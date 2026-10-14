@@ -135,7 +135,7 @@ export function downloadFromUrl(url: string, filename?: string): boolean {
 }
 
 /**
- * Téléchargement forcé d’un Blob. Sur mobile: Web Share API puis ancre download.
+ * Téléchargement forcé d’un Blob. Sur mobile, préférer downloadFromUrl(signedUrl).
  */
 export function downloadBlob(blob: Blob, filename: string) {
   const name = (filename || "document").replace(/[\\/:*?"<>|]+/g, "_").trim() || "document";
@@ -150,10 +150,12 @@ export function downloadBlob(blob: Blob, filename: string) {
     return;
   }
 
+  // Web Share API (Android / iOS) — souvent le seul moyen fiable dans une WebView
   try {
     const file = new File([blob], name, { type: blob.type || "application/octet-stream" });
     if (typeof nav.canShare === "function" && nav.canShare({ files: [file] }) && typeof nav.share === "function") {
       void nav.share({ files: [file], title: name }).catch(() => {
+        /* fallback below */
         triggerAnchorDownload(blob, name);
       });
       return;
@@ -171,6 +173,7 @@ function triggerAnchorDownload(blob: Blob, name: string) {
   a.href = url;
   a.download = name;
   a.rel = "noopener";
+  // Pas de target=_blank : sur Android ça ouvre un onglet blob: qui peut 404
   a.style.display = "none";
   document.body.appendChild(a);
   try {
