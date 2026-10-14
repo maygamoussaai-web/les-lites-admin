@@ -4,7 +4,7 @@
 import JSZip from "jszip";
 import { supabase } from "@/integrations/supabase/client";
 import { getStorageAccess } from "@/lib/storage-access";
-import { downloadBlob } from "@/lib/pdf-export";
+import { downloadBlobReliable, downloadFromUrl } from "@/lib/pdf-export";
 
 export type ZipStudentRef = {
   id: string;
@@ -25,6 +25,39 @@ function safeFilePart(s: string): string {
  * Construit un ZIP avec tous les bulletins liés à la période (via student_report_cards).
  * @returns nombre de fichiers inclus
  */
+
+/** Pousse le ZIP sur le stockage puis ouvre une URL signée (fiable sur mobile). */
+async function deliverZipBlob(zipBlob: Blob, zipName: string): Promise<void> {
+  // 1) Share / ancre
+  const mode = await downloadBlobReliable(zipBlob, zipName);
+  if (mode === "shared" || mode === "anchor" || mode === "url") return;
+
+  // 2) Upload temporaire + signed URL (dernier recours mobile)
+  const path = `temp-exports/${Date.now()}_${zipName}`;
+  const { error: upErr } = await supabase.storage
+    .from("student-documents")
+    .upload(path, zipBlob, {
+      contentType: "application/zip",
+      upsert: true,
+    });
+  if (upErr) {
+    throw new Error(
+      "Téléchargement bloqué par le navigateur. Essayez depuis Chrome (pas l’app WebView), ou partagez via le menu système.",
+    );
+  }
+  const { data: signed, error: signErr } = await supabase.storage
+    .from("student-documents")
+    .createSignedUrl(path, 3600);
+  if (signErr || !signed?.signedUrl) {
+    throw new Error("Impossible de créer le lien de téléchargement.");
+  }
+  const ok = downloadFromUrl(signed.signedUrl, zipName);
+  if (!ok) {
+    // Forcer ouverture
+    window.open(signed.signedUrl, "_blank", "noopener,noreferrer");
+  }
+}
+
 export async function downloadPeriodBulletinsZip(opts: {
   classId: string;
   periodId: string;
@@ -110,7 +143,7 @@ export async function downloadPeriodBulletinsZip(opts: {
 
   const zipBlob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
   const zipName = `bulletins_${safeFilePart(opts.className)}_P${opts.periodNumber}.zip`;
-  downloadBlob(zipBlob, zipName);
+  await deliverZipBlob(zipBlob, zipName);
   return included;
 }
 
@@ -185,7 +218,7 @@ export async function downloadAnnualBulletinsZip(opts: {
   }
 
   const zipBlob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
-  downloadBlob(zipBlob, `bulletins_annuels_${safeFilePart(opts.className)}.zip`);
+  await deliverZipBlob(zipBlob, `bulletins_annuels_${safeFilePart(opts.className)}.zip`);
   return included;
 }
 
