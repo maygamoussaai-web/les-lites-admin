@@ -135,9 +135,25 @@ export function downloadFromUrl(url: string, filename?: string): boolean {
 }
 
 /**
- * Téléchargement forcé d’un Blob. Sur mobile, préférer downloadFromUrl(signedUrl).
+ * Téléchargement forcé d’un Blob (sync, compat). Préférer downloadBlobReliable.
  */
 export function downloadBlob(blob: Blob, filename: string) {
+  void downloadBlobReliable(blob, filename);
+}
+
+export type DownloadResult = "shared" | "url" | "anchor" | "failed";
+
+/**
+ * Téléchargement fiable (mobile / WebView Lovable) :
+ * 1) Web Share (feuille « Enregistrer / Partager »)
+ * 2) Ancre download
+ * 3) Ouverture blob (dernier recours)
+ * Attendre le résultat avant d’afficher un toast succès.
+ */
+export async function downloadBlobReliable(
+  blob: Blob,
+  filename: string,
+): Promise<DownloadResult> {
   const name = (filename || "document").replace(/[\\/:*?"<>|]+/g, "_").trim() || "document";
 
   const nav = window.navigator as Navigator & {
@@ -147,42 +163,69 @@ export function downloadBlob(blob: Blob, filename: string) {
   };
   if (typeof nav.msSaveOrOpenBlob === "function") {
     nav.msSaveOrOpenBlob(blob, name);
-    return;
+    return "anchor";
   }
 
-  // Web Share API (Android / iOS) — souvent le seul moyen fiable dans une WebView
+  // 1) Web Share — le plus fiable sur Android/iOS (Lovable inclus)
   try {
-    const file = new File([blob], name, { type: blob.type || "application/octet-stream" });
-    if (typeof nav.canShare === "function" && nav.canShare({ files: [file] }) && typeof nav.share === "function") {
-      void nav.share({ files: [file], title: name }).catch(() => {
-        /* fallback below */
-        triggerAnchorDownload(blob, name);
-      });
-      return;
+    const file = new File([blob], name, {
+      type: blob.type || "application/octet-stream",
+    });
+    const can =
+      typeof nav.canShare === "function"
+        ? nav.canShare({ files: [file] })
+        : typeof nav.share === "function";
+    if (can && typeof nav.share === "function") {
+      try {
+        await nav.share({ files: [file], title: name });
+        return "shared";
+      } catch (e) {
+        // Annulation utilisateur → on tente encore l’ancre
+        const aborted =
+          e instanceof DOMException &&
+          (e.name === "AbortError" || e.name === "NotAllowedError");
+        if (!aborted) {
+          /* continue fallbacks */
+        }
+      }
     }
   } catch {
     /* ignore */
   }
 
-  triggerAnchorDownload(blob, name);
+  // 2) Ancre <a download>
+  const anchored = triggerAnchorDownload(blob, name);
+  if (anchored) return "anchor";
+
+  // 3) Nouvel onglet blob (parfois le seul moyen)
+  try {
+    const url = URL.createObjectURL(blob);
+    const w = window.open(url, "_blank", "noopener,noreferrer");
+    setTimeout(() => URL.revokeObjectURL(url), 120_000);
+    if (w) return "url";
+  } catch {
+    /* ignore */
+  }
+
+  return "failed";
 }
 
-function triggerAnchorDownload(blob: Blob, name: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.rel = "noopener";
-  // Pas de target=_blank : sur Android ça ouvre un onglet blob: qui peut 404
-  a.style.display = "none";
-  document.body.appendChild(a);
+function triggerAnchorDownload(blob: Blob, name: string): boolean {
   try {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.rel = "noopener";
+    a.style.display = "none";
+    document.body.appendChild(a);
     a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 120_000);
+    return true;
   } catch {
-    a.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+    return false;
   }
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 120_000);
 }
 
 /** Ouvre un Blob dans un nouvel onglet (aperçu PDF / image). */
