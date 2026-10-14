@@ -20,9 +20,6 @@ function subjectRowFromGrades(name: string, gs: Grade[]) {
     g.scale > 0 ? (Number(g.value) / Number(g.scale)) * 20 : Number(g.value);
   const evalValues = evals.map(to20);
   const composition = comp ? to20(comp) : null;
-  // Jamais de moyenne inventée en JS : evaluationAverage / average restent null.
-  // Seules les notes brutes (evaluations + composition) sont des entrées ;
-  // les moyennes viennent uniquement des formules du modèle Excel.
   return {
     name,
     composition,
@@ -48,7 +45,6 @@ export function buildModelFillData(opts: {
   firstAverage: number | null;
   lastAverage: number | null;
 }): FillData {
-  // groupGradesBySubject indexe par subject_id (UUID), pas par nom.
   const bySubject = groupGradesBySubject(opts.grades, opts.studentId);
   const fillSubjects = opts.subjects.map((sub) => {
     const gs =
@@ -90,7 +86,6 @@ export async function computeModelAverages(
   };
 }
 
-/** Calcule les moyennes modèle pour plusieurs élèves (stats de classe live). */
 export async function computeModelAveragesForStudents(opts: {
   templateBuffer: ArrayBuffer;
   mapping: TemplateMapping;
@@ -146,13 +141,8 @@ export async function computeModelAveragesForStudents(opts: {
 }
 
 /**
- * Remplissage annuel à partir des bulletins de périodes déjà générés.
- * L'app n'injecte QUE les moyennes matière par période (entrées brutes) :
- * - evaluations[] = moyennes matière P1, P2, P3… (pour colonnes / [moy:1]…)
- * - composition / evaluationAverage / average = null → formules Excel du modèle
- * - generalAverage (période ET annuelle) = null → formules Excel uniquement
- *   (le modèle recalcule les MG de période à partir des notes, puis la MG annuelle)
- * periodStats n'alimente plus les [mg:N] (lecture seule).
+ * Bulletin annuel : injecte Note classe + Compo par période (notes brutes).
+ * Aucune moyenne inventée — formules Excel du modèle uniquement.
  */
 export function buildAnnualFillData(opts: {
   establishmentName: string;
@@ -161,14 +151,15 @@ export function buildAnnualFillData(opts: {
   studentLastName: string;
   schoolYearLabel: string;
   subjects: ClassSubject[];
-  studentCards: StudentReportCard[];
-  /** Périodes triées (ids) : evaluations[i] = moyenne matière de la période i+1. */
-  orderedPeriodIds?: string[];
+  grades: Grade[];
+  studentId: string;
+  orderedPeriodIds: string[];
   headcount: number;
   scale: number;
   rank: number | null;
   firstAverage: number | null;
   lastAverage: number | null;
+  studentCards?: StudentReportCard[];
 }): FillData {
   const {
     establishmentName,
@@ -177,7 +168,8 @@ export function buildAnnualFillData(opts: {
     studentLastName,
     schoolYearLabel,
     subjects,
-    studentCards,
+    grades,
+    studentId,
     orderedPeriodIds,
     headcount,
     scale,
@@ -186,14 +178,8 @@ export function buildAnnualFillData(opts: {
     lastAverage,
   } = opts;
 
-  const periodIds =
-    orderedPeriodIds && orderedPeriodIds.length
-      ? orderedPeriodIds
-      : studentCards.map((c) => c.period_id);
-  const cardByPeriod = new Map(studentCards.map((c) => [c.period_id, c]));
+  const periodIds = orderedPeriodIds?.length ? orderedPeriodIds : [];
 
-  // Stats de période : MG volontairement null (formule Excel du modèle annuel).
-  // Rang / 1er / dernier de période restent null sauf si fournis ailleurs.
   const periodStats = periodIds.map(() => ({
     generalAverage: null as number | null,
     rank: null as number | null,
@@ -203,26 +189,40 @@ export function buildAnnualFillData(opts: {
     headcount,
   }));
 
+  const to20 = (g: Grade) =>
+    g.scale > 0 ? (Number(g.value) / Number(g.scale)) * 20 : Number(g.value);
+
   const fillSubjects = subjects.map((sub) => {
-    // Une valeur par période (index aligné) — la moyenne annuelle matière reste formule Excel.
-    const evaluations = periodIds.map((pid) => {
-      const c = cardByPeriod.get(pid);
-      if (!c) return null as unknown as number;
-      const sa = c.subject_averages as Record<string, number | null> | null;
-      if (!sa) return null as unknown as number;
-      let v = sa[sub.name];
-      if (v == null) {
-        const key = Object.keys(sa).find(
-          (k) => k.trim().toLowerCase() === sub.name.trim().toLowerCase(),
-        );
-        if (key) v = sa[key];
+    const evaluations: number[] = [];
+    const compositions: (number | null)[] = [];
+    for (const pid of periodIds) {
+      const periodGrades = grades.filter(
+        (g) =>
+          g.student_id === studentId &&
+          g.period_id === pid &&
+          (g.subject_id === sub.id || String(g.subject_id) === String(sub.id)),
+      );
+      const evals = periodGrades.filter((g) => g.nature === "evaluation");
+      let noteClasse: number | null = null;
+      if (evals.length === 1) {
+        noteClasse = to20(evals[0]!);
+      } else if (evals.length > 1) {
+        noteClasse = evals.reduce((a, g) => a + to20(g), 0) / evals.length;
       }
-      return v != null && Number.isFinite(Number(v)) ? Number(v) : (null as unknown as number);
-    });
+      evaluations.push(
+        noteClasse != null && Number.isFinite(noteClasse)
+          ? noteClasse
+          : (null as unknown as number),
+      );
+
+      const comp = periodGrades.find((g) => g.nature === "composition");
+      compositions.push(comp ? to20(comp) : null);
+    }
     return {
       name: sub.name,
       composition: null,
       evaluations,
+      compositions,
       evaluationAverage: null,
       average: null,
     };
@@ -248,11 +248,6 @@ export function buildAnnualFillData(opts: {
   };
 }
 
-/**
- * NOTE POUR CLAUDE: jeu de données fictif pour le bouton « Tester avec un élève fictif »
- * (import d'un modèle). Notes déterministes : matière 1 = éval 12 / compo 15,
- * matière 2 = 10 / 8, matière 3 = 14 seule, puis une rotation simple.
- */
 export function buildSampleFillData(opts: {
   kind: "period" | "annual";
   subjectLabels: string[];
@@ -265,13 +260,31 @@ export function buildSampleFillData(opts: {
     const [ev, co] = base[i % base.length]!;
     if (opts.kind === "annual") {
       const per = Array.from({ length: opts.periods }, (_, p) => 10 + ((i + p * 2) % 7));
-      const avg = per.reduce((a, b) => a + b, 0) / per.length;
-      return { name, composition: avg, evaluations: per, evaluationAverage: avg, average: avg };
+      const comps = per.map((v) => v + 0.5);
+      return {
+        name,
+        composition: null,
+        evaluations: per,
+        compositions: comps,
+        evaluationAverage: null,
+        average: null,
+      };
     }
-    return { name, composition: co, evaluations: ev == null ? [] : [ev], evaluationAverage: ev, average: null };
+    return {
+      name,
+      composition: co,
+      evaluations: ev == null ? [] : [ev],
+      evaluationAverage: null,
+      average: null,
+    };
   });
-  const periodStats = Array.from({ length: opts.periods }, (_, p) => ({
-    generalAverage: 12 + p * 0.5, rank: 3 + p, firstAverage: 17.25, lastAverage: 6.5, classAverage: 11.4, headcount: 42,
+  const periodStats = Array.from({ length: opts.periods }, () => ({
+    generalAverage: null as number | null,
+    rank: null as number | null,
+    firstAverage: 17.25,
+    lastAverage: 6.5,
+    classAverage: 11.4,
+    headcount: 42,
   }));
   return {
     establishmentName: "Complexe Scolaire Les Élites de Gao",
@@ -281,12 +294,12 @@ export function buildSampleFillData(opts: {
     studentFirstName: "Élève fictif",
     studentLastName: "TEST",
     subjects,
-    generalAverage: opts.kind === "annual" ? 12.5 : null,
+    generalAverage: null,
     firstAverage: 17.25,
     lastAverage: 6.5,
-    classAverageEvaluation: 11.2,
-    classAverageComposition: 10.8,
-    classAverage: 11.4,
+    classAverageEvaluation: null,
+    classAverageComposition: null,
+    classAverage: null,
     headcount: 42,
     rank: 5,
     scale: opts.scale,
