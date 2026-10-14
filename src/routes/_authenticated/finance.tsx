@@ -22,6 +22,10 @@ import { useSchoolData, useEstablishmentStats } from "@/lib/school-data";
 import { formatFCFA, formatDate } from "@/lib/format";
 import { PERIODS, periodStart, sum, type Period } from "@/lib/school";
 import { cn } from "@/lib/utils";
+import { QuickTeacherPaymentDialog } from "@/components/app/quick-teacher-payment-dialog";
+import { QuickTuitionPaymentDialog } from "@/components/app/quick-tuition-payment-dialog";
+import { teacherDue } from "@/lib/school";
+import { GraduationCap, UserRound } from "lucide-react";
 
 export const Route = createFileRoute("/_authenticated/finance")({
   head: () => ({
@@ -55,6 +59,8 @@ function shortName(name: string, max = 14) {
 function FinancePage() {
   const [period, setPeriod] = useState<Period>("month");
   const [establishmentFilter, setEstablishmentFilter] = useState<string>("all");
+  const [tuitionPayOpen, setTuitionPayOpen] = useState(false);
+  const [teacherPayOpen, setTeacherPayOpen] = useState(false);
   const since = periodStart(period);
   const data = useSchoolData();
   const stats = useEstablishmentStats(data, since);
@@ -126,6 +132,50 @@ function FinancePage() {
 
   const periodLabel = PERIODS.find((p) => p.value === period)?.label ?? "";
 
+  /** Dû restant par affectation enseignant (séances validées − paiements). */
+  const teacherDues = useMemo(() => {
+    const rows: {
+      key: string;
+      teacherName: string;
+      establishmentName: string;
+      due: number;
+      paid: number;
+      remaining: number;
+    }[] = [];
+    for (const a of data.assignments) {
+      if (!establishmentIds.has(a.establishment_id)) continue;
+      const due = teacherDue(a, data.sessions, data.sessionCompletions);
+      if (due <= 0) continue;
+      const paid = sum(
+        data.teacherPayments
+          .filter(
+            (p) =>
+              p.teacher_id === a.teacher_id && p.establishment_id === a.establishment_id,
+          )
+          .map((p) => Number(p.amount)),
+      );
+      const remaining = Math.max(0, due - paid);
+      if (remaining <= 0) continue;
+      const tea = data.teachers.find((x) => x.id === a.teacher_id);
+      const est = data.establishments.find((e) => e.id === a.establishment_id);
+      const teacherName = tea
+        ? `${tea.last_name ?? ""} ${tea.first_name ?? ""}`.trim()
+        : "Enseignant";
+      rows.push({
+        key: a.id,
+        teacherName: teacherName || "Enseignant",
+        establishmentName: est?.name ?? "—",
+        due,
+        paid,
+        remaining,
+      });
+    }
+    return rows.sort((a, b) => b.remaining - a.remaining);
+  }, [data, establishmentIds]);
+
+  const totalTeacherDue = sum(teacherDues.map((r) => r.remaining));
+
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -166,6 +216,33 @@ function FinancePage() {
             </Button>
           ))}
         </div>
+      </div>
+
+      {/* Raccourcis paiements — compacts, même langage visuel */}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 gap-1.5 border-border/80 bg-card text-xs shadow-sm"
+          onClick={() => setTuitionPayOpen(true)}
+        >
+          <GraduationCap className="h-3.5 w-3.5 text-emerald-600" />
+          Paiement élève
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-8 gap-1.5 border-border/80 bg-card text-xs shadow-sm"
+          onClick={() => setTeacherPayOpen(true)}
+        >
+          <UserRound className="h-3.5 w-3.5 text-primary" />
+          Paiement prof
+        </Button>
+        {totalTeacherDue > 0 && (
+          <span className="inline-flex items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-800 dark:text-amber-200">
+            Dû aux profs : {formatFCFA(totalTeacherDue)}
+          </span>
+        )}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -381,6 +458,62 @@ function FinancePage() {
           />
         </CardContent>
       </Card>
+
+      <Card className="overflow-hidden border-border/80 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="font-display text-base">Dû aux professeurs</CardTitle>
+          <CardDescription>
+            Reste à payer après séances validées
+            {totalTeacherDue > 0 ? ` — total ${formatFCFA(totalTeacherDue)}` : ""}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="px-0 pb-0 sm:px-0">
+          <DataTable
+            rows={teacherDues.slice(0, 40)}
+            loading={data.loading}
+            emptyLabel="Aucun reste dû sur le filtre actuel."
+            columns={[
+              {
+                key: "teacher",
+                header: "Enseignant",
+                cell: (r) => r.teacherName,
+              },
+              {
+                key: "est",
+                header: "Établissement",
+                cell: (r) => r.establishmentName,
+              },
+              {
+                key: "due",
+                header: "Dû calculé",
+                cell: (r) => (
+                  <span className="tabular-nums text-muted-foreground">{formatFCFA(r.due)}</span>
+                ),
+              },
+              {
+                key: "remaining",
+                header: "Reste",
+                cell: (r) => (
+                  <span className="font-medium tabular-nums text-amber-700 dark:text-amber-300">
+                    {formatFCFA(r.remaining)}
+                  </span>
+                ),
+              },
+            ]}
+          />
+        </CardContent>
+      </Card>
+
+      <QuickTuitionPaymentDialog
+        open={tuitionPayOpen}
+        onClose={() => setTuitionPayOpen(false)}
+        data={data}
+      />
+      <QuickTeacherPaymentDialog
+        open={teacherPayOpen}
+        onClose={() => setTeacherPayOpen(false)}
+        data={data}
+      />
     </div>
   );
 }
