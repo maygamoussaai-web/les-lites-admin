@@ -175,7 +175,7 @@ export function useClassPage() {
           last_name: s.last_name,
         })),
       });
-      toast.success(`ZIP téléchargé (${n} bulletin(s) Excel intacts).`);
+      toast.success(`ZIP prêt (${n} bulletin(s)). Si le fichier n’apparaît pas, utilisez « Enregistrer » / Partager.`);
     } catch (e) {
       toast.error(describeError(e, "Téléchargement impossible"));
     } finally {
@@ -195,7 +195,7 @@ export function useClassPage() {
           last_name: s.last_name,
         })),
       });
-      toast.success(`ZIP annuel téléchargé (${n} bulletin(s) Excel intacts).`);
+      toast.success(`ZIP annuel prêt (${n} bulletin(s)). Si le fichier n’apparaît pas, utilisez « Enregistrer » / Partager.`);
     } catch (e) {
       toast.error(describeError(e, "Téléchargement annuel impossible"));
     } finally {
