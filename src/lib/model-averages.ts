@@ -195,13 +195,15 @@ export function buildAnnualFillData(opts: {
   const fillSubjects = subjects.map((sub) => {
     const evaluations: number[] = [];
     const compositions: (number | null)[] = [];
+    const subNameNorm = sub.name.trim().toLowerCase();
     for (const pid of periodIds) {
-      const periodGrades = grades.filter(
-        (g) =>
-          g.student_id === studentId &&
-          g.period_id === pid &&
-          (g.subject_id === sub.id || String(g.subject_id) === String(sub.id)),
-      );
+      const periodGrades = grades.filter((g) => {
+        if (g.student_id !== studentId || g.period_id !== pid) return false;
+        if (g.subject_id === sub.id || String(g.subject_id) === String(sub.id)) return true;
+        const gName = (g as { subject_name?: string }).subject_name;
+        if (gName && gName.trim().toLowerCase() === subNameNorm) return true;
+        return false;
+      });
       const evals = periodGrades.filter((g) => g.nature === "evaluation");
       let noteClasse: number | null = null;
       if (evals.length === 1) {
