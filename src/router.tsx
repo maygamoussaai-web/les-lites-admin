@@ -8,10 +8,10 @@ export const getRouter = () => {
     defaultOptions: {
       queries: {
         gcTime: QUERY_PERSIST_MAX_AGE,
-        staleTime: 60_000,
+        staleTime: 5 * 60_000,
         networkMode: "offlineFirst",
-        refetchOnWindowFocus: true,
-        refetchOnMount: true,
+        refetchOnWindowFocus: false,
+        refetchOnMount: false,
         refetchOnReconnect: true,
         retry: (failureCount, error) => {
           if (typeof navigator !== "undefined" && !navigator.onLine) return false;
@@ -32,7 +32,7 @@ export const getRouter = () => {
     scrollRestoration: true,
     defaultPreload: "intent",
     defaultPreloadStaleTime: 60_000,
-    defaultPendingMs: 80,
+    defaultPendingMs: 0,
     defaultPendingMinMs: 0,
   });
 
