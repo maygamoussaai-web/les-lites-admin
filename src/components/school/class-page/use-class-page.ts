@@ -77,6 +77,7 @@ export function useClassPage() {
   const [pendingForcePeriod, setPendingForcePeriod] = useState(false);
   const [yearClosed, setYearClosed] = useState(false);
   const [downloadBusy, setDownloadBusy] = useState(false);
+  const [zipPickerOpen, setZipPickerOpen] = useState(false);
   const [stats, setStats] = useState<ClassStats>(EMPTY_STATS);
 
   const periodsQuery = useSupabaseRows<GradePeriod>("grade_periods", { class_id: classId }, "period_number");
@@ -160,44 +161,47 @@ export function useClassPage() {
   };
 
   const downloadClassPeriodBulletins = async () => {
-    const period = currentPeriod ?? latestPeriod;
-    if (!period || !klass) return;
-    setDownloadBusy(true);
-    try {
-      const n = await downloadPeriodBulletinsZip({
-        classId,
-        periodId: period.id,
-        periodNumber: period.period_number,
-        className: klass.name,
-        students: classStudents.map((s) => ({
-          id: s.id,
-          first_name: s.first_name,
-          last_name: s.last_name,
-        })),
-      });
-      toast.success(`ZIP prêt (${n} bulletin(s)). Si le fichier n’apparaît pas, utilisez « Enregistrer » / Partager.`);
-    } catch (e) {
-      toast.error(describeError(e, "Téléchargement impossible"));
-    } finally {
-      setDownloadBusy(false);
-    }
+    setZipPickerOpen(true);
   };
 
   const downloadClassAnnualBulletins = async () => {
+    setZipPickerOpen(true);
+  };
+
+  const downloadZipChoice = async (choice: {
+    kind: "period" | "annual";
+    periodId?: string;
+    periodNumber?: number;
+  }) => {
     if (!klass) return;
     setDownloadBusy(true);
+    setZipPickerOpen(false);
     try {
-      const n = await downloadAnnualBulletinsZip({
-        className: klass.name,
-        students: classStudents.map((s) => ({
-          id: s.id,
-          first_name: s.first_name,
-          last_name: s.last_name,
-        })),
-      });
-      toast.success(`ZIP annuel prêt (${n} bulletin(s)). Si le fichier n’apparaît pas, utilisez « Enregistrer » / Partager.`);
+      const students = classStudents.map((s) => ({
+        id: s.id,
+        first_name: s.first_name,
+        last_name: s.last_name,
+      }));
+      if (choice.kind === "annual") {
+        const n = await downloadAnnualBulletinsZip({ className: klass.name, students });
+        toast.success(`ZIP (${n})`);
+      } else {
+        const period =
+          (choice.periodId ? periods?.find((x) => x.id === choice.periodId) : null) ??
+          currentPeriod ??
+          latestPeriod;
+        if (!period) throw new Error("Période introuvable");
+        const n = await downloadPeriodBulletinsZip({
+          classId,
+          periodId: period.id,
+          periodNumber: period.period_number,
+          className: klass.name,
+          students,
+        });
+        toast.success(`ZIP (${n})`);
+      }
     } catch (e) {
-      toast.error(describeError(e, "Téléchargement annuel impossible"));
+      toast.error(describeError(e, "Téléchargement impossible"));
     } finally {
       setDownloadBusy(false);
     }
@@ -405,8 +409,11 @@ export function useClassPage() {
     canOpenNewPeriod,
     periodBulletinsComplete,
     downloadBusy,
+    zipPickerOpen,
+    setZipPickerOpen,
     downloadClassPeriodBulletins,
     downloadClassAnnualBulletins,
+    downloadZipChoice,
     loading: data.loading || establishmentIdsLoading,
   };
 }
