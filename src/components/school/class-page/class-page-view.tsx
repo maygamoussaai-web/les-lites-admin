@@ -9,6 +9,14 @@ import {
 } from "lucide-react";
 import { StatCard } from "@/components/app/stat-card";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -44,6 +52,9 @@ export function ClassPageView(m: ClassPageModel) {
     downloadBusy = false,
     downloadClassPeriodBulletins = async () => {},
     downloadClassAnnualBulletins = async () => {},
+    downloadZipChoice = async () => {},
+    zipPickerOpen = false,
+    setZipPickerOpen = () => {},
   } = m;
 
   if (!klass) return null;
@@ -172,28 +183,16 @@ export function ClassPageView(m: ClassPageModel) {
                   )}
                 </Button>
               )}
-              {!isClassArchived && periodBulletinsComplete && (currentPeriod ?? latestPeriod) && (
+              {!isClassArchived && (periodBulletinsComplete || yearClosed) && (
                 <Button
                   variant="secondary"
                   size="sm"
                   className="press"
                   disabled={downloadBusy}
-                  onClick={() => void downloadClassPeriodBulletins()}
+                  onClick={() => setZipPickerOpen(true)}
                 >
                   <Download className="mr-1.5 h-4 w-4" />
-                  {downloadBusy ? "Préparation…" : "Télécharger bulletins classe"}
-                </Button>
-              )}
-              {!isClassArchived && yearClosed && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="press"
-                  disabled={downloadBusy}
-                  onClick={() => void downloadClassAnnualBulletins()}
-                >
-                  <Download className="mr-1.5 h-4 w-4" />
-                  {downloadBusy ? "Préparation…" : "Télécharger annuels classe"}
+                  {downloadBusy ? "…" : "Télécharger les bulletins"}
                 </Button>
               )}
               {!isClassArchived && (
@@ -402,7 +401,55 @@ export function ClassPageView(m: ClassPageModel) {
       )}
 
       {!isClassArchived && (
-        <AnnualBulletinDialog
+        
+      <Dialog open={zipPickerOpen} onOpenChange={setZipPickerOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Télécharger les bulletins</DialogTitle>
+            <DialogDescription>
+              Choisissez une période ou l&apos;année (disponibles uniquement si tous les bulletins sont classés).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2 py-2">
+            {periodBulletinsComplete && (currentPeriod ?? latestPeriod) && (
+              <Button
+                variant="outline"
+                className="justify-start"
+                disabled={downloadBusy}
+                onClick={() =>
+                  void downloadZipChoice({
+                    kind: "period",
+                    periodId: (currentPeriod ?? latestPeriod)!.id,
+                    periodNumber: (currentPeriod ?? latestPeriod)!.period_number,
+                  })
+                }
+              >
+                Période {(currentPeriod ?? latestPeriod)!.period_number}
+              </Button>
+            )}
+            {yearClosed && (
+              <Button
+                variant="outline"
+                className="justify-start"
+                disabled={downloadBusy}
+                onClick={() => void downloadZipChoice({ kind: "annual" })}
+              >
+                Annuel
+              </Button>
+            )}
+            {!periodBulletinsComplete && !yearClosed && (
+              <p className="text-sm text-muted-foreground">Aucun ZIP disponible pour le moment.</p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setZipPickerOpen(false)}>
+              Fermer
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AnnualBulletinDialog
           open={annualOpen}
           onClose={() => setAnnualOpen(false)}
           klass={klass}
