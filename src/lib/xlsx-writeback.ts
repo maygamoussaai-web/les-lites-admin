@@ -99,26 +99,73 @@ export async function writeFilledWorkbook(
 
   const warnings: string[] = [];
 
-  // Rattrapage : balises de colonnes + libellés absents du mapping stocké
+  // Rattrapage FORCÉ : rôles colonnes + index période (essentiel pour modèles annuels multi-trimestres).
+  // On ne se fie pas au mapping stocké : on relit les en-têtes du fichier à chaque remplissage.
   {
-    const cols = { ...mapping.columns };
-    const periodCols = { ...(mapping.periodColumns ?? {}) };
-    if (mapping.headerRow > 0) {
-      for (let c = 0; c < 24; c++) {
+    const cols: Record<string, import("@/lib/xlsx-template").ColumnRole> = { ...mapping.columns };
+    const periodCols: Record<string, number> = {};
+    const maxC = Math.max(24, XLSX.utils.decode_range(ws["!ref"] ?? "A1").e.c + 1);
+    const headerRow = mapping.headerRow > 0 ? mapping.headerRow : 0;
+    const groupRow = headerRow > 1 ? headerRow - 1 : 0;
+
+    // 1) Groupes de période depuis la ligne au-dessus (ex. « 1er Trimestre », « 2e Trimestre »)
+    const groupByCol: (number | null)[] = Array(maxC).fill(null);
+    if (groupRow > 0) {
+      let lastIdx: number | null = null;
+      const labelToIdx = new Map<string, number>();
+      const textAt = (r: number, c: number) => {
+        const cell = ws[XLSX.utils.encode_cell({ r: r - 1, c })] as XLSX.CellObject | undefined;
+        return cell?.v != null ? String(cell.v).trim() : "";
+      };
+      for (let c = 0; c < maxC; c++) {
+        const label = textAt(groupRow, c);
+        if (!label) {
+          if (lastIdx != null) groupByCol[c] = lastIdx;
+          continue;
+        }
+        const n = normalize(label);
+        const isPeriod =
+          /\b(1\s*(er|ere|ere)?|2\s*(e|eme|eme)|3\s*(e|eme|eme)|4\s*(e|eme|eme)|premier|deuxieme|troisieme|trimestre|semestre|periode)\b/.test(n) ||
+          /^t\s*[1-6]$/.test(n) ||
+          /^p\s*[1-6]$/.test(n) ||
+          /^[1-6]$/.test(n);
+        if (isPeriod) {
+          if (!labelToIdx.has(n)) labelToIdx.set(n, labelToIdx.size);
+          lastIdx = labelToIdx.get(n)!;
+          groupByCol[c] = lastIdx;
+        } else if (lastIdx != null) {
+          groupByCol[c] = lastIdx;
+        }
+      }
+      // Merges sur la ligne de groupe
+      for (const m of (ws["!merges"] ?? []) as { s: { r: number; c: number }; e: { r: number; c: number } }[]) {
+        if (m.s.r + 1 !== groupRow) continue;
+        const label = textAt(groupRow, m.s.c);
+        if (!label) continue;
+        const n = normalize(label);
+        if (!labelToIdx.has(n)) labelToIdx.set(n, labelToIdx.size);
+        const idx = labelToIdx.get(n)!;
+        for (let c = m.s.c; c <= m.e.c; c++) groupByCol[c] = idx;
+      }
+    }
+
+    if (headerRow > 0) {
+      for (let c = 0; c < maxC; c++) {
         const letter = XLSX.utils.encode_col(c);
-        const cell = ws[`${letter}${mapping.headerRow}`] as XLSX.CellObject | undefined;
-        const above = ws[`${letter}${mapping.headerRow - 1}`] as XLSX.CellObject | undefined;
+        const cell = ws[`${letter}${headerRow}`] as XLSX.CellObject | undefined;
+        const above = groupRow > 0 ? (ws[`${letter}${groupRow}`] as XLSX.CellObject | undefined) : undefined;
         const raw = cell?.v != null ? String(cell.v) : "";
         const rawAbove = above?.v != null ? String(above.v) : "";
         const tag = parseColumnTag(raw) ?? parseColumnTag(rawAbove);
         if (tag) {
           cols[letter] = tag.role;
           if (tag.periodIndex != null) periodCols[letter] = tag.periodIndex;
+          else if (groupByCol[c] != null) periodCols[letter] = groupByCol[c]!;
           continue;
         }
-        if (cols[letter] && cols[letter] !== "ignore") continue;
         const label = normalize(raw);
         if (!label) continue;
+        let role: import("@/lib/xlsx-template").ColumnRole | null = null;
         if (
           label.includes("note classe") ||
           label.includes("note de classe") ||
@@ -126,14 +173,26 @@ export async function writeFilledWorkbook(
           label.includes("evaluation") ||
           label.includes("interro")
         ) {
-          cols[letter] = "evaluation";
+          role = "evaluation";
         } else if (label.includes("compo") || label.includes("composition")) {
-          cols[letter] = "composition";
+          role = "composition";
+        } else if (label.includes("moyenne") && !label.includes("annuel")) {
+          role = "subject_average";
+        } else if (label.startsWith("coef") || label === "coefficient") {
+          role = "coefficient";
+        } else if (label.includes("matiere") || label === "discipline") {
+          role = "subject";
+        }
+        if (role) {
+          cols[letter] = role;
+          if (groupByCol[c] != null && (role === "evaluation" || role === "composition" || role === "subject_average")) {
+            periodCols[letter] = groupByCol[c]!;
+          }
         }
       }
-      mapping.columns = cols;
-      if (Object.keys(periodCols).length) mapping.periodColumns = periodCols;
     }
+    mapping.columns = cols;
+    if (Object.keys(periodCols).length) mapping.periodColumns = periodCols;
   }
 
   /** Adresses réellement écrites (balises + notes) — seules celles-ci partent dans le .xlsx livré. */
@@ -213,8 +272,11 @@ export async function writeFilledWorkbook(
   {
     const STAT_KEYS: Record<string, keyof PeriodStat> = {
       mg: "generalAverage", moyenne: "generalAverage", "moyenne generale": "generalAverage", moy_gen: "generalAverage",
-      rang: "rank", premier: "firstAverage", "moyenne premier": "firstAverage",
-      dernier: "lastAverage", "moyenne dernier": "lastAverage",
+      rang: "rank",
+      premier: "firstAverage", "moyenne premier": "firstAverage", "moyenne du premier": "firstAverage",
+      moy_premier: "firstAverage", "moy premier": "firstAverage",
+      dernier: "lastAverage", "moyenne dernier": "lastAverage", "moyenne du dernier": "lastAverage",
+      moy_dernier: "lastAverage", "moy dernier": "lastAverage",
       moy_classe: "classAverage", "moyenne classe": "classAverage", effectif: "headcount",
     };
     const current: PeriodStat = {
@@ -227,12 +289,30 @@ export async function writeFilledWorkbook(
         const address = XLSX.utils.encode_cell({ r, c });
         const cell = ws[address] as XLSX.CellObject | undefined;
         if (!cell || cell.f || typeof cell.v !== "string") continue;
-        const m = /^\s*[[{]\s*([a-z_ ]+?)\s*(?::\s*(\d+|annuel|annual|an))?\s*[\]}]\s*$/i.exec(cell.v);
-        if (!m) continue;
-        const rawKey = m[1]!.toLowerCase().trim();
-        const key = STAT_KEYS[rawKey] ?? STAT_KEYS[normalize(rawKey)];
+        // Formats : [premier:1], [moy_premier:2], [p1_moy_premier], [p2_premier], [mg:1]
+        const rawTok = String(cell.v).trim();
+        let m = /^\s*[[{]\s*([a-z_ ]+?)\s*(?::\s*(\d+|annuel|annual|an))?\s*[\]}]\s*$/i.exec(rawTok);
+        let rawKey = m ? m[1]!.toLowerCase().trim() : "";
+        let idx: number | null = m && m[2] && /^\d+$/.test(m[2]) ? Number(m[2]) - 1 : null;
+        if (!m) {
+          const pfx = /^\s*[[{]\s*p\s*(\d+)[_\s]+([a-z_ ]+?)\s*[\]}]\s*$/i.exec(rawTok);
+          if (pfx) {
+            idx = Number(pfx[1]) - 1;
+            rawKey = pfx[2]!.toLowerCase().trim();
+            m = pfx as unknown as RegExpExecArray;
+          }
+        }
+        if (!m || !rawKey) continue;
+        const key =
+          STAT_KEYS[rawKey] ??
+          STAT_KEYS[normalize(rawKey)] ??
+          STAT_KEYS[normalize(rawKey.replace(/_/g, " "))] ??
+          (rawKey.includes("premier") || rawKey.includes("moy_premier")
+            ? "firstAverage"
+            : rawKey.includes("dernier") || rawKey.includes("moy_dernier")
+              ? "lastAverage"
+              : null);
         if (!key) continue;
-        const idx = m[2] && /^\d+$/.test(m[2]) ? Number(m[2]) - 1 : null;
         // Moyenne générale (période [mg:1] OU annuelle [mg] / sans indice) =
         // TOUJOURS sortie formule Excel → jamais d'écriture.
         // Le modèle recalcule les MG de période à partir des notes remplies.
@@ -279,12 +359,18 @@ export async function writeFilledWorkbook(
         const periodIdx = periodCols[letter];
         if (role === "composition") {
           let raw: number | null = null;
-          if (periodIdx != null) {
-            const comps = match.compositions;
-            if (comps && periodIdx >= 0 && periodIdx < comps.length) {
-              const v = comps[periodIdx];
-              raw = v != null && typeof v === "number" && Number.isFinite(v) ? v : null;
-            }
+          const comps = match.compositions;
+          if (periodIdx != null && comps) {
+            const v = periodIdx >= 0 && periodIdx < comps.length ? comps[periodIdx] : null;
+            raw = v != null && typeof v === "number" && Number.isFinite(v) ? v : null;
+          } else if (comps && comps.length > 0) {
+            const compLetters = Object.entries(mapping.columns)
+              .filter(([, r]) => r === "composition")
+              .map(([l]) => l)
+              .sort((a, b) => colIndex(a) - colIndex(b));
+            const cIdx = compLetters.indexOf(letter);
+            const v = cIdx >= 0 && cIdx < comps.length ? comps[cIdx] : null;
+            raw = v != null && typeof v === "number" && Number.isFinite(v) ? v : null;
           } else {
             raw = match.composition;
           }
