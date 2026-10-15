@@ -400,8 +400,6 @@ export function ClassPageView(m: ClassPageModel) {
         />
       )}
 
-      {!isClassArchived && (
-        
       <Dialog open={zipPickerOpen} onOpenChange={setZipPickerOpen}>
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
@@ -449,7 +447,8 @@ export function ClassPageView(m: ClassPageModel) {
         </DialogContent>
       </Dialog>
 
-      <AnnualBulletinDialog
+      {!isClassArchived && (
+        <AnnualBulletinDialog
           open={annualOpen}
           onClose={() => setAnnualOpen(false)}
           klass={klass}
