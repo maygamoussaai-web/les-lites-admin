@@ -182,6 +182,8 @@ export async function writeFilledWorkbook(
       etablissement: "establishment_name",
       periode: "period_label",
       trimestre: "period_label",
+      annee_scolaire: "period_label",
+      "annee scolaire": "period_label",
       effectif: "headcount",
       rang: "rank",
       date: "date",
@@ -276,10 +278,16 @@ export async function writeFilledWorkbook(
         const address = `${letter}${r}`;
         const periodIdx = periodCols[letter];
         if (role === "composition") {
-          const raw =
-            periodIdx != null
-              ? periodEval(match.evaluations, periodIdx)
-              : match.composition;
+          let raw: number | null = null;
+          if (periodIdx != null) {
+            const comps = match.compositions;
+            if (comps && periodIdx >= 0 && periodIdx < comps.length) {
+              const v = comps[periodIdx];
+              raw = v != null && typeof v === "number" && Number.isFinite(v) ? v : null;
+            }
+          } else {
+            raw = match.composition;
+          }
           setInputCell(address, toScale(raw, data.scale));
         } else if (role === "evaluation") {
           const raw =
@@ -411,7 +419,11 @@ export async function writeFilledWorkbook(
         if (cell?.v != null && !cell.f) label += " " + String(cell.v);
       }
       const norm = normalize(label);
-      if (!norm.includes("moyen") || (!norm.includes("general") && !norm.includes("generale"))) continue;
+      const isMg =
+        (norm.includes("moyen") && (norm.includes("general") || norm.includes("generale"))) ||
+        norm.includes("moyenne annuelle") ||
+        norm.includes("moyen annuel");
+      if (!isMg) continue;
       for (let c = range2.s.c; c <= range2.e.c; c++) {
         const addr = XLSX.utils.encode_cell({ r, c });
         const v = fromScale(values[addr], data.scale);
