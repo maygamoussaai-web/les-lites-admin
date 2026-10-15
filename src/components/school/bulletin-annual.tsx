@@ -374,27 +374,14 @@ export function AnnualBulletinDialog({
 
             // Mémoriser la MG annuelle lue sur le modèle (période_id null non supporté → document seul).
             // Si une fiche « annuelle » existe côté schéma via period_id d'une période spéciale, on ne force rien.
+            // MG annuelle = formule Excel uniquement. Ne JAMAIS écraser les fiches de période
+            // (résultats de période restent statiques une fois clôturés).
             if (docRow?.id && modelAvg != null) {
               await supabase
                 .from("student_documents")
                 .update({ name: `Bulletin annuel — MG ${modelAvg.toFixed(2)}` })
                 .eq("id", docRow.id);
-              const lastCard = studentCards[studentCards.length - 1];
-              if (lastCard?.id) {
-                await supabase
-                  .from("student_report_cards")
-                  .update({
-                    general_average: modelAvg,
-                    subject_averages: {
-                      ...(typeof lastCard.subject_averages === "object" && lastCard.subject_averages
-                        ? (lastCard.subject_averages as object)
-                        : {}),
-                      __annual_average: modelAvg,
-                      ...modelSubjects,
-                    },
-                  })
-                  .eq("id", lastCard.id);
-              }
+              void modelSubjects;
             }
             success++;
           } else {
@@ -481,7 +468,7 @@ export function AnnualBulletinDialog({
       onOpenChange={(v) => {
         if (!v) {
           if (jobRunning) {
-            toast.message("Génération annuelle continue en arrière-plan — vous serez notifié à la fin.");
+            // silencieux : génération continue
           }
           onClose();
         }
@@ -507,7 +494,7 @@ export function AnnualBulletinDialog({
             variant="outline"
             onClick={() => {
               if (jobRunning) {
-                toast.message("Génération annuelle continue en arrière-plan — vous serez notifié à la fin.");
+                // silencieux : génération continue
               }
               onClose();
             }}
