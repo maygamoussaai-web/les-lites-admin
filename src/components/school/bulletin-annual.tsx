@@ -2,7 +2,8 @@
  * Bulletin annuel — génération Excel adaptable à tout modèle (bref ou complet).
  *
  * Prérequis : modèle actif de kind « annual » pour la classe.
- * Données : agrégation des student_report_cards des périodes (moyennes matière / MG).
+ * Données : notes brutes (évaluation + composition) par période × matière.
+ * MG annuelle = formule du modèle Excel uniquement.
  * Remplissage : même writeback que les bulletins de période (formules Excel respectées).
  * Fallback PDF canvas uniquement si aucun modèle annuel n'est configuré.
  *
@@ -157,6 +158,14 @@ export function AnnualBulletinDialog({
       if (error) throw error;
       const list = (cards ?? []) as StudentReportCard[];
 
+      const { data: gradeRows, error: gradeErr } = await supabase
+        .from("grades")
+        .select("*")
+        .eq("class_id", klass.id)
+        .in("period_id", periodIds);
+      if (gradeErr) throw gradeErr;
+      const allGrades = (gradeRows ?? []) as import("@/lib/grades").Grade[];
+
       if (!list.length) {
         toast.error(
           "Aucun bulletin de période trouvé. Générez d'abord les bulletins de chaque période.",
@@ -251,13 +260,15 @@ export function AnnualBulletinDialog({
             studentLastName: s.last_name,
             schoolYearLabel: yearLabel,
             subjects: subjectsSnap,
-            studentCards,
+            grades: allGrades,
+            studentId: s.id,
             orderedPeriodIds,
             headcount: studentsSnap.length,
             scale: tpl.scale,
             rank: null,
             firstAverage: null,
             lastAverage: null,
+            studentCards,
           });
           fill.periodStats = periodStatsByStudent.get(s.id) ?? fill.periodStats;
           // Ne jamais injecter une MG annuelle JS — lecture seule depuis le modèle.
@@ -316,13 +327,15 @@ export function AnnualBulletinDialog({
               studentLastName: s.last_name,
               schoolYearLabel: yearLabel,
               subjects: subjectsSnap,
-              studentCards,
+              grades: allGrades,
+              studentId: s.id,
               orderedPeriodIds,
               headcount: studentsSnap.length,
               scale: tpl.scale,
               rank: rankOf.get(s.id) ?? null,
               firstAverage,
               lastAverage,
+              studentCards,
             });
             fill.periodStats = periodStatsByStudent.get(s.id) ?? fill.periodStats;
             fill.generalAverage = null;
@@ -362,8 +375,26 @@ export function AnnualBulletinDialog({
             // Mémoriser la MG annuelle lue sur le modèle (période_id null non supporté → document seul).
             // Si une fiche « annuelle » existe côté schéma via period_id d'une période spéciale, on ne force rien.
             if (docRow?.id && modelAvg != null) {
-              // Conservé dans subject_averages du document via metadata non structurée : skip.
-              void modelSubjects;
+              await supabase
+                .from("student_documents")
+                .update({ name: `Bulletin annuel — MG ${modelAvg.toFixed(2)}` })
+                .eq("id", docRow.id);
+              const lastCard = studentCards[studentCards.length - 1];
+              if (lastCard?.id) {
+                await supabase
+                  .from("student_report_cards")
+                  .update({
+                    general_average: modelAvg,
+                    subject_averages: {
+                      ...(typeof lastCard.subject_averages === "object" && lastCard.subject_averages
+                        ? (lastCard.subject_averages as object)
+                        : {}),
+                      __annual_average: modelAvg,
+                      ...modelSubjects,
+                    },
+                  })
+                  .eq("id", lastCard.id);
+              }
             }
             success++;
           } else {
@@ -460,7 +491,7 @@ export function AnnualBulletinDialog({
         <DialogHeader>
           <DialogTitle>Bulletin annuel</DialogTitle>
           <DialogDescription>
-            Synthèse à partir des bulletins de période déjà générés (
+            Remplit le modèle annuel (notes de classe + compo par période). Prérequis : bulletins de période classés (
             {periods.length} période{periods.length > 1 ? "s" : ""}). Le modèle Excel{" "}
             <strong>annuel</strong> de la classe est utilisé s'il est actif. Vous pouvez fermer
             cette fenêtre : la génération continue en arrière-plan.
