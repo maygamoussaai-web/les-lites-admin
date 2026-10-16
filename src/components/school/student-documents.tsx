@@ -652,8 +652,11 @@ export function StudentDocuments({
                             )}
                           </span>
                           <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium leading-snug text-foreground" title={item.name}>
-                              {item.name}
+                            <p
+                              className="truncate text-sm font-medium leading-snug text-foreground"
+                              title={item.name}
+                            >
+                              {item.name.replace(/\s*[—–-]\s*MG\s*0+(?:[.,]0+)?\s*$/i, "").trim() || item.name}
                             </p>
                             {item.isDuplicate ? (
                               <p className="mt-0.5">
