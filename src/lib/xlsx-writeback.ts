@@ -14,8 +14,11 @@ import { evaluateFormula, UnsupportedFormulaError, type CellValue } from "@/lib/
 import {
   colIndex,
   isSubjectLabel,
+  matchSubjectName,
   normalize,
   parseColumnTag,
+  OUTPUT_COLUMN_ROLES,
+  INPUT_NOTE_ROLES,
   type TemplateMapping,
   type FillData,
   type ComputedAverages,
@@ -125,10 +128,11 @@ export async function writeFilledWorkbook(
         }
         const n = normalize(label);
         const isPeriod =
-          /\b(1\s*(er|ere|ere)?|2\s*(e|eme|eme)|3\s*(e|eme|eme)|4\s*(e|eme|eme)|premier|deuxieme|troisieme|trimestre|semestre|periode)\b/.test(n) ||
+          /\b(1\s*(er|ere|ere)?|2\s*(e|eme|eme)|3\s*(e|eme|eme)|4\s*(e|eme|eme)|5\s*(e|eme|eme)|6\s*(e|eme|eme)|premier|deuxieme|troisieme|quatrieme|trimestre|semestre|periode|semester|term|quarter)\b/.test(n) ||
           /^t\s*[1-6]$/.test(n) ||
           /^p\s*[1-6]$/.test(n) ||
-          /^[1-6]$/.test(n);
+          /^[1-6]$/.test(n) ||
+          /\b(first|second|third|fourth)\s*(term|semester|quarter)?\b/.test(n);
         if (isPeriod) {
           if (!labelToIdx.has(n)) labelToIdx.set(n, labelToIdx.size);
           lastIdx = labelToIdx.get(n)!;
@@ -165,27 +169,52 @@ export async function writeFilledWorkbook(
         }
         const label = normalize(raw);
         if (!label) continue;
+        // Sorties / non-notes : ne jamais traiter comme entrée
+        if (
+          label.includes("notes coef") ||
+          label.includes("note coef") ||
+          label.includes("notes coefficient") ||
+          label === "total" ||
+          label.startsWith("total ")
+        ) {
+          cols[letter] = "ignore";
+          continue;
+        }
         let role: import("@/lib/xlsx-template").ColumnRole | null = null;
         if (
           label.includes("note classe") ||
           label.includes("note de classe") ||
           label === "eval" ||
           label.includes("evaluation") ||
-          label.includes("interro")
+          label.includes("interro") ||
+          ((label === "note" || label === "notes" || label === "score" || label === "grade") &&
+            !label.includes("coef"))
         ) {
           role = "evaluation";
         } else if (label.includes("compo") || label.includes("composition")) {
           role = "composition";
-        } else if (label.includes("moyenne") && !label.includes("annuel")) {
+        } else if (
+          (label.includes("moyenne") || label === "moy") &&
+          !label.includes("annuel") &&
+          !label.includes("general") &&
+          !label.includes("generale") &&
+          !label.includes("premier") &&
+          !label.includes("dernier")
+        ) {
+          // Moyenne matière = SORTIE formule (on mappe pour lecture, on n'écrit pas)
           role = "subject_average";
-        } else if (label.startsWith("coef") || label === "coefficient") {
+        } else if (label.startsWith("coef") || label === "coefficient" || label === "coeff") {
           role = "coefficient";
-        } else if (label.includes("matiere") || label === "discipline") {
+        } else if (label.includes("matiere") || label === "discipline" || label === "subject") {
           role = "subject";
         }
         if (role) {
           cols[letter] = role;
-          if (groupByCol[c] != null && (role === "evaluation" || role === "composition" || role === "subject_average")) {
+          // Index période uniquement pour les colonnes d'entrée notes
+          if (groupByCol[c] != null && (role === "evaluation" || role === "composition")) {
+            periodCols[letter] = groupByCol[c]!;
+          } else if (groupByCol[c] != null && role === "subject_average") {
+            // utile pour lire la moyenne de période si besoin
             periodCols[letter] = groupByCol[c]!;
           }
         }
@@ -234,17 +263,30 @@ export async function writeFilledWorkbook(
   {
     const TOKEN_ROLES: Record<string, FieldRole> = {
       prenom: "student_first_name",
+      "first name": "student_first_name",
       nom: "student_last_name",
       "nom de famille": "student_last_name",
+      "last name": "student_last_name",
       "nom et prenom": "student_name",
+      "nom complet": "student_name",
+      eleve: "student_name",
       classe: "class_name",
+      class: "class_name",
       etablissement: "establishment_name",
+      ecole: "establishment_name",
+      lycee: "establishment_name",
+      school: "establishment_name",
       periode: "period_label",
       trimestre: "period_label",
+      semestre: "period_label",
       annee_scolaire: "period_label",
       "annee scolaire": "period_label",
+      annee: "period_label",
+      year: "period_label",
       effectif: "headcount",
+      headcount: "headcount",
       rang: "rank",
+      rank: "rank",
       date: "date",
       "moyenne du premier": "first_average",
       "moyenne du dernier": "last_average",
@@ -340,22 +382,35 @@ export async function writeFilledWorkbook(
       .map(([letter]) => letter)
       .sort((a, b) => colIndex(a) - colIndex(b));
 
+    const usedSubjects = new Set<string>();
     for (let r = mapping.firstSubjectRow; r <= mapping.lastSubjectRow; r++) {
       const cell = ws[`${subjectColumn}${r}`] as XLSX.CellObject | undefined;
       const label = cell && cell.v !== undefined && cell.v !== null ? String(cell.v).trim() : "";
       if (!label || !isSubjectLabel(label)) continue;
-      const key = normalize(label);
-      const match =
-        remaining.get(key) ??
-        [...remaining.entries()].find(([k]) => k.includes(key) || key.includes(k))?.[1] ??
-        null;
-      if (!match) continue;
+
+      const names = data.subjects.map((s) => s.name);
+      const matchedName = matchSubjectName(label, names, usedSubjects);
+      const match = matchedName
+        ? data.subjects.find((s) => s.name === matchedName) ?? null
+        : null;
+      if (!match) {
+        warnings.push(`Matière non associée: « ${label} »`);
+        continue;
+      }
+      usedSubjects.add(normalize(match.name));
       remaining.delete(normalize(match.name));
       rowSubjectName.set(r, match.name);
 
       const periodCols = mapping.periodColumns ?? {};
       for (const [letter, role] of Object.entries(mapping.columns)) {
         const address = `${letter}${r}`;
+        // Sorties modèle : jamais d'écriture (formules Excel uniquement)
+        if (OUTPUT_COLUMN_ROLES.has(role) || role === "subject") continue;
+        if (!INPUT_NOTE_ROLES.has(role)) continue;
+
+        const existing = ws[address] as XLSX.CellObject | undefined;
+        if (existing?.f) continue; // formule intacte
+
         const periodIdx = periodCols[letter];
         if (role === "composition") {
           let raw: number | null = null;
@@ -384,16 +439,13 @@ export async function writeFilledWorkbook(
                   return periodEval(match.evaluations, idx >= 0 ? idx : null);
                 })();
           setInputCell(address, toScale(raw, data.scale));
-        } else if (role === "evaluation_average") {
-          // Index de période = moyenne matière de cette période (entrée). Sinon formule Excel.
-          const raw = periodIdx != null ? periodEval(match.evaluations, periodIdx) : null;
-          setInputCell(address, toScale(raw, data.scale));
-        } else if (role === "subject_average") {
-          // Avec période : note/moyenne de période. Sans : formule annuelle du modèle.
-          const raw = periodIdx != null ? periodEval(match.evaluations, periodIdx) : null;
-          setInputCell(address, toScale(raw, data.scale));
         }
       }
+    }
+    if (remaining.size > 0 && remaining.size <= 8) {
+      warnings.push(
+        `Matières app sans ligne modèle: ${[...remaining.keys()].slice(0, 5).join(", ")}`,
+      );
     }
   }
 
