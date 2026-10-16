@@ -13,17 +13,38 @@ export type ModelAverages = {
   warnings: string[];
 };
 
+/** Note classe = moyenne de toutes les évaluations ; Compo = note de composition.
+ * Même règle pour bulletin périodique et annuel (une seule source de vérité). */
 function subjectRowFromGrades(name: string, gs: Grade[]) {
-  const evals = gs.filter((g) => g.nature === "evaluation");
-  const comp = gs.find((g) => g.nature === "composition");
   const to20 = (g: Grade) =>
     g.scale > 0 ? (Number(g.value) / Number(g.scale)) * 20 : Number(g.value);
-  const evalValues = evals.map(to20);
+  const isEval = (g: Grade) => {
+    const n = String(g.nature ?? "evaluation").toLowerCase().trim();
+    return (
+      n === "evaluation" ||
+      n === "eval" ||
+      n === "controle" ||
+      n === "contrôle" ||
+      n === "interro" ||
+      n === "devoir"
+    );
+  };
+  const isComp = (g: Grade) => {
+    const n = String(g.nature ?? "").toLowerCase().trim();
+    return n === "composition" || n === "compo" || n === "exam" || n === "examen";
+  };
+  const evals = gs.filter(isEval);
+  const comp = gs.find(isComp);
+  const noteClasse =
+    evals.length > 0
+      ? evals.reduce((a, g) => a + to20(g), 0) / evals.length
+      : null;
   const composition = comp ? to20(comp) : null;
   return {
     name,
     composition,
-    evaluations: evalValues,
+    // Une seule valeur = moyenne des évaluations (colonne unique « Note classe »)
+    evaluations: noteClasse != null && Number.isFinite(noteClasse) ? [noteClasse] : [],
     evaluationAverage: null as number | null,
     average: null as number | null,
   };
