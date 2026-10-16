@@ -28,10 +28,13 @@ export function PeriodResultsCard({
     const sorted = [...periods].sort((a, b) => a.period_number - b.period_number);
     return sorted.map((p) => {
       const card = cards.find((c) => c.period_id === p.id);
-      const average =
+      let average: number | null =
         card?.general_average !== null && card?.general_average !== undefined
           ? Number(card.general_average)
           : null;
+      if (average != null && !Number.isFinite(average)) average = null;
+      // MG exactement 0 = souvent corruption d'un ancien run annuel → ne pas afficher comme validé
+      if (average === 0) average = null;
       return {
         period: p,
         average,
@@ -84,7 +87,7 @@ export function PeriodResultsCard({
                 Annuelle
               </p>
               <p className="mt-0.5 text-lg font-semibold tabular-nums text-foreground">
-                {annual === null ? "—" : formatNumber(annual, 2)}
+                {annual === null ? "\u2014" : formatNumber(annual, 2)}
               </p>
             </div>
           </div>
@@ -120,14 +123,14 @@ function PeriodBox({
     >
       <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         P{period.period_number}
-        {isActive ? " · en cours" : isClosed ? " · close" : ""}
+        {isActive ? " \u00b7 en cours" : isClosed ? " \u00b7 close" : ""}
       </p>
       <p
         className={`mt-0.5 text-lg font-semibold tabular-nums ${
           failed ? "text-destructive" : "text-foreground"
         }`}
       >
-        {average === null ? "—" : formatNumber(average, 2)}
+        {average === null ? "\u2014" : formatNumber(average, 2)}
       </p>
       {validated && (
         <Badge variant="secondary" className="mt-1 text-[10px]">
