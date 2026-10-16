@@ -1,11 +1,9 @@
-import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import {
   ArrowLeft,
   Bot,
   Calendar,
   CheckCircle2,
-  ChevronDown,
   Clock,
   Coins,
   FileCheck,
@@ -17,6 +15,8 @@ import {
   User,
   UserCheck,
   ExternalLink,
+  BookOpen,
+  ArrowRightLeft,
 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { PageHeader } from "@/components/app/page-header";
@@ -24,11 +24,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Card, CardContent } from "@/components/ui/card";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { supabase } from "@/integrations/supabase/client";
 import { useAdminProfile } from "@/hooks/use-auth";
 import { useRows } from "@/lib/data";
@@ -48,7 +43,7 @@ export const Route = createFileRoute("/_authenticated/historique/$logId")({
       { title: "Détail de l'action – Journal – Les Élites de Gao" },
       {
         name: "description",
-        content: "Visualisation détaillée d'une action enregistrée dans le journal de l'école.",
+        content: "Détail compréhensible d'une action enregistrée dans le journal de l'école.",
       },
     ],
   }),
@@ -58,16 +53,13 @@ export const Route = createFileRoute("/_authenticated/historique/$logId")({
 function DetailPage() {
   const { logId } = Route.useParams();
   const { isDG } = useAdminProfile();
-  const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
 
-  // Données de base
   const { data: establishments = [] } = useRows<Tables<"establishments">>("establishments", {
     order: { column: "name" },
   });
   const { data: admins = [] } = useRows<Tables<"admin_profiles">>("admin_profiles");
   const { data: classes = [] } = useRows<Tables<"classes">>("classes");
 
-  // Chargement du log
   const { data: log, isLoading, error } = useQuery({
     queryKey: ["audit_log", logId],
     queryFn: async () => {
@@ -81,12 +73,10 @@ function DetailPage() {
     },
   });
 
-  // Métadonnées du log
   const meta = ((log?.metadata as Record<string, unknown>) ?? {});
   const viaAi = !!meta.via_ai;
   const toolName = (meta.tool ?? meta.tool_name) as string | undefined;
 
-  // Résolution contextuelle de l'entité (élève, professeur, classe)
   const studentId =
     log?.entity_type === "students"
       ? log.entity_id
@@ -103,21 +93,21 @@ function DetailPage() {
       : (meta.class_id as string | undefined) ??
         (meta.transferred_to_class_id as string | undefined);
 
-  // Requête optionnelle sur l'élève lié
+  // Informations sur l'élève lié
   const { data: linkedStudent } = useQuery({
     queryKey: ["audit_student", studentId],
     enabled: !!studentId,
     queryFn: async () => {
       const { data } = await supabase
         .from("students")
-        .select("id, first_name, last_name, matricule, photo_url, class_id")
+        .select("id, first_name, last_name, matricule, photo_url, class_id, archived_at")
         .eq("id", studentId!)
         .maybeSingle();
       return data;
     },
   });
 
-  // Requête optionnelle sur le professeur lié
+  // Informations sur le professeur lié
   const { data: linkedTeacher } = useQuery({
     queryKey: ["audit_teacher", teacherId],
     enabled: !!teacherId,
@@ -146,7 +136,7 @@ function DetailPage() {
         <PageHeader
           eyebrow="Journal"
           title="Action introuvable"
-          description="Cette entrée a peut-être été déplacée ou n'existe plus."
+          description="Cette action n'existe pas ou vous n'avez pas l'autorisation d'y accéder."
         />
         <Button asChild variant="outline">
           <Link to="/historique">
@@ -162,7 +152,6 @@ function DetailPage() {
   const est = establishments.find((e) => e.id === log.establishment_id);
   const targetClass = classes.find((c) => c.id === classId || c.id === linkedStudent?.class_id);
 
-  // Configuration visuelle du badge d'action
   const getActionTheme = (action: string) => {
     switch (action) {
       case "create":
@@ -182,8 +171,8 @@ function DetailPage() {
           dot: "bg-amber-500",
         };
       case "generate":
-      case "mark_completed":
       case "renew":
+      case "bulk_upsert":
         return {
           icon: FileCheck,
           color: "text-purple-700 bg-purple-50 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800",
@@ -201,73 +190,138 @@ function DetailPage() {
   const theme = getActionTheme(log.action);
   const ActionIcon = theme.icon;
 
-  // Génération d'une description humaine fluide
+  // Récit narratif humain et détaillé
   const getHumanNarrative = () => {
-    const studentName = linkedStudent
+    const studentFullName = linkedStudent
       ? `${linkedStudent.first_name} ${linkedStudent.last_name}`
-      : (meta.name as string) || (meta.student_name as string);
+      : (meta.student_name as string) || (meta.name as string);
 
-    const teacherName = linkedTeacher
+    const teacherFullName = linkedTeacher
       ? `${linkedTeacher.first_name} ${linkedTeacher.last_name}`
       : (meta.teacher_name as string);
 
+    const className = targetClass?.name || (meta.class_name as string) || (meta.name as string) || "Classe";
+
+    // 1. Bulletins groupés de classe
+    if (log.action === "generate" && (log.entity_type === "classes" || meta.count !== undefined)) {
+      const count = meta.count ?? "Tous les";
+      const pNum = meta.period_number ? `Période ${meta.period_number}` : "période active";
+      return {
+        headline: `Génération des bulletins de la classe ${className}`,
+        context: `${count} bulletins créés et déposés en bibliothèque pour la ${pNum}`,
+      };
+    }
+
+    // 2. Saisie groupée de notes pour toute une classe
+    if (log.action === "bulk_upsert" || (log.entity_type === "grades" && meta.count !== undefined)) {
+      const count = meta.count ?? "plusieurs";
+      const subj = (meta.subject_name as string) || "la discipline";
+      return {
+        headline: `Saisie groupée de notes — Classe ${className}`,
+        context: `${count} note(s) enregistrée(s) en ${subj}`,
+      };
+    }
+
+    // 3. Note individuelle
     if (log.entity_type === "grades") {
       const val = meta.value ?? meta.grade;
       const scale = meta.scale ?? 20;
-      const nature = meta.nature ? ` (${String(meta.nature)})` : "";
+      const nature = meta.nature ? ` (${String(meta.nature).toUpperCase()})` : "";
       return {
-        headline: val !== undefined ? `Attribution de la note ${val} / ${scale}${nature}` : "Modification de note",
-        context: studentName ? `Pour l'élève ${studentName}` : "Sur le carnet de notes",
+        headline: val !== undefined ? `Attribution d'une note de ${val} / ${scale}${nature}` : "Mise à jour de note",
+        context: studentFullName
+          ? `Pour l'élève ${studentFullName} · Classe : ${className}`
+          : `Attribuée dans la classe ${className}`,
       };
     }
 
+    // 4. Paiement de scolarité
     if (log.entity_type === "tuition_payments") {
       const amount = Number(meta.amount ?? 0);
+      const receipt = meta.receipt_number ? ` (Reçu N° ${meta.receipt_number})` : "";
       return {
-        headline: amount > 0 ? `Encaissement de ${formatFCFA(amount)}` : "Enregistrement d'un paiement",
-        context: studentName ? `Frais de scolarité de ${studentName}` : "Règlement de scolarité",
+        headline: amount > 0 ? `Encaissement de ${formatFCFA(amount)}` : "Enregistrement d'un versement",
+        context: studentFullName
+          ? `Scolarité de l'élève ${studentFullName}${receipt} · Classe : ${className}`
+          : `Paiement de scolarité reçu${receipt}`,
       };
     }
 
+    // 5. Élèves (Archivage, Inscription, Restauration, Transfert)
     if (log.entity_type === "students") {
-      if (log.action === "create") return { headline: `Inscription de ${studentName || "l'élève"}`, context: targetClass ? `Affecté(e) en ${targetClass.name}` : "Nouveau dossier scolaire" };
-      if (log.action === "update" && meta.restored) return { headline: `Désarchivage du dossier`, context: `Élève : ${studentName || "Dossier scolaire"}` };
-      if (log.action === "update" && meta.transferred_to_class_id) return { headline: `Transfert de classe`, context: `Vers la classe ${targetClass?.name || "choisie"}` };
-      return { headline: `${auditActionLabel(log.action)} de la fiche élève`, context: studentName || "Dossier scolaire" };
+      if (log.action === "archive") {
+        return {
+          headline: `Archivage de l'élève ${studentFullName || "sélectionné"}`,
+          context: `Dossier transféré dans les archives · Classe d'origine : ${className}`,
+        };
+      }
+      if (log.action === "update" && meta.restored) {
+        return {
+          headline: `Restauration du dossier de ${studentFullName || "l'élève"}`,
+          context: `Dossier réactivé avec succès · Classe : ${className}`,
+        };
+      }
+      if (log.action === "update" && meta.transferred_to_class_id) {
+        return {
+          headline: `Transfert de classe de l'élève ${studentFullName || ""}`,
+          context: `Affecté(e) vers la nouvelle classe ${className}`,
+        };
+      }
+      if (log.action === "create" || log.action === "enroll") {
+        return {
+          headline: `Inscription de l'élève ${studentFullName || "Nouveau"}`,
+          context: `Inscrit(e) et affecté(e) dans la classe ${className}`,
+        };
+      }
+      return {
+        headline: `${auditActionLabel(log.action)} de la fiche élève`,
+        context: studentFullName ? `Élève : ${studentFullName} · Classe : ${className}` : "Dossier scolaire",
+      };
     }
 
+    // 6. Classes (Renouvellement annuel, création, clôture)
     if (log.entity_type === "classes") {
-      const cName = (meta.name as string) || targetClass?.name || "Classe";
-      if (log.action === "renew") return { headline: `Renouvellement annuel de la classe ${cName}`, context: (meta.generation_name as string) || "Nouvelle promotion" };
-      return { headline: `${auditActionLabel(log.action)} de la classe ${cName}`, context: est?.name || "Organisation scolaire" };
+      if (log.action === "renew") {
+        const genName = (meta.generation_name as string) || "Promotion archivée";
+        return {
+          headline: `Renouvellement annuel de la classe ${className}`,
+          context: `Nouvelle promotion archivée : « ${genName} » · Nouvelle classe prête pour l'année`,
+        };
+      }
+      return {
+        headline: `${auditActionLabel(log.action)} de la classe ${className}`,
+        context: est ? `Établissement : ${est.name}` : "Complexe scolaire",
+      };
     }
 
-    if (log.entity_type === "teachers") {
-      return { headline: `${auditActionLabel(log.action)} de l'enseignant`, context: teacherName ? `M./Mme ${teacherName}` : "Corps enseignant" };
+    // 7. Enseignants
+    if (log.entity_type === "teachers" || log.entity_type === "teacher_assignments") {
+      return {
+        headline: `${auditActionLabel(log.action)} pour l'enseignant ${teacherFullName || ""}`,
+        context: linkedTeacher?.specialty
+          ? `Discipline : ${linkedTeacher.specialty} ${linkedTeacher.phone ? `· Tél : ${linkedTeacher.phone}` : ""}`
+          : `Affectation scolaire`,
+      };
     }
 
+    // 8. Périodes de notes
     if (log.entity_type === "grade_periods") {
       const pNum = meta.period_number;
       return {
         headline: log.action === "open" ? `Ouverture de la Période ${pNum || ""}` : `Clôture de la Période ${pNum || ""}`,
-        context: targetClass ? `Classe ${targetClass.name}` : "Calendrier des évaluations",
+        context: `Classe ${className} · ${log.action === "open" ? "Saisie des notes activée" : "Notes verrouillées pour les bulletins"}`,
       };
     }
 
-    if (log.entity_type === "student_report_cards") {
-      return { headline: "Génération de bulletin", context: studentName ? `Bulletin de ${studentName}` : "Évaluation scolaire" };
-    }
-
-    // Repli général bienveillant
     return {
-      headline: `${auditActionLabel(log.action)} · ${auditEntityLabel(log.entity_type)}`,
-      context: (meta.summary as string) || (meta.name as string) || "Opération réalisée dans l'application",
+      headline: (meta.summary as string) || `${auditActionLabel(log.action)} · ${auditEntityLabel(log.entity_type)}`,
+      context: (meta.name as string) || "Opération réalisée dans l'application",
     };
   };
 
   const narrative = getHumanNarrative();
 
-  // Extraction propre des champs métier lisibles
+  // Badges d'information métier lisibles
   const readableBadges: { label: string; value: string; icon?: typeof Calendar }[] = [];
   if (meta.value !== undefined) {
     readableBadges.push({ label: "Note attribuée", value: `${meta.value} / ${meta.scale ?? 20}` });
@@ -276,28 +330,23 @@ function DetailPage() {
     readableBadges.push({ label: "Type d'épreuve", value: String(meta.nature).toUpperCase() });
   }
   if (meta.amount !== undefined) {
-    readableBadges.push({ label: "Montant", value: formatFCFA(Number(meta.amount)), icon: Coins });
+    readableBadges.push({ label: "Montant encaissé", value: formatFCFA(Number(meta.amount)), icon: Coins });
+  }
+  if (meta.count !== undefined) {
+    readableBadges.push({ label: "Nombre d'éléments", value: `${meta.count} généré(s)` });
   }
   if (meta.period_number !== undefined) {
-    readableBadges.push({ label: "Période", value: `Période ${meta.period_number}` });
+    readableBadges.push({ label: "Période scolaire", value: `Période ${meta.period_number}` });
   }
   if (meta.method) {
     readableBadges.push({ label: "Mode de règlement", value: String(meta.method) });
   }
   if (meta.receipt_number) {
-    readableBadges.push({ label: "Reçu N°", value: String(meta.receipt_number) });
+    readableBadges.push({ label: "Numéro de reçu", value: `N° ${meta.receipt_number}` });
   }
   if (meta.generation_name) {
-    readableBadges.push({ label: "Nom d'archive", value: String(meta.generation_name) });
+    readableBadges.push({ label: "Archive créée", value: String(meta.generation_name) });
   }
-  if (meta.total_amount) {
-    readableBadges.push({ label: "Total grille", value: formatFCFA(Number(meta.total_amount)) });
-  }
-
-  // Filtrer les entrées techniques pour l'accordéon développeur
-  const technicalKeys = Object.entries(meta).filter(
-    ([k]) => !["via_ai", "tool", "tool_name", "summary"].includes(k)
-  );
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 pb-12">
@@ -306,15 +355,12 @@ function DetailPage() {
         <Button asChild variant="ghost" size="sm" className="gap-2 text-muted-foreground hover:text-foreground">
           <Link to="/historique">
             <ArrowLeft className="h-4 w-4" />
-            Retour au journal complet
+            Retour à la liste du journal
           </Link>
         </Button>
-        <span className="text-xs font-mono text-muted-foreground/70">
-          Réf. {log.id.slice(0, 8)}
-        </span>
       </div>
 
-      {/* Hero Card : Titre narratif & Statut visuel */}
+      {/* Carte principale de l'action */}
       <Card className="overflow-hidden border-border/80 shadow-sm">
         <div className="border-b border-border/60 bg-muted/20 p-6 sm:p-7">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -368,12 +414,12 @@ function DetailPage() {
                 {viaAi ? "Assistant IA" : actor ? `${actor.last_name} ${actor.first_name}` : "Direction Générale"}
               </p>
               <p className="text-xs text-muted-foreground truncate">
-                {viaAi ? (toolName ? `Outil ${toolName}` : "Validation admin") : roleLabel(actor?.role)}
+                {viaAi ? (toolName ? `Outil exécuté : ${toolName}` : "Exécution automatique") : roleLabel(actor?.role)}
               </p>
             </div>
           </div>
 
-          {/* Horodatage */}
+          {/* Date */}
           <div className="flex items-start gap-3">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-border/60 bg-muted/40 text-muted-foreground">
               <Clock className="h-4 w-4" />
@@ -383,7 +429,7 @@ function DetailPage() {
               <p className="text-sm font-semibold text-foreground">
                 {formatDateTime(log.created_at)}
               </p>
-              <p className="text-xs text-muted-foreground">Enregistré dans le journal</p>
+              <p className="text-xs text-muted-foreground">Horodatage certifié</p>
             </div>
           </div>
 
@@ -394,20 +440,20 @@ function DetailPage() {
             </div>
             <div>
               <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Établissement</p>
-              <p className="text-sm font-semibold text-foreground">
+              <p className="text-sm font-semibold text-foreground truncate">
                 {est ? est.name : "Tout le complexe"}
               </p>
-              <p className="text-xs text-muted-foreground">Périmètre scolaire</p>
+              <p className="text-xs text-muted-foreground">Périmètre concerné</p>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Cartes de valeurs métier (Notes, Paiements, etc.) */}
+      {/* Cartes de valeurs métier */}
       {readableBadges.length > 0 && (
         <div className="space-y-3">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Données de l'opération
+            Spécificités de l'opération
           </h2>
           <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3">
             {readableBadges.map((item, idx) => (
@@ -425,7 +471,7 @@ function DetailPage() {
         </div>
       )}
 
-      {/* Carte d'accès direct vers l'élève ou le personnel concerné */}
+      {/* Carte Élève lié */}
       {linkedStudent && (
         <div className="space-y-3">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -445,6 +491,7 @@ function DetailPage() {
                 <p className="text-xs text-muted-foreground">
                   {linkedStudent.matricule ? `Matricule : ${linkedStudent.matricule}` : "Élève actif"}
                   {targetClass ? ` · Classe : ${targetClass.name}` : ""}
+                  {linkedStudent.archived_at ? " (Dossier Archivé)" : ""}
                 </p>
               </div>
             </div>
@@ -459,7 +506,7 @@ function DetailPage() {
               <Button asChild size="sm" variant="secondary" className="flex-1 sm:flex-initial gap-1.5">
                 <Link to="/eleves/$studentId/notes" params={{ studentId: linkedStudent.id }}>
                   <GraduationCap className="h-3.5 w-3.5" />
-                  Voir ses notes
+                  Consulter ses notes
                 </Link>
               </Button>
             </div>
@@ -485,7 +532,7 @@ function DetailPage() {
                   {linkedTeacher.last_name} {linkedTeacher.first_name}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {linkedTeacher.specialty || "Enseignant"} {linkedTeacher.phone ? `· ${linkedTeacher.phone}` : ""}
+                  {linkedTeacher.specialty || "Enseignant"} {linkedTeacher.phone ? `· Tél : ${linkedTeacher.phone}` : ""}
                 </p>
               </div>
             </div>
@@ -499,57 +546,6 @@ function DetailPage() {
           </div>
         </div>
       )}
-
-      {/* Accordéon technique discret (pour les vérifications système ou développeurs) */}
-      <Collapsible
-        open={showTechnicalDetails}
-        onOpenChange={setShowTechnicalDetails}
-        className="rounded-xl border border-border/60 bg-muted/20 overflow-hidden"
-      >
-        <CollapsibleTrigger asChild>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="flex w-full items-center justify-between p-4 text-xs font-medium text-muted-foreground hover:bg-muted/40"
-          >
-            <span>Détails techniques avancés & identifiants (Audit)</span>
-            <ChevronDown
-              className={`h-4 w-4 transition-transform duration-200 ${
-                showTechnicalDetails ? "rotate-180" : ""
-              }`}
-            />
-          </Button>
-        </CollapsibleTrigger>
-        <CollapsibleContent className="border-t border-border/60 p-4 space-y-3 bg-muted/10">
-          <div className="grid gap-2 text-xs font-mono">
-            <div className="flex flex-wrap justify-between gap-2 border-b border-border/40 pb-1.5">
-              <span className="text-muted-foreground">Identifiant de l'action (UUID) :</span>
-              <span className="break-all select-all font-semibold">{log.id}</span>
-            </div>
-            {log.entity_id && (
-              <div className="flex flex-wrap justify-between gap-2 border-b border-border/40 pb-1.5">
-                <span className="text-muted-foreground">Identifiant de l'entité :</span>
-                <span className="break-all select-all">{log.entity_id}</span>
-              </div>
-            )}
-            <div className="flex flex-wrap justify-between gap-2 border-b border-border/40 pb-1.5">
-              <span className="text-muted-foreground">Table source :</span>
-              <span>{log.entity_type}</span>
-            </div>
-          </div>
-
-          {technicalKeys.length > 0 && (
-            <div className="pt-2">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground mb-1.5">
-                Charge utile (Payload JSON)
-              </p>
-              <pre className="overflow-x-auto rounded-lg bg-background p-3 text-[11px] text-foreground font-mono border border-border/60">
-                {JSON.stringify(meta, null, 2)}
-              </pre>
-            </div>
-          )}
-        </CollapsibleContent>
-      </Collapsible>
     </div>
   );
 }
