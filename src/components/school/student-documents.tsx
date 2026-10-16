@@ -250,6 +250,20 @@ export function StudentDocuments({
         isSpreadsheet(doc.file_type, path, doc.name) ||
         !!card ||
         doc.name.toLowerCase().includes("bulletin");
+      // MG : fiche période si liée ; sinon extraire « MG 12.34 » du nom (bulletin annuel)
+      let avg: number | null =
+        card?.general_average != null && Number.isFinite(Number(card.general_average))
+          ? Number(card.general_average)
+          : null;
+      if (avg === null || avg === 0) {
+        const m = /(?:MG|Moy\.?|Moyenne)\s*[:=]?\s*(\d+(?:[.,]\d+)?)/i.exec(doc.name);
+        if (m) {
+          const n = Number(String(m[1]).replace(",", "."));
+          if (Number.isFinite(n) && n > 0) avg = n;
+        }
+      }
+      // Ne jamais afficher 0 (souvent corruption / placeholder)
+      if (avg === 0) avg = null;
       out.push({
         key: `doc-${doc.id}`,
         kind: bulletin ? "bulletin" : "document",
@@ -259,7 +273,7 @@ export function StudentDocuments({
         fileType: doc.file_type || "application/octet-stream",
         filePath: path,
         documentId: doc.id,
-        average: card?.general_average != null ? Number(card.general_average) : null,
+        average: avg,
         cardId: card?.id ?? null,
         classId: card?.class_id ?? (bulletin ? classId : null),
       });
@@ -640,12 +654,17 @@ export function StudentDocuments({
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium leading-snug text-foreground" title={item.name}>
                               {item.name}
-                              {item.isDuplicate ? (
-                                <Badge variant="outline" className="ml-1.5 align-middle text-[10px] font-medium normal-case text-amber-700 dark:text-amber-300">
-                                  Doublon · suppression auto 24h
-                                </Badge>
-                              ) : null}
                             </p>
+                            {item.isDuplicate ? (
+                              <p className="mt-0.5">
+                                <Badge
+                                  variant="outline"
+                                  className="max-w-full truncate text-[9px] font-medium normal-case tracking-normal text-amber-700 dark:text-amber-300"
+                                >
+                                  Doublon · auto 24h
+                                </Badge>
+                              </p>
+                            ) : null}
                             <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px] text-muted-foreground">
                               <time dateTime={item.createdAt} className="tabular-nums">
                                 {formatDateTime(item.createdAt)}
