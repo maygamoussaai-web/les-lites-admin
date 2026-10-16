@@ -179,14 +179,117 @@ export function isSubjectLabel(label: string): boolean {
   return true;
 }
 
+/** Alias courants matière modèle ↔ matière app (normalisés). */
+const SUBJECT_ALIAS_GROUPS: string[][] = [
+  ["mathematique", "mathematiques", "math", "maths"],
+  ["physique chimie", "physique", "pc", "physique chimie"],
+  ["biologie geologie", "svt", "sciences de la vie", "biologie", "svt biologie"],
+  ["histoire geo", "histoire geographie", "hist geo", "hg"],
+  ["anglais", "english", "ang"],
+  ["francais", "fr"],
+  ["eps", "sport", "education physique"],
+  ["informatique", "info", "tic"],
+  ["philosophie", "philo"],
+  ["ecm", "education civique"],
+  ["dessin technique", "dt", "dessin"],
+  ["conduite", "discipline conduite"],
+];
+
+function subjectAliasKey(norm: string): string {
+  for (const group of SUBJECT_ALIAS_GROUPS) {
+    if (group.some((g) => norm === g || norm.includes(g) || g.includes(norm))) {
+      return group[0]!;
+    }
+  }
+  return norm;
+}
+
+/**
+ * Associe un libellé de ligne du modèle à une matière de la classe.
+ * Exact → alias → inclusion. `used` = noms déjà pris (normalisés).
+ */
+export function matchSubjectName(
+  templateLabel: string,
+  subjectNames: string[],
+  used?: Set<string>,
+): string | null {
+  const key = normalize(templateLabel);
+  if (!key || !isSubjectLabel(templateLabel)) return null;
+  const taken = used ?? new Set<string>();
+  const available = subjectNames.filter((n) => !taken.has(normalize(n)));
+  if (!available.length) return null;
+
+  // 1) exact
+  for (const n of available) {
+    if (normalize(n) === key) return n;
+  }
+  // 2) alias group
+  const aliasKey = subjectAliasKey(key);
+  for (const n of available) {
+    if (subjectAliasKey(normalize(n)) === aliasKey) return n;
+  }
+  // 3) inclusion
+  for (const n of available) {
+    const kn = normalize(n);
+    if (kn.includes(key) || key.includes(kn)) return n;
+  }
+  // 4) token overlap (au moins 1 token significatif ≥ 3 chars)
+  const tokens = key.split(" ").filter((t) => t.length >= 3);
+  if (tokens.length) {
+    let best: string | null = null;
+    let bestScore = 0;
+    for (const n of available) {
+      const kn = normalize(n);
+      const score = tokens.filter((t) => kn.includes(t)).length;
+      if (score > bestScore) {
+        bestScore = score;
+        best = n;
+      }
+    }
+    if (best && bestScore > 0) return best;
+  }
+  return null;
+}
+
+/** Colonnes calculées par le modèle — l'app ne doit JAMAIS y écrire. */
+export const OUTPUT_COLUMN_ROLES: ReadonlySet<ColumnRole> = new Set([
+  "subject_average",
+  "evaluation_average",
+  "coefficient",
+  "subject_rank",
+  "appreciation",
+  "teacher",
+  "ignore",
+]);
+
+/** Colonnes d'entrée notes (écriture autorisée si pas de formule). */
+export const INPUT_NOTE_ROLES: ReadonlySet<ColumnRole> = new Set([
+  "evaluation",
+  "composition",
+]);
+
+/** Nombre de périodes distinctes détectées dans le mapping (1…N). */
+export function periodCountFromMapping(mapping: TemplateMapping | null | undefined): number {
+  if (!mapping?.periodColumns) return 1;
+  const idxs = Object.values(mapping.periodColumns);
+  if (!idxs.length) return 1;
+  return Math.max(1, Math.max(...idxs) + 1);
+}
+
 const COLUMN_HINTS: [ColumnRole, string[]][] = [
-  ["subject", ["matiere", "matieres", "discipline", "disciplines"]],
-  ["composition", ["composition", "compo", "devoir compo", "note compo"]],
-  ["evaluation_average", ["moyenne evaluation", "moyenne des evaluations", "moy eval", "moyenne de classe", "moyenne classe"]],
-  ["evaluation", ["evaluation", "evaluations", "eval", "note de classe", "notes de classe", "note classe", "notes classe", "note d evaluation", "interro", "devoir", "devoirs"]],
-  ["subject_average", ["moyenne", "moy", "moyenne matiere"]],
+  ["subject", ["matiere", "matieres", "discipline", "disciplines", "subject"]],
+  ["composition", ["composition", "compo", "devoir compo", "note compo", "note de composition", "exam"]],
+  ["evaluation_average", ["moyenne evaluation", "moyenne des evaluations", "moy eval"]],
+  /* Note unique générique (modèles sans distinction classe/compo) */
+  ["evaluation", [
+    "evaluation", "evaluations", "eval",
+    "note de classe", "notes de classe", "note classe", "notes classe",
+    "note d evaluation", "interro", "devoir", "devoirs",
+    "note", "notes", "score", "mark", "grade",
+  ]],
+  ["subject_average", ["moyenne matiere", "moyenne de la matiere"]],
   ["coefficient", ["coef", "coefficient", "coeff"]],
-  ["subject_rank", ["rang", "rang matiere", "place"]],
+  ["subject_rank", ["rang matiere", "rang de la matiere"]],
   ["appreciation", ["appreciation", "appreciations", "observation", "observations", "mention"]],
   ["teacher", ["professeur", "prof", "enseignant", "nom du professeur"]],
 ];
@@ -199,7 +302,7 @@ const FIELD_HINTS: [FieldRole, string[]][] = [
   ["establishment_name", ["etablissement", "complexe", "ecole", "lycee", "college"]],
   ["period_label", ["periode", "trimestre", "semestre", "mois"]],
   ["headcount", ["effectif", "nombre d eleves", "effectif de la classe", "nb eleves"]],
-  ["general_average", ["moyenne generale", "moyenne de l eleve", "moyenne annuelle", "moy gen"]],
+  ["general_average", ["moyenne generale", "moyenne de l eleve", "moyenne annuelle", "moy gen", "moyenne annuel", "mg annuelle", "overall average", "general average"]],
   ["first_average", ["moyenne du premier", "premier", "plus forte moyenne", "moyenne la plus forte", "moyenne la plus elevee", "moyenne la plus haute"]],
   ["last_average", ["moyenne du dernier", "dernier", "plus faible moyenne", "moyenne la plus faible", "moyenne la plus basse"]],
   ["class_average_evaluation", ["moyenne de classe", "moyenne classe", "moyenne des evaluations de la classe"]],
@@ -281,17 +384,17 @@ export function parseColumnTag(raw: string): ColumnTag | null {
 }
 
 const PERIOD_GROUP_RE =
-  /\b(1\s*(er|ere|ère)?|2\s*(e|eme|ème)|3\s*(e|eme|ème)|4\s*(e|eme|ème)|premier|deuxieme|troisieme|trimestre|semestre|periode|période)\b/i;
+  /\b(1\s*(er|ere|ère)?|2\s*(e|eme|ème)|3\s*(e|eme|ème)|4\s*(e|eme|ème)|5\s*(e|eme|ème)|6\s*(e|eme|ème)|premier|deuxieme|troisieme|quatrieme|trimestre|semestre|periode|période|semester|term|quarter)\b/i;
 
 function isPeriodGroupLabel(raw: string): boolean {
   const t = normalize(raw);
   if (!t) return false;
   if (PERIOD_GROUP_RE.test(t)) return true;
   if (/^t\s*[1-6]$/.test(t) || /^p\s*[1-6]$/.test(t)) return true;
-  if (/^(1er|2eme|3eme|4eme)\s*(trimestre|semestre)?$/.test(t)) return true;
-  // En-têtes courts sans balise : « 1 », « 2 », « 3 » (colonnes de notes de période)
+  if (/^(1er|2eme|3eme|4eme|5eme|6eme)\s*(trimestre|semestre|periode|semester|term)?$/.test(t)) return true;
   if (/^[1-6]$/.test(t)) return true;
-  if (/^(trim|sem|per|periode)\s*[1-6]$/.test(t)) return true;
+  if (/^(trim|sem|per|periode|semester|term)\s*[1-6]$/.test(t)) return true;
+  if (/\b(first|second|third|fourth)\s*(term|semester|quarter)?\b/.test(t)) return true;
   return false;
 }
 
