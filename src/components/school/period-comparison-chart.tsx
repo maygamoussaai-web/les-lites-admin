@@ -34,7 +34,7 @@ const TREND_UI: Record<Trend, { label: string; className: string; Icon: typeof T
     Icon: TrendingDown,
   },
   none: {
-    label: "—",
+    label: "\u2014",
     className: "bg-muted text-muted-foreground border-border",
     Icon: Minus,
   },
@@ -70,7 +70,13 @@ export function PeriodComparisonChart({
           ? cards.filter((c) => c.period_id === p.id && c.student_id === studentId)
           : cards.filter((c) => c.period_id === p.id);
         const vals = relevant
-          .map((c) => (c.general_average == null ? null : Number(c.general_average)))
+          .map((c) => {
+            if (c.general_average == null) return null;
+            const n = Number(c.general_average);
+            // 0 exact : corruption fréquente après génération annuelle ancienne
+            if (!Number.isFinite(n) || n === 0) return null;
+            return n;
+          })
           .filter((v): v is number => v !== null && Number.isFinite(v));
         const avg = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
         return {
@@ -100,7 +106,6 @@ export function PeriodComparisonChart({
   const maxAvg = points.reduce((m, p) => Math.max(m, p.moyenne ?? 0), 0) || 20;
   const n = points.length;
   const cols = Math.min(n, 6);
-  // Barres plus fines dès 5–6 périodes pour tenir sur une seule ligne
   const barMaxW = n >= 6 ? "1.65rem" : n >= 5 ? "2rem" : n >= 4 ? "2.5rem" : "3rem";
   const barH = n >= 5 ? "h-24" : "h-28";
   const gapClass = n >= 5 ? "gap-2" : "gap-3";
@@ -118,7 +123,7 @@ export function PeriodComparisonChart({
           <Badge variant="outline" className={`gap-1 ${ui.className}`}>
             <ui.Icon className="h-3.5 w-3.5" />
             {ui.label}
-            {lastDelta !== null ? ` · ${lastDelta > 0 ? "+" : ""}${formatNumber(lastDelta, 2)}` : ""}
+            {lastDelta !== null ? ` \u00b7 ${lastDelta > 0 ? "+" : ""}${formatNumber(lastDelta, 2)}` : ""}
           </Badge>
         )}
       </CardHeader>
@@ -142,15 +147,15 @@ export function PeriodComparisonChart({
                     <div
                       className="w-full rounded-t-md bg-primary/80 transition-all"
                       style={{ height: `${heightPct}%`, maxWidth: barMaxW }}
-                      title={p.moyenne === null ? "—" : formatNumber(p.moyenne, 2)}
+                      title={p.moyenne === null ? "\u2014" : formatNumber(p.moyenne, 2)}
                     />
                   </div>
                   <p className={`${labelSize} font-medium uppercase tracking-wide text-muted-foreground`}>
                     {p.label}
-                    {!p.closed ? " · en cours" : ""}
+                    {!p.closed ? " \u00b7 en cours" : ""}
                   </p>
                   <p className={`${avgSize} font-semibold tabular-nums`}>
-                    {p.moyenne === null ? "—" : formatNumber(p.moyenne, 2)}
+                    {p.moyenne === null ? "\u2014" : formatNumber(p.moyenne, 2)}
                   </p>
                   {d !== null && (
                     <p
