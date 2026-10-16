@@ -657,8 +657,12 @@ export async function writeFilledWorkbook(
     }
   }
 
+  // Priorité : « Moyenne annuelle » (bulletin annuel) > « Moyenne générale ».
+  // On ignore 0 (souvent formule non encore alimentée / ligne de période vide).
   if (generalAverage === null && ws) {
     const range2 = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
+    type Cand = { annual: boolean; v: number; row: number };
+    const cands: Cand[] = [];
     for (let r = range2.s.r; r <= range2.e.r; r++) {
       let label = "";
       for (let c = range2.s.c; c <= Math.min(range2.e.c, range2.s.c + 3); c++) {
@@ -667,21 +671,27 @@ export async function writeFilledWorkbook(
         if (cell?.v != null && !cell.f) label += " " + String(cell.v);
       }
       const norm = normalize(label);
-      const isMg =
-        (norm.includes("moyen") && (norm.includes("general") || norm.includes("generale"))) ||
+      const isAnnual =
         norm.includes("moyenne annuelle") ||
-        norm.includes("moyen annuel");
+        norm.includes("moyen annuel") ||
+        (norm.includes("annuel") && norm.includes("moyen"));
+      const isMg =
+        isAnnual ||
+        (norm.includes("moyen") && (norm.includes("general") || norm.includes("generale")));
       if (!isMg) continue;
       for (let c = range2.s.c; c <= range2.e.c; c++) {
         const addr = XLSX.utils.encode_cell({ r, c });
         const v = fromScale(values[addr], data.scale);
-        if (v !== null) {
-          generalAverage = v;
+        if (v !== null && Number.isFinite(v)) {
+          cands.push({ annual: isAnnual, v, row: r });
           break;
         }
       }
-      if (generalAverage !== null) break;
     }
+    const annualOk = cands.find((c) => c.annual && c.v > 0);
+    const anyOk = cands.find((c) => c.v > 0);
+    const pick = annualOk ?? anyOk ?? cands.find((c) => c.annual) ?? cands[0];
+    if (pick && pick.v > 0) generalAverage = pick.v;
   }
 
   // Pas de fallback arithmétique : la MG doit venir uniquement des formules du modèle Excel.
