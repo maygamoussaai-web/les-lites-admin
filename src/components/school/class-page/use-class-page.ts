@@ -217,18 +217,36 @@ export function useClassPage() {
     let cancelled = false;
     const fromCards = (): ClassStats | null => {
       if (!latestPeriod || !periodCards?.length) return null;
+      // Notes réelles de la période (pour détecter des MG corrompues à 0 après un ancien run annuel)
+      const hasRealGrade = (studentId: string) =>
+        (gradesForPeriod ?? []).some(
+          (g) =>
+            g.student_id === studentId &&
+            g.value != null &&
+            Number.isFinite(Number(g.value)) &&
+            Number(g.value) > 0,
+        );
       const withAvg: AveragedStudent[] = [];
+      let skippedCorrupt = 0;
       for (const s of classStudents) {
         const card = periodCards.find((c) => c.student_id === s.id);
         if (!card || card.general_average === null || card.general_average === undefined) continue;
         const avg = Number(card.general_average);
         if (!Number.isFinite(avg)) continue;
+        // MG = 0 alors que l'élève a des notes > 0 → fiche corrompue (ancien écrasement annuel)
+        if (avg === 0 && hasRealGrade(s.id)) {
+          skippedCorrupt++;
+          continue;
+        }
         const sa = (card.subject_averages as Record<string, number | null> | null) ?? {};
         const weak = Object.entries(sa)
           .filter(([, v]) => v !== null && (v as number) < PASS_THRESHOLD)
           .map(([name]) => name);
         withAvg.push({ student: s, average: avg, weakSubjects: weak });
       }
+      // Si trop de fiches corrompues, basculer sur le calcul live (notes)
+      if (skippedCorrupt > 0 && withAvg.length === 0) return null;
+      if (skippedCorrupt > 0 && withAvg.length > 0 && skippedCorrupt >= withAvg.length) return null;
       if (!withAvg.length) return null;
       withAvg.sort((a, b) => b.average - a.average);
       const ranked: { subject: ClassSubject; avg: number }[] = [];
@@ -391,7 +409,6 @@ export function useClassPage() {
       .sort((a, b) => a.period_number - b.period_number);
   }, [studentIds, cardsQuery.data, periodsQuery.data]);
 
-  // Notes verrouillées si pas de période ouverte ou année clôturée
   const gradesLocked = yearClosed || !currentPeriod;
   const canOpenNewPeriod = !isClassArchived && !yearClosed;
 
