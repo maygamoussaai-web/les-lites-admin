@@ -274,11 +274,26 @@ export function BulletinWalkthroughDialog({
           );
           if (cardErr) throw cardErr;
 
-          await writeAudit("create", "student_report_cards" as never, null, {
-            student_id: student.id,
-            period_id: periodSnap.id,
-            document_id: docRow.id,
-          });
+          // ✅ NOUVEAU CODE (Une seule entrée groupée pour toute la classe) :
+if (successCount > 0) {
+  await writeAudit("generate", "classes", klass.id, {
+    class_id: klass.id,
+    class_name: klass.name,
+    period_id: periodSnap.id,
+    period_number: periodSnap.period_number,
+    count: successCount,
+    total_candidates: candidatesSnap.length,
+    establishment_id: klass.establishment_id,
+    summary: `Génération des bulletins de la classe ${klass.name} — Période ${periodSnap.period_number} (${successCount} bulletin(s) généré(s))`,
+  });
+
+  toast.success(
+    `${successCount} bulletin(s) généré(s) et placé(s) en bibliothèque.`,
+    { id: toastId, duration: 8_000 },
+  );
+  // ... reste du code inchangé
+}
+
 
           localDownloads.push({ blob, name: fileName });
           successIds.add(student.id);
