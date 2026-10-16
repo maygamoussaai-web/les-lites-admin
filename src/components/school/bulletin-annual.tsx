@@ -1,521 +1,633 @@
 /**
- * Bulletin annuel — génération Excel adaptable à tout modèle (bref ou complet).
+ * MODELES DE BULLETIN EXCEL — lecture, detection des zones, remplissage.
  *
- * Prérequis : modèle actif de kind « annual » pour la classe.
- * Données : notes brutes (évaluation + composition) par période × matière.
- * MG annuelle = formule du modèle Excel uniquement.
- * Remplissage : même writeback que les bulletins de période (formules Excel respectées).
- * Fallback PDF canvas uniquement si aucun modèle annuel n'est configuré.
- *
- * La génération continue en arrière-plan si le dialogue est fermé.
+ * Politique stricte (périodique) :
+ * - Champs identité / stats : UNIQUEMENT balises [token] ou {token}
+ *   ([prenom], [nom], [classe], [effectif], [rang], [date], [premier]…).
+ *   Aucun libellé en texte libre (« Moyen Général », « Prénom : »…) n'est
+ *   une cible d'écriture.
+ * - Colonnes notes : balises [eval], [compo], [moy]… en priorité ;
+ *   sinon détection par libellés d'en-tête (structure de grille uniquement).
+ * - Toute valeur calculée (moyenne matière, MG, appréciation…) vient
+ *   EXCLUSIVEMENT des formules Excel du modèle.
  */
-import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { supabase } from "@/integrations/supabase/client";
-import { describeError } from "@/lib/errors";
-import { downloadActiveTemplateBuffer } from "@/lib/report-template";
-import { buildAnnualFillData, computeModelAverages } from "@/lib/model-averages";
-import { writeFilledWorkbook } from "@/lib/xlsx-writeback";
-import { uploadBulletinWorkbook } from "@/lib/storage-upload";
-import type { ClassSubject, GradePeriod, StudentReportCard } from "@/lib/grades";
-import type { PeriodStat } from "@/lib/xlsx-template";
+import * as XLSX from "xlsx";
+import { evaluateFormula, UnsupportedFormulaError, type CellValue } from "@/lib/xlsx-formula";
 
-const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+export type ColumnRole =
+  | "ignore"
+  | "subject"
+  | "composition"
+  | "evaluation"
+  | "evaluation_average"
+  | "subject_average"
+  | "coefficient"
+  | "subject_rank"
+  | "appreciation"
+  | "teacher";
 
-/** Verrou global : une génération annuelle par classe à la fois. */
-const runningAnnualByClass = new Set<string>();
+export type FieldRole =
+  | "ignore"
+  | "student_name"
+  | "student_first_name"
+  | "student_last_name"
+  | "class_name"
+  | "establishment_name"
+  | "period_label"
+  | "headcount"
+  | "general_average"
+  | "first_average"
+  | "last_average"
+  | "class_average_evaluation"
+  | "class_average_composition"
+  | "rank"
+  | "date";
 
-export function isAnnualBulletinGenerationRunning(classId: string): boolean {
-  return runningAnnualByClass.has(classId);
-}
+export const COLUMN_ROLE_LABELS: Record<ColumnRole, string> = {
+  ignore: "Ignorer",
+  subject: "Matiere",
+  composition: "Composition",
+  evaluation: "Notes d'evaluation (note de classe)",
+  evaluation_average: "Moyenne des evaluations (notes de classe)",
+  subject_average: "Moyenne matiere",
+  coefficient: "Coefficient",
+  subject_rank: "Rang matiere",
+  appreciation: "Appreciation",
+  teacher: "Professeur",
+};
 
-type StudentRef = { id: string; first_name: string; last_name: string };
+export const FIELD_ROLE_LABELS: Record<FieldRole, string> = {
+  ignore: "Ignorer",
+  student_name: "Nom complet",
+  student_first_name: "Prenom",
+  student_last_name: "Nom",
+  class_name: "Classe",
+  establishment_name: "Etablissement",
+  period_label: "Periode",
+  headcount: "Effectif",
+  general_average: "Moyenne generale (lecture seule — formule Excel)",
+  first_average: "Moyenne generale du premier",
+  last_average: "Moyenne generale du dernier",
+  class_average_evaluation: "Moyenne de classe (evaluations)",
+  class_average_composition: "Moyenne de classe (compositions)",
+  rank: "Rang de l'eleve",
+  date: "Date d'edition",
+};
 
-function toBlob(buffer: ArrayBuffer) {
-  return new Blob([buffer], { type: XLSX_MIME });
-}
+/** Aide affichable : balises de colonnes reconnues (période = 1-based). */
+export const COLUMN_TAG_EXAMPLES = [
+  "[matiere]",
+  "[coef]",
+  "[eval]",
+  "[eval:1]",
+  "[compo]",
+  "[compo:1]",
+  "[moy]",
+  "[moy:1]",
+  "[moy_eval]",
+  "[moy_eval:1]",
+  "[moyenne_annuelle]",
+  "[appreciation]",
+  "[prof]",
+] as const;
 
-/** Rendu canvas de secours (sans modèle Excel annuel). */
-export function renderBulletinCanvas(opts: {
-  establishmentName: string;
-  className: string;
-  studentName: string;
-  periodNumber: number;
-  subjectLines: { name: string; average: number | null }[];
-  average: number | null;
-}): HTMLCanvasElement {
-  const canvas = document.createElement("canvas");
-  canvas.width = 794;
-  canvas.height = 1123;
-  const ctx = canvas.getContext("2d")!;
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "#0f172a";
-  ctx.font = "bold 22px sans-serif";
-  ctx.fillText(opts.establishmentName, 48, 56);
-  ctx.font = "16px sans-serif";
-  ctx.fillText(`Bulletin annuel — ${opts.className}`, 48, 88);
-  ctx.fillText(opts.studentName, 48, 120);
-  let y = 170;
-  ctx.font = "14px sans-serif";
-  for (const line of opts.subjectLines) {
-    const avg = line.average != null ? line.average.toFixed(2) : "—";
-    ctx.fillText(`${line.name}`, 48, y);
-    ctx.fillText(avg, 520, y);
-    y += 28;
+export type TemplateCell = { v: CellValue; f?: string };
+
+export type TemplateSheet = {
+  sheetName: string;
+  rows: number;
+  cols: number;
+  cells: Record<string, TemplateCell>;
+  merges: { s: { r: number; c: number }; e: { r: number; c: number } }[];
+  colWidths: number[];
+};
+
+export const colLetter = (index0: number) => XLSX.utils.encode_col(index0);
+export const colIndex = (letter: string) => XLSX.utils.decode_col(letter);
+export const ref = (row1: number, col0: number) => `${colLetter(col0)}${row1}`;
+
+export function readTemplate(buffer: ArrayBuffer, sheetName?: string): TemplateSheet {
+  const wb = XLSX.read(buffer, { type: "array", cellFormula: true, cellText: true });
+  const name = sheetName && wb.SheetNames.includes(sheetName) ? sheetName : wb.SheetNames[0]!;
+  const sheet = wb.Sheets[name]!;
+  const range = XLSX.utils.decode_range(sheet["!ref"] ?? "A1");
+  const cells: Record<string, TemplateCell> = {};
+  for (let r = range.s.r; r <= range.e.r; r++) {
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const address = XLSX.utils.encode_cell({ r, c });
+      const cell = sheet[address];
+      if (!cell) continue;
+      const value: CellValue =
+        cell.t === "n" ? Number(cell.v) : cell.v === undefined || cell.v === null ? null : String(cell.v);
+      cells[address] = { v: value, ...(cell.f ? { f: String(cell.f) } : {}) };
+    }
   }
-  y += 24;
-  ctx.font = "bold 18px sans-serif";
-  ctx.fillText(
-    `Moyenne générale : ${opts.average != null ? opts.average.toFixed(2) : "—"} / 20`,
-    48,
-    y,
-  );
-  return canvas;
+  const colWidths: number[] = [];
+  const cols = (sheet["!cols"] ?? []) as { wch?: number; width?: number }[];
+  for (let c = 0; c <= range.e.c; c++) colWidths[c] = cols[c]?.wch ?? cols[c]?.width ?? 11;
+  return {
+    sheetName: name,
+    rows: range.e.r + 1,
+    cols: range.e.c + 1,
+    cells,
+    merges: (sheet["!merges"] ?? []) as TemplateSheet["merges"],
+    colWidths,
+  };
 }
 
-async function canvasToImageBlob(canvas: HTMLCanvasElement): Promise<Blob> {
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-  const jpeg = dataUrl.split(",")[1] ?? "";
-  const bin = atob(jpeg);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new Blob([bytes], { type: "image/jpeg" });
+export const sheetNames = (buffer: ArrayBuffer) => XLSX.read(buffer, { type: "array", bookSheets: true }).SheetNames;
+
+export type TemplateMapping = {
+  version: 1;
+  sheetName: string;
+  headerRow: number;
+  firstSubjectRow: number;
+  lastSubjectRow: number;
+  columns: Record<string, ColumnRole>;
+  fields: Record<string, FieldRole>;
+  columnLabels?: Record<string, string>;
+  /** Colonne → index de période (0-based). Balises [compo:1] ou en-têtes multi-périodes. */
+  periodColumns?: Record<string, number>;
+  /** Libellés des groupes de périodes détectés (ex. « 1er trimestre »). */
+  periodGroupLabels?: string[];
+};
+
+export const normalize = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+const NON_SUBJECT_RE =
+  /^(total|sous ?total|moyen|moyenne|moyen general|moyenne general|moyen generale|moyenne generale|moyenne annuelle|rang|effectif|date|observation|observations|appreciation|appreciations|commentaire|commentaires|signature|visa|le directeur|le provis|provis|parent|tuteur|fait a|fait le)\b/;
+
+export function isSubjectLabel(label: string): boolean {
+  const t = normalize(label);
+  if (!t || t.length < 2) return false;
+  if (/^\d+([.,]\d+)?$/.test(t)) return false;
+  if (NON_SUBJECT_RE.test(t)) return false;
+  // « Moyen Général », « Moyenne générale », « Total : », etc. ne sont JAMAIS des matières
+  if (/\bmoyen(ne)?\b/.test(t) && /\bgeneral/.test(t)) return false;
+  if (t === "moyen" || t === "moyenne" || t.startsWith("moyen ") || t.startsWith("moyenne ")) return false;
+  if (/\bobservation/.test(t)) return false;
+  if (/\bappreciation/.test(t)) return false;
+  if (t.includes("proviseur") || t.includes("directeur")) return false;
+  if (t.startsWith("les observations") || t.startsWith("observation")) return false;
+  if (t === "total" || t.startsWith("total ")) return false;
+  return true;
 }
 
-export function AnnualBulletinDialog({
-  open,
-  onClose,
-  klass,
-  establishmentName,
-  students,
-  subjects,
-  periods,
-}: {
-  open: boolean;
-  onClose: () => void;
-  klass: { id: string; name: string; establishment_id: string };
-  establishmentName: string;
-  students: StudentRef[];
-  subjects: ClassSubject[];
-  periods: GradePeriod[];
-  grades?: unknown;
-}) {
-  const qc = useQueryClient();
-  const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(0);
+/** Alias courants matière modèle ↔ matière app (normalisés). */
+const SUBJECT_ALIAS_GROUPS: string[][] = [
+  ["mathematique", "mathematiques", "math", "maths"],
+  ["physique chimie", "physique", "pc", "physique chimie"],
+  ["biologie geologie", "svt", "sciences de la vie", "biologie", "svt biologie"],
+  ["histoire geo", "histoire geographie", "hist geo", "hg"],
+  ["anglais", "english", "ang"],
+  ["francais", "fr"],
+  ["eps", "sport", "education physique"],
+  ["informatique", "info", "tic"],
+  ["philosophie", "philo"],
+  ["ecm", "education civique"],
+  ["dessin technique", "dt", "dessin"],
+  ["conduite", "discipline conduite"],
+];
 
-  const generateAll = async () => {
-    if (runningAnnualByClass.has(klass.id)) {
-      toast.message("Une génération annuelle est déjà en cours pour cette classe.");
-      return;
+function subjectAliasKey(norm: string): string {
+  for (const group of SUBJECT_ALIAS_GROUPS) {
+    if (group.some((g) => norm === g || norm.includes(g) || g.includes(norm))) {
+      return group[0]!;
     }
+  }
+  return norm;
+}
 
-    const studentsSnap = [...students];
-    const subjectsSnap = [...subjects];
-    const periodsSnap = [...periods];
-    const toastId = `bulletin-annual-${klass.id}`;
+/**
+ * Associe un libellé de ligne du modèle à une matière de la classe.
+ * Exact → alias → inclusion. `used` = noms déjà pris (normalisés).
+ */
+export function matchSubjectName(
+  templateLabel: string,
+  subjectNames: string[],
+  used?: Set<string>,
+): string | null {
+  const key = normalize(templateLabel);
+  if (!key || !isSubjectLabel(templateLabel)) return null;
+  const taken = used ?? new Set<string>();
+  const available = subjectNames.filter((n) => !taken.has(normalize(n)));
+  if (!available.length) return null;
 
-    runningAnnualByClass.add(klass.id);
-    setBusy(true);
-    setDone(0);
-
-    toast.loading(
-      studentsSnap.length
-        ? `Bulletin annuel en arrière-plan… 0/${studentsSnap.length}`
-        : "Vérification…",
-      { id: toastId, duration: Infinity },
-    );
-    onClose();
-
-    try {
-      const periodIds = periodsSnap.map((p) => p.id);
-      if (!periodIds.length) {
-        toast.error("Aucune période disponible pour construire l'annuel.", { id: toastId });
-        return;
+  // 1) exact
+  for (const n of available) {
+    if (normalize(n) === key) return n;
+  }
+  // 2) alias group
+  const aliasKey = subjectAliasKey(key);
+  for (const n of available) {
+    if (subjectAliasKey(normalize(n)) === aliasKey) return n;
+  }
+  // 3) inclusion
+  for (const n of available) {
+    const kn = normalize(n);
+    if (kn.includes(key) || key.includes(kn)) return n;
+  }
+  // 4) token overlap (au moins 1 token significatif ≥ 3 chars)
+  const tokens = key.split(" ").filter((t) => t.length >= 3);
+  if (tokens.length) {
+    let best: string | null = null;
+    let bestScore = 0;
+    for (const n of available) {
+      const kn = normalize(n);
+      const score = tokens.filter((t) => kn.includes(t)).length;
+      if (score > bestScore) {
+        bestScore = score;
+        best = n;
       }
-
-      let sortedPeriods = [...periodsSnap].sort(
-        (a, b) => (a.period_number ?? 0) - (b.period_number ?? 0),
-      );
-
-      const { data: cards, error } = await supabase
-        .from("student_report_cards")
-        .select("*")
-        .eq("class_id", klass.id)
-        .in("period_id", periodIds);
-      if (error) throw error;
-      const list = (cards ?? []) as StudentReportCard[];
-
-      const { data: gradeRows, error: gradeErr } = await supabase
-        .from("grades")
-        .select("*")
-        .eq("class_id", klass.id)
-        .in("period_id", periodIds);
-      if (gradeErr) throw gradeErr;
-      const allGrades = (gradeRows ?? []) as import("@/lib/grades").Grade[];
-
-      if (!list.length) {
-        toast.error(
-          "Aucun bulletin de période trouvé. Générez d'abord les bulletins de chaque période.",
-          { id: toastId },
-        );
-        return;
-      }
-
-      // Périodes sans bulletin/notes : aucun effet sur l'annuel
-      {
-        const withData = new Set(list.map((c) => c.period_id));
-        sortedPeriods = sortedPeriods.filter((p) => withData.has(p.id));
-        if (!sortedPeriods.length) {
-          toast.error("Aucune période avec bulletins — rien à synthétiser pour l'annuel.", { id: toastId });
-          return;
-        }
-      }
-      const yearLabel =
-        sortedPeriods.length > 0
-          ? `Année — ${sortedPeriods.length} période${sortedPeriods.length > 1 ? "s" : ""}`
-          : "Année scolaire";
-
-      const tpl = await downloadActiveTemplateBuffer(klass.id, "annual");
-      const useExcel = !!tpl?.buffer && !!tpl.mapping;
-
-      // Même logique que le bulletin périodique :
-      // 1) remplir notes de période (entrées) → lire MG annuelle depuis formules Excel
-      // 2) classer / premier / dernier à partir de ces sorties modèle
-      // 3) régénérer les fichiers avec rang + premier/dernier
-      const orderedPeriodIds = sortedPeriods.map((p) => p.id);
-      const periodStatsByStudent = new Map<string, (PeriodStat | null)[]>();
-      for (const p of sortedPeriods) {
-        const idx = Math.max(0, (p.period_number ?? 1) - 1);
-        const pcs = list
-          .filter((c) => c.period_id === p.id && c.general_average != null)
-          .map((c) => ({ id: c.student_id, v: Number(c.general_average) }))
-          .filter((x) => Number.isFinite(x.v))
-          .sort((a, b) => b.v - a.v);
-        if (!pcs.length) continue;
-        const first = pcs[0]!.v;
-        const last = pcs[pcs.length - 1]!.v;
-        const avg = pcs.reduce((a, x) => a + x.v, 0) / pcs.length;
-        // MG de période = formule Excel du modèle annuel (jamais injectée).
-        pcs.forEach((x, i) => {
-          const rank = pcs.findIndex((y) => y.v === x.v) + 1 || i + 1;
-          const arr = periodStatsByStudent.get(x.id) ?? [];
-          arr[idx] = {
-            generalAverage: null,
-            rank,
-            firstAverage: first,
-            lastAverage: last,
-            classAverage: avg,
-            headcount: pcs.length,
-          };
-          periodStatsByStudent.set(x.id, arr);
-        });
-        for (const s of studentsSnap) {
-          const arr = periodStatsByStudent.get(s.id) ?? [];
-          if (!arr[idx]) {
-            arr[idx] = {
-              generalAverage: null,
-              rank: null,
-              firstAverage: first,
-              lastAverage: last,
-              classAverage: avg,
-              headcount: pcs.length,
-            };
-          }
-          periodStatsByStudent.set(s.id, arr);
-        }
-      }
-
-      const avgByStudent = new Map<
-        string,
-        { avg: number; subjects: Record<string, number | null> }
-      >();
-
-      if (useExcel && tpl) {
-        for (const s of studentsSnap) {
-          const studentCards = list
-            .filter((c) => c.student_id === s.id)
-            .sort((a, b) => {
-              const pa = sortedPeriods.find((p) => p.id === a.period_id)?.period_number ?? 0;
-              const pb = sortedPeriods.find((p) => p.id === b.period_id)?.period_number ?? 0;
-              return pa - pb;
-            });
-          if (!studentCards.length) continue;
-          const fill = buildAnnualFillData({
-            establishmentName,
-            className: klass.name,
-            studentFirstName: s.first_name,
-            studentLastName: s.last_name,
-            schoolYearLabel: yearLabel,
-            subjects: subjectsSnap,
-            grades: allGrades,
-            studentId: s.id,
-            orderedPeriodIds,
-            headcount: studentsSnap.length,
-            scale: tpl.scale,
-            rank: null,
-            firstAverage: null,
-            lastAverage: null,
-            studentCards,
-          });
-          fill.periodStats = periodStatsByStudent.get(s.id) ?? fill.periodStats;
-          // Ne jamais injecter une MG annuelle JS — lecture seule depuis le modèle.
-          fill.generalAverage = null;
-          fill.classAverage = null;
-          const result = await computeModelAverages(tpl.buffer, tpl.mapping, fill);
-          if (result.generalAverage !== null) {
-            avgByStudent.set(s.id, {
-              avg: result.generalAverage,
-              subjects: result.subjectAverages,
-            });
-          }
-        }
-      }
-
-      const rankedIds = [...avgByStudent.entries()]
-        .sort((a, b) => b[1].avg - a[1].avg)
-        .map(([id]) => id);
-      const rankOf = new Map(rankedIds.map((id, i) => [id, i + 1]));
-      const firstAverage = rankedIds.length ? avgByStudent.get(rankedIds[0]!)!.avg : null;
-      const lastAverage = rankedIds.length
-        ? avgByStudent.get(rankedIds[rankedIds.length - 1]!)!.avg
-        : null;
-      const annualClassAverage = rankedIds.length
-        ? rankedIds.reduce((a, id) => a + avgByStudent.get(id)!.avg, 0) / rankedIds.length
-        : null;
-
-      let success = 0;
-      const failures: string[] = [];
-
-      for (let i = 0; i < studentsSnap.length; i++) {
-        const s = studentsSnap[i]!;
-        const studentCards = list
-          .filter((c) => c.student_id === s.id)
-          .sort((a, b) => {
-            const pa = sortedPeriods.find((p) => p.id === a.period_id)?.period_number ?? 0;
-            const pb = sortedPeriods.find((p) => p.id === b.period_id)?.period_number ?? 0;
-            return pa - pb;
-          });
-
-        if (!studentCards.length) {
-          failures.push(`${s.last_name} ${s.first_name}: aucune fiche de période`);
-          toast.loading(`Bulletin annuel en arrière-plan… ${i + 1}/${studentsSnap.length}`, {
-            id: toastId,
-            duration: Infinity,
-          });
-          continue;
-        }
-
-        try {
-          if (useExcel && tpl) {
-            const fill = buildAnnualFillData({
-              establishmentName,
-              className: klass.name,
-              studentFirstName: s.first_name,
-              studentLastName: s.last_name,
-              schoolYearLabel: yearLabel,
-              subjects: subjectsSnap,
-              grades: allGrades,
-              studentId: s.id,
-              orderedPeriodIds,
-              headcount: studentsSnap.length,
-              scale: tpl.scale,
-              rank: rankOf.get(s.id) ?? null,
-              firstAverage,
-              lastAverage,
-              studentCards,
-            });
-            fill.periodStats = periodStatsByStudent.get(s.id) ?? fill.periodStats;
-            fill.generalAverage = null;
-            fill.classAverage = annualClassAverage;
-            const written = await writeFilledWorkbook(tpl.buffer, tpl.mapping, fill);
-            // Sortie modèle (prioritaire) — jamais de moyenne inventée.
-            const modelAvg = written.computed.generalAverage ?? avgByStudent.get(s.id)?.avg ?? null;
-            const modelSubjects =
-              Object.keys(written.computed.subjectAverages).length > 0
-                ? written.computed.subjectAverages
-                : avgByStudent.get(s.id)?.subjects ?? {};
-
-            const blob = toBlob(written.buffer);
-            const storagePath = `${klass.establishment_id}/${s.id}/bulletin-annuel-${Date.now()}.xlsx`;
-            const uploaded = await uploadBulletinWorkbook(storagePath, blob);
-            const filePathStored =
-              uploaded.bucket === "student-documents"
-                ? uploaded.path
-                : uploaded.bucket === "report-templates"
-                  ? `report-templates:${uploaded.path}`
-                  : `${uploaded.bucket}:${uploaded.path}`;
-
-            const { data: docRow, error: docErr } = await supabase
-              .from("student_documents")
-              .insert({
-                student_id: s.id,
-                establishment_id: klass.establishment_id,
-                name: "Bulletin annuel",
-                file_path: filePathStored,
-                file_type: XLSX_MIME,
-                file_size: blob.size,
-              })
-              .select("id")
-              .single();
-            if (docErr) throw docErr;
-
-            // Mémoriser la MG annuelle lue sur le modèle (période_id null non supporté → document seul).
-            // Si une fiche « annuelle » existe côté schéma via period_id d'une période spéciale, on ne force rien.
-            // MG annuelle = formule Excel uniquement. Ne JAMAIS écraser les fiches de période
-            // (résultats de période restent statiques une fois clôturés).
-            // Ne jamais modifier grades ni student_report_cards (périodes restent figées).
-            if (docRow?.id && modelAvg != null && Number.isFinite(modelAvg)) {
-              await supabase
-                .from("student_documents")
-                .update({ name: `Bulletin annuel — MG ${modelAvg.toFixed(2)}` })
-                .eq("id", docRow.id);
-            }
-            void modelSubjects;
-            success++;
-          } else {
-            // Sans modèle Excel : aperçu image uniquement (pas de MG inventée présentée comme officielle).
-            const subjectLines = subjectsSnap.map((sub) => {
-              const vals: number[] = [];
-              for (const c of studentCards) {
-                const sa = c.subject_averages as Record<string, number | null> | null;
-                const v = sa?.[sub.name];
-                if (v != null && Number.isFinite(Number(v))) vals.push(Number(v));
-              }
-              return {
-                name: sub.name,
-                average: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null,
-              };
-            });
-            const canvas = renderBulletinCanvas({
-              establishmentName,
-              className: klass.name,
-              studentName: `${s.last_name} ${s.first_name}`,
-              periodNumber: 0,
-              subjectLines,
-              average: null,
-            });
-            const blob = await canvasToImageBlob(canvas);
-            const path = `${klass.establishment_id}/${s.id}/bulletin-annuel-${Date.now()}.jpg`;
-            await supabase.storage.from("student-documents").upload(path, blob, {
-              contentType: "image/jpeg",
-              upsert: true,
-            });
-            await supabase.from("student_documents").insert({
-              student_id: s.id,
-              establishment_id: klass.establishment_id,
-              name: "Bulletin annuel (aperçu)",
-              file_path: path,
-              file_type: "image/jpeg",
-              file_size: blob.size,
-            });
-            success++;
-          }
-        } catch (e) {
-          failures.push(
-            `${s.last_name} ${s.first_name}: ${describeError(e, "échec")}`,
-          );
-        }
-        toast.loading(`Bulletin annuel en arrière-plan… ${i + 1}/${studentsSnap.length}`, {
-          id: toastId,
-          duration: Infinity,
-        });
-        setDone(i + 1);
-      }
-
-      void qc.invalidateQueries({ queryKey: ["student_documents"] });
-
-      if (success > 0 && failures.length === 0) {
-        toast.success(
-          useExcel
-            ? `${success} bulletin(s) annuel(s) Excel généré(s)`
-            : `${success} aperçu(s) annuel(s) généré(s) — chargez un modèle annuel Excel pour le format officiel`,
-          { id: toastId, duration: 8_000 },
-        );
-      } else if (success > 0) {
-        toast.message(`${success} OK, ${failures.length} échec(s)`, {
-          id: toastId,
-          description: failures.slice(0, 3).join(" · "),
-          duration: 10_000,
-        });
-      } else {
-        toast.error(failures[0] ?? "Aucun bulletin annuel généré", { id: toastId });
-      }
-    } catch (e) {
-      toast.error(describeError(e, "Génération annuelle impossible"), { id: toastId });
-    } finally {
-      runningAnnualByClass.delete(klass.id);
-      setBusy(false);
     }
+    if (best && bestScore > 0) return best;
+  }
+  return null;
+}
+
+/** Colonnes calculées par le modèle — l'app ne doit JAMAIS y écrire. */
+export const OUTPUT_COLUMN_ROLES: ReadonlySet<ColumnRole> = new Set([
+  "subject_average",
+  "evaluation_average",
+  "coefficient",
+  "subject_rank",
+  "appreciation",
+  "teacher",
+  "ignore",
+]);
+
+/** Colonnes d'entrée notes (écriture autorisée si pas de formule). */
+export const INPUT_NOTE_ROLES: ReadonlySet<ColumnRole> = new Set([
+  "evaluation",
+  "composition",
+]);
+
+/** Nombre de périodes distinctes détectées dans le mapping (1…N). */
+export function periodCountFromMapping(mapping: TemplateMapping | null | undefined): number {
+  if (!mapping?.periodColumns) return 1;
+  const idxs = Object.values(mapping.periodColumns);
+  if (!idxs.length) return 1;
+  return Math.max(1, Math.max(...idxs) + 1);
+}
+
+const COLUMN_HINTS: [ColumnRole, string[]][] = [
+  ["subject", ["matiere", "matieres", "discipline", "disciplines", "subject"]],
+  ["composition", ["composition", "compo", "devoir compo", "note compo", "note de composition", "exam"]],
+  ["evaluation_average", ["moyenne evaluation", "moyenne des evaluations", "moy eval"]],
+  /* Note unique générique (modèles sans distinction classe/compo) */
+  ["evaluation", [
+    "evaluation", "evaluations", "eval",
+    "note de classe", "notes de classe", "note classe", "notes classe",
+    "note d evaluation", "interro", "devoir", "devoirs",
+    "note", "notes", "score", "mark", "grade",
+  ]],
+  ["subject_average", ["moyenne matiere", "moyenne de la matiere"]],
+  ["coefficient", ["coef", "coefficient", "coeff"]],
+  ["subject_rank", ["rang matiere", "rang de la matiere"]],
+  ["appreciation", ["appreciation", "appreciations", "observation", "observations", "mention"]],
+  ["teacher", ["professeur", "prof", "enseignant", "nom du professeur"]],
+];
+
+const FIELD_HINTS: [FieldRole, string[]][] = [
+  ["student_first_name", ["prenom", "prenom de l eleve", "prenom eleve", "first name"]],
+  ["student_last_name", ["nom de famille", "nom famille", "last name", "nom"]],
+  ["student_name", ["nom et prenom", "nom prenom", "nom de l eleve", "eleve", "nom complet"]],
+  ["class_name", ["classe", "class"]],
+  ["establishment_name", ["etablissement", "complexe", "ecole", "lycee", "college"]],
+  ["period_label", ["periode", "trimestre", "semestre", "mois"]],
+  ["headcount", ["effectif", "nombre d eleves", "effectif de la classe", "nb eleves"]],
+  ["general_average", ["moyenne generale", "moyenne de l eleve", "moyenne annuelle", "moy gen", "moyenne annuel", "mg annuelle", "overall average", "general average"]],
+  ["first_average", ["moyenne du premier", "premier", "plus forte moyenne", "moyenne la plus forte", "moyenne la plus elevee", "moyenne la plus haute"]],
+  ["last_average", ["moyenne du dernier", "dernier", "plus faible moyenne", "moyenne la plus faible", "moyenne la plus basse"]],
+  ["class_average_evaluation", ["moyenne de classe", "moyenne classe", "moyenne des evaluations de la classe"]],
+  ["class_average_composition", ["moyenne de composition", "moyenne composition", "moyenne des compositions"]],
+  ["rank", ["rang", "place", "rang de l eleve"]],
+  ["date", ["date", "fait le", "edite le", "date d edition"]],
+];
+
+const matchHint = <T extends string>(text: string, hints: [T, string[]][]): T | null => {
+  const t = normalize(text);
+  if (!t) return null;
+  for (const [role, keys] of hints) if (keys.includes(t)) return role;
+  for (const [role, keys] of hints) if (keys.some((k) => t.includes(k))) return role;
+  return null;
+};
+
+/** Extrait le contenu d'une balise [ ... ] ou { ... }. */
+export function extractTokenInner(raw: string): string | null {
+  const s = raw.trim();
+  const pure = /^[[{]([^\]}]+)[\]}]$/.exec(s);
+  if (pure) return pure[1]!.trim();
+  const embedded = /[[{]([^\]}]+)[\]}]/.exec(s);
+  if (embedded) return embedded[1]!.trim();
+  return null;
+}
+
+export type ColumnTag = { role: ColumnRole; periodIndex?: number };
+
+const COLUMN_TAG_ALIASES: [ColumnRole, string[]][] = [
+  ["subject", ["matiere", "matieres", "discipline", "disciplines", "subject"]],
+  ["composition", ["compo", "composition", "note compo", "note composition", "devoir compo"]],
+  ["evaluation", ["eval", "evaluation", "evaluations", "note classe", "note de classe", "notes de classe", "interro", "devoir"]],
+  ["evaluation_average", ["moy eval", "moyenne eval", "moyenne evaluation", "moy_eval", "moyenne des evaluations"]],
+  ["subject_average", ["moy", "moyenne", "moyenne matiere", "moyenne_matiere", "moyenne annuelle", "moyenne_annuelle", "moy ann", "moy_ann"]],
+  ["coefficient", ["coef", "coefficient", "coeff"]],
+  ["subject_rank", ["rang matiere", "rang_matiere", "place matiere"]],
+  ["appreciation", ["appreciation", "appreciations", "observation", "mention"]],
+  ["teacher", ["prof", "professeur", "enseignant", "teacher"]],
+];
+
+function roleFromTagBody(body: string): ColumnRole | null {
+  const t = normalize(body);
+  if (!t) return null;
+  for (const [role, keys] of COLUMN_TAG_ALIASES) {
+    if (keys.includes(t)) return role;
+  }
+  for (const [role, keys] of COLUMN_TAG_ALIASES) {
+    if (keys.some((k) => t === k || t.startsWith(k + " ") || t.endsWith(" " + k))) return role;
+  }
+  return matchHint(body, COLUMN_HINTS);
+}
+
+/** Interprète [compo:1] → composition période 0 ; [moy] → subject_average. */
+export function parseColumnTag(raw: string): ColumnTag | null {
+  const inner = extractTokenInner(raw);
+  if (!inner) return null;
+  const normalized = inner.trim();
+  const withColon = /^(.+?)\s*[:/]\s*(?:p|t|periode|période|trimestre|semestre)?\s*(\d+)\s*$/i.exec(normalized);
+  if (withColon) {
+    const role = roleFromTagBody(withColon[1]!);
+    const n = Number(withColon[2]);
+    if (role && Number.isFinite(n) && n >= 1 && n <= 12) return { role, periodIndex: n - 1 };
+  }
+  const withSpace = /^(.+?)\s+(?:p|t|periode|période|trimestre|semestre)\s*(\d+)\s*$/i.exec(normalized);
+  if (withSpace) {
+    const role = roleFromTagBody(withSpace[1]!);
+    const n = Number(withSpace[2]);
+    if (role && Number.isFinite(n) && n >= 1 && n <= 12) return { role, periodIndex: n - 1 };
+  }
+  const trailingNum = /^(.+?)\s+(\d+)\s*$/.exec(normalized);
+  if (trailingNum) {
+    const role = roleFromTagBody(trailingNum[1]!);
+    const n = Number(trailingNum[2]);
+    if (role && Number.isFinite(n) && n >= 1 && n <= 12) return { role, periodIndex: n - 1 };
+  }
+  const role = roleFromTagBody(normalized);
+  if (role) return { role };
+  return null;
+}
+
+const PERIOD_GROUP_RE =
+  /\b(1\s*(er|ere|ère)?|2\s*(e|eme|ème)|3\s*(e|eme|ème)|4\s*(e|eme|ème)|5\s*(e|eme|ème)|6\s*(e|eme|ème)|premier|deuxieme|troisieme|quatrieme|trimestre|semestre|periode|période|semester|term|quarter)\b/i;
+
+function isPeriodGroupLabel(raw: string): boolean {
+  const t = normalize(raw);
+  if (!t) return false;
+  if (PERIOD_GROUP_RE.test(t)) return true;
+  if (/^t\s*[1-6]$/.test(t) || /^p\s*[1-6]$/.test(t)) return true;
+  if (/^(1er|2eme|3eme|4eme|5eme|6eme)\s*(trimestre|semestre|periode|semester|term)?$/.test(t)) return true;
+  if (/^[1-6]$/.test(t)) return true;
+  if (/^(trim|sem|per|periode|semester|term)\s*[1-6]$/.test(t)) return true;
+  if (/\b(first|second|third|fourth)\s*(term|semester|quarter)?\b/.test(t)) return true;
+  return false;
+}
+
+function detectPeriodGroups(
+  sheet: TemplateSheet,
+  headerRow: number,
+  columns: Record<string, ColumnRole>,
+): { periodColumns: Record<string, number>; periodGroupLabels: string[] } {
+  const periodColumns: Record<string, number> = {};
+  const periodGroupLabels: string[] = [];
+  if (headerRow < 2) return { periodColumns, periodGroupLabels };
+  const text = (row1: number, col0: number) => {
+    const cell = sheet.cells[ref(row1, col0)];
+    return cell && cell.v !== null ? String(cell.v) : "";
+  };
+  const groupByCol: (string | null)[] = Array(sheet.cols).fill(null);
+  let lastGroup: string | null = null;
+  for (let c = 0; c < sheet.cols; c++) {
+    const label = text(headerRow - 1, c).trim();
+    if (label && isPeriodGroupLabel(label)) {
+      lastGroup = label;
+      groupByCol[c] = label;
+    } else if (label && !matchHint(label, COLUMN_HINTS) && !parseColumnTag(label)) {
+      if (normalize(label).length >= 2) {
+        lastGroup = label;
+        groupByCol[c] = label;
+      }
+    } else if (lastGroup) {
+      groupByCol[c] = lastGroup;
+    }
+  }
+  for (const m of sheet.merges) {
+    if (m.s.r + 1 !== headerRow - 1) continue;
+    const label = text(headerRow - 1, m.s.c).trim();
+    if (!label) continue;
+    if (!isPeriodGroupLabel(label) && normalize(label).length < 2) continue;
+    for (let c = m.s.c; c <= m.e.c; c++) groupByCol[c] = label;
+  }
+  const labelToIndex = new Map<string, number>();
+  for (let c = 0; c < sheet.cols; c++) {
+    const letter = colLetter(c);
+    const role = columns[letter];
+    if (!role || role === "subject" || role === "ignore" || role === "coefficient" || role === "teacher" || role === "appreciation" || role === "subject_rank") continue;
+    const g = groupByCol[c];
+    if (!g) continue;
+    const key = normalize(g);
+    if (!labelToIndex.has(key)) {
+      labelToIndex.set(key, periodGroupLabels.length);
+      periodGroupLabels.push(g.replace(/\s+/g, " ").trim());
+    }
+    periodColumns[letter] = labelToIndex.get(key)!;
+  }
+  return { periodColumns, periodGroupLabels };
+}
+
+export type DetectionResult = { mapping: TemplateMapping; warnings: string[] };
+
+export function detectMapping(sheet: TemplateSheet): DetectionResult {
+  const warnings: string[] = [];
+  const text = (row1: number, col0: number) => {
+    const cell = sheet.cells[ref(row1, col0)];
+    return cell && cell.v !== null ? String(cell.v) : "";
   };
 
-  const jobRunning = busy || runningAnnualByClass.has(klass.id);
+  let headerRow = 0;
+  let subjectCol = -1;
+  for (let r = 1; r <= sheet.rows && headerRow === 0; r++) {
+    for (let c = 0; c < sheet.cols; c++) {
+      const cellText = text(r, c);
+      const tag = parseColumnTag(cellText);
+      if (tag?.role === "subject" || matchHint(cellText, COLUMN_HINTS) === "subject") {
+        headerRow = r;
+        subjectCol = c;
+        break;
+      }
+    }
+  }
 
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(v) => {
-        if (!v) {
-          if (jobRunning) {
-            // silencieux : génération continue
+  const columns: Record<string, ColumnRole> = {};
+  const tagPeriodColumns: Record<string, number> = {};
+  const tagPeriodLabels: string[] = [];
+  if (headerRow > 0) {
+    for (let c = 0; c < sheet.cols; c++) {
+      const label = text(headerRow, c) || text(headerRow - 1, c);
+      const letter = colLetter(c);
+      const tag = parseColumnTag(label) ?? parseColumnTag(text(headerRow, c)) ?? parseColumnTag(text(headerRow - 1, c));
+      if (tag) {
+        columns[letter] = tag.role;
+        if (tag.periodIndex != null) {
+          tagPeriodColumns[letter] = tag.periodIndex;
+          while (tagPeriodLabels.length <= tag.periodIndex) {
+            tagPeriodLabels.push(`Période ${tagPeriodLabels.length + 1}`);
           }
-          onClose();
         }
-      }}
-    >
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Bulletin annuel</DialogTitle>
-          <DialogDescription>
-            Remplit le modèle annuel (notes de classe + compo par période). Prérequis : bulletins de période classés (
-            {periods.length} période{periods.length > 1 ? "s" : ""}). Le modèle Excel{" "}
-            <strong>annuel</strong> de la classe est utilisé s'il est actif. Vous pouvez fermer
-            cette fenêtre : la génération continue en arrière-plan.
-          </DialogDescription>
-        </DialogHeader>
-        {jobRunning && (
-          <p className="text-sm text-muted-foreground">
-            {done} / {students.length}…
-          </p>
-        )}
-        <DialogFooter>
-          <Button
-            variant="outline"
-            onClick={() => {
-              if (jobRunning) {
-                // silencieux : génération continue
-              }
-              onClose();
-            }}
-          >
-            {jobRunning ? "Continuer en arrière-plan" : "Annuler"}
-          </Button>
-          <Button
-            onClick={() => void generateAll()}
-            disabled={jobRunning || students.length === 0}
-          >
-            {jobRunning ? (
-              <>
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> En cours…
-              </>
-            ) : (
-              "Générer"
-            )}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
+        continue;
+      }
+      const role = matchHint(label, COLUMN_HINTS);
+      if (role) columns[letter] = role;
+    }
+    if (subjectCol >= 0) columns[colLetter(subjectCol)] = "subject";
+    const exclusive: ColumnRole[] = [
+      "subject",
+      "evaluation_average",
+      "subject_average",
+      "coefficient",
+      "subject_rank",
+      "appreciation",
+      "teacher",
+    ];
+    const seen = new Set<ColumnRole>();
+    for (const [letter, role] of Object.entries({ ...columns })) {
+      if (role === "evaluation" || role === "composition" || role === "ignore") continue;
+      if (letter in tagPeriodColumns) continue;
+      if (exclusive.includes(role)) {
+        if (seen.has(role)) delete columns[letter];
+        else seen.add(role);
+      }
+    }
+  }
+
+  let firstSubjectRow = headerRow + 1;
+  let lastSubjectRow = firstSubjectRow;
+  if (headerRow > 0 && subjectCol >= 0) {
+    let r = firstSubjectRow;
+    let blanks = 0;
+    while (r <= sheet.rows && blanks < 3) {
+      const label = text(r, subjectCol);
+      if (label && isSubjectLabel(label)) {
+        lastSubjectRow = r;
+        blanks = 0;
+      } else {
+        blanks++;
+      }
+      r++;
+    }
+    if (lastSubjectRow < firstSubjectRow) lastSubjectRow = firstSubjectRow + 9;
+  }
+
+  // Champs identité / stats : UNIQUEMENT les balises [token] ou {token}.
+  // Aucun libellé en texte libre (« Moyen Général », « Prénom : », …) n'est
+  // interprété comme cible d'écriture — les formules du modèle restent la source
+  // de vérité pour toute valeur calculée.
+  const fields: Record<string, FieldRole> = {};
+  const used = new Set<FieldRole>();
+  for (let r = 1; r <= sheet.rows; r++) {
+    for (let c = 0; c < sheet.cols; c++) {
+      if (headerRow > 0 && subjectCol >= 0 && r >= firstSubjectRow && r <= lastSubjectRow && c === subjectCol) continue;
+      const label = text(r, c);
+      if (!label) continue;
+      if (parseColumnTag(label)) continue;
+      const inner = extractTokenInner(label);
+      if (!inner) continue;
+      const role = matchHint(inner, FIELD_HINTS);
+      if (role && !used.has(role)) {
+        fields[ref(r, c)] = role;
+        used.add(role);
+      }
+    }
+  }
+  if (Object.keys(fields).length === 0) {
+    warnings.push(
+      "Aucune balise champ [prenom], [nom], [classe], [effectif], [rang], [date]… détectée. Seules les balises entre crochets ou accolades sont reconnues.",
+    );
+  }
+
+  const fromHeaders = detectPeriodGroups(sheet, headerRow, columns);
+  const periodColumns =
+    Object.keys(tagPeriodColumns).length > 0 ? tagPeriodColumns : fromHeaders.periodColumns;
+  const periodGroupLabels =
+    Object.keys(tagPeriodColumns).length > 0
+      ? tagPeriodLabels.filter(Boolean)
+      : fromHeaders.periodGroupLabels;
+
+  if (Object.keys(tagPeriodColumns).length > 0) {
+    warnings.push(
+      `Balises de colonnes avec période détectées (${Object.keys(tagPeriodColumns).length} col.).`,
+    );
+  }
+
+  return {
+    mapping: {
+      version: 1,
+      sheetName: sheet.sheetName,
+      headerRow,
+      firstSubjectRow,
+      lastSubjectRow,
+      columns,
+      fields,
+      ...(Object.keys(periodColumns).length > 0 ? { periodColumns, periodGroupLabels } : {}),
+    },
+    warnings,
+  };
 }
+
+export type FillData = {
+  establishmentName: string;
+  className: string;
+  periodLabel: string;
+  studentName: string;
+  studentFirstName: string;
+  studentLastName: string;
+  subjects: {
+    name: string;
+    composition: number | null;
+    evaluations: number[];
+    compositions?: (number | null)[];
+    evaluationAverage: number | null;
+    average: number | null;
+  }[];
+  generalAverage: number | null;
+  firstAverage: number | null;
+  lastAverage: number | null;
+  classAverageEvaluation: number | null;
+  classAverageComposition: number | null;
+  headcount: number;
+  rank: number | null;
+  scale: number;
+  /** Moyenne générale de la classe (balise [moy_classe]). */
+  classAverage?: number | null;
+  /** Statistiques par période (index 0 = période 1) pour [mg:1], [rang:2]… */
+  periodStats?: (PeriodStat | null)[];
+};
+
+export type PeriodStat = {
+  generalAverage: number | null;
+  rank: number | null;
+  firstAverage: number | null;
+  lastAverage: number | null;
+  classAverage: number | null;
+  headcount: number | null;
+};
+
+export type ComputedAverages = {
+  generalAverage: number | null;
+  subjectAverages: Record<string, number | null>;
+};
