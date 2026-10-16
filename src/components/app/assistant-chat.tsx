@@ -337,20 +337,24 @@ export function AssistantChat({ className }: Props) {
     }
   };
 
-  const send = async (overrideText?: string) => {
+    const send = async (overrideText?: string) => {
     const text = (overrideText ?? input).trim();
     const imgs = pendingImages.map((p) => p.payload);
+    const previews = pendingImages.map((p) => p.preview);
     if ((!text && imgs.length === 0) || sending || !userId) return;
-    const display =
-      text ||
-      (imgs.length === 1 ? "[Photo jointe]" : `[${imgs.length} photos jointes]`);
-    const userMsg = createMessage("user", display);
+
+    const display = text || (imgs.length === 1 ? "[Photo jointe]" : `[${imgs.length} photos jointes]`);
+    const userMsg = {
+      ...createMessage("user", display),
+      images: previews, // 📸 Conserve les photos pour l'affichage visuel
+    };
     const withUser = [...messages, userMsg];
     persist(withUser);
     setInput("");
     setPendingImages([]);
     await runAsk(text, withUser, imgs);
   };
+
 
   const regenerate = async (assistantMsgId: string) => {
     if (sending || !userId) return;
