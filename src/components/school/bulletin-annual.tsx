@@ -392,7 +392,12 @@ export function AnnualBulletinDialog({
             // MG annuelle = formule Excel uniquement. Ne JAMAIS écraser les fiches de période
             // (résultats de période restent statiques une fois clôturés).
             // Ne jamais modifier grades ni student_report_cards (périodes restent figées).
-            if (docRow?.id && modelAvg != null && Number.isFinite(modelAvg)) {
+            if (
+              docRow?.id &&
+              modelAvg != null &&
+              Number.isFinite(modelAvg) &&
+              modelAvg > 0
+            ) {
               await supabase
                 .from("student_documents")
                 .update({ name: `Bulletin annuel — MG ${modelAvg.toFixed(2)}` })
