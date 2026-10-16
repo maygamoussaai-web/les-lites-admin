@@ -1,1 +1,537 @@
-LOAD_FROM_FILE
+/**
+ * Bulletin annuel — génération Excel adaptable à tout modèle (bref ou complet).
+ *
+ * Prérequis : modèle actif de kind « annual » pour la classe.
+ * Données : notes brutes (évaluation + composition) par période × matière.
+ * MG annuelle = formule du modèle Excel uniquement.
+ * Remplissage : même writeback que les bulletins de période (formules Excel respectées).
+ * Fallback PDF canvas uniquement si aucun modèle annuel n'est configuré.
+ *
+ * La génération continue en arrière-plan si le dialogue est fermé.
+ */
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { Loader2 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { supabase } from "@/integrations/supabase/client";
+import { describeError } from "@/lib/errors";
+import { downloadActiveTemplateBuffer } from "@/lib/report-template";
+import { buildAnnualFillData, computeModelAverages } from "@/lib/model-averages";
+import { writeFilledWorkbook } from "@/lib/xlsx-writeback";
+import { uploadBulletinWorkbook } from "@/lib/storage-upload";
+import type { ClassSubject, GradePeriod, StudentReportCard } from "@/lib/grades";
+import type { PeriodStat } from "@/lib/xlsx-template";
+
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+/** Verrou global : une génération annuelle par classe à la fois. */
+const runningAnnualByClass = new Set<string>();
+
+export function isAnnualBulletinGenerationRunning(classId: string): boolean {
+  return runningAnnualByClass.has(classId);
+}
+
+type StudentRef = { id: string; first_name: string; last_name: string };
+
+function toBlob(buffer: ArrayBuffer) {
+  return new Blob([buffer], { type: XLSX_MIME });
+}
+
+/** Rendu canvas de secours (sans modèle Excel annuel). */
+export function renderBulletinCanvas(opts: {
+  establishmentName: string;
+  className: string;
+  studentName: string;
+  periodNumber: number;
+  subjectLines: { name: string; average: number | null }[];
+  average: number | null;
+}): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
+  canvas.width = 794;
+  canvas.height = 1123;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#0f172a";
+  ctx.font = "bold 22px sans-serif";
+  ctx.fillText(opts.establishmentName, 48, 56);
+  ctx.font = "16px sans-serif";
+  ctx.fillText(`Bulletin annuel — ${opts.className}`, 48, 88);
+  ctx.fillText(opts.studentName, 48, 120);
+  let y = 170;
+  ctx.font = "14px sans-serif";
+  for (const line of opts.subjectLines) {
+    const avg = line.average != null ? line.average.toFixed(2) : "—";
+    ctx.fillText(`${line.name}`, 48, y);
+    ctx.fillText(avg, 520, y);
+    y += 28;
+  }
+  y += 24;
+  ctx.font = "bold 18px sans-serif";
+  ctx.fillText(
+    `Moyenne générale : ${opts.average != null ? opts.average.toFixed(2) : "—"} / 20`,
+    48,
+    y,
+  );
+  return canvas;
+}
+
+async function canvasToImageBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+  const jpeg = dataUrl.split(",")[1] ?? "";
+  const bin = atob(jpeg);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: "image/jpeg" });
+}
+
+export function AnnualBulletinDialog({
+  open,
+  onClose,
+  klass,
+  establishmentName,
+  students,
+  subjects,
+  periods,
+}: {
+  open: boolean;
+  onClose: () => void;
+  klass: { id: string; name: string; establishment_id: string };
+  establishmentName: string;
+  students: StudentRef[];
+  subjects: ClassSubject[];
+  periods: GradePeriod[];
+  grades?: unknown;
+}) {
+  const qc = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(0);
+
+  const generateAll = async () => {
+    if (runningAnnualByClass.has(klass.id)) {
+      toast.message("Une génération annuelle est déjà en cours pour cette classe.");
+      return;
+    }
+
+    const studentsSnap = [...students];
+    const subjectsSnap = [...subjects];
+    const periodsSnap = [...periods];
+    const toastId = `bulletin-annual-${klass.id}`;
+
+    runningAnnualByClass.add(klass.id);
+    setBusy(true);
+    setDone(0);
+
+    toast.loading(
+      studentsSnap.length
+        ? `Bulletin annuel en arrière-plan… 0/${studentsSnap.length}`
+        : "Vérification…",
+      { id: toastId, duration: 120_000 },
+    );
+    onClose();
+
+    try {
+      const periodIds = periodsSnap.map((p) => p.id);
+      if (!periodIds.length) {
+        toast.error("Aucune période disponible pour construire l'annuel.", { id: toastId });
+        return;
+      }
+
+      let sortedPeriods = [...periodsSnap].sort(
+        (a, b) => (a.period_number ?? 0) - (b.period_number ?? 0),
+      );
+
+      const { data: cards, error } = await supabase
+        .from("student_report_cards")
+        .select("*")
+        .eq("class_id", klass.id)
+        .in("period_id", periodIds);
+      if (error) throw error;
+      const list = (cards ?? []) as StudentReportCard[];
+
+      // Pagination obligatoire : >1000 notes/classe (plafond PostgREST par défaut).
+      const allGrades: import("@/lib/grades").Grade[] = [];
+      {
+        const pageSize = 1000;
+        for (const pid of periodIds) {
+          let from = 0;
+          for (;;) {
+            const { data: page, error: gradeErr } = await supabase
+              .from("grades")
+              .select("*")
+              .eq("class_id", klass.id)
+              .eq("period_id", pid)
+              .order("created_at", { ascending: true })
+              .range(from, from + pageSize - 1);
+            if (gradeErr) throw gradeErr;
+            const rows = (page ?? []) as import("@/lib/grades").Grade[];
+            allGrades.push(...rows);
+            if (rows.length < pageSize) break;
+            from += pageSize;
+          }
+        }
+      }
+
+      if (!list.length) {
+        toast.error(
+          "Aucun bulletin de période trouvé. Générez d'abord les bulletins de chaque période.",
+          { id: toastId },
+        );
+        return;
+      }
+
+      // Périodes sans bulletin/notes : aucun effet sur l'annuel
+      {
+        const withData = new Set(list.map((c) => c.period_id));
+        sortedPeriods = sortedPeriods.filter((p) => withData.has(p.id));
+        if (!sortedPeriods.length) {
+          toast.error("Aucune période avec bulletins — rien à synthétiser pour l'annuel.", { id: toastId });
+          return;
+        }
+      }
+      const yearLabel =
+        sortedPeriods.length > 0
+          ? `Année — ${sortedPeriods.length} période${sortedPeriods.length > 1 ? "s" : ""}`
+          : "Année scolaire";
+
+      const tpl = await downloadActiveTemplateBuffer(klass.id, "annual");
+      const useExcel = !!tpl?.buffer && !!tpl.mapping;
+
+      // Même logique que le bulletin périodique :
+      // 1) remplir notes de période (entrées) → lire MG annuelle depuis formules Excel
+      // 2) classer / premier / dernier à partir de ces sorties modèle
+      // 3) régénérer les fichiers avec rang + premier/dernier
+      const orderedPeriodIds = sortedPeriods.map((p) => p.id);
+      const periodStatsByStudent = new Map<string, (PeriodStat | null)[]>();
+      for (const p of sortedPeriods) {
+        const idx = Math.max(0, (p.period_number ?? 1) - 1);
+        const pcs = list
+          .filter((c) => c.period_id === p.id && c.general_average != null)
+          .map((c) => ({ id: c.student_id, v: Number(c.general_average) }))
+          .filter((x) => Number.isFinite(x.v))
+          .sort((a, b) => b.v - a.v);
+        if (!pcs.length) continue;
+        const first = pcs[0]!.v;
+        const last = pcs[pcs.length - 1]!.v;
+        const avg = pcs.reduce((a, x) => a + x.v, 0) / pcs.length;
+        // MG de période = formule Excel du modèle annuel (jamais injectée).
+        pcs.forEach((x, i) => {
+          const rank = pcs.findIndex((y) => y.v === x.v) + 1 || i + 1;
+          const arr = periodStatsByStudent.get(x.id) ?? [];
+          arr[idx] = {
+            generalAverage: null,
+            rank,
+            firstAverage: first,
+            lastAverage: last,
+            classAverage: avg,
+            headcount: pcs.length,
+          };
+          periodStatsByStudent.set(x.id, arr);
+        });
+        for (const s of studentsSnap) {
+          const arr = periodStatsByStudent.get(s.id) ?? [];
+          if (!arr[idx]) {
+            arr[idx] = {
+              generalAverage: null,
+              rank: null,
+              firstAverage: first,
+              lastAverage: last,
+              classAverage: avg,
+              headcount: pcs.length,
+            };
+          }
+          periodStatsByStudent.set(s.id, arr);
+        }
+      }
+
+      const avgByStudent = new Map<
+        string,
+        { avg: number; subjects: Record<string, number | null> }
+      >();
+
+      if (useExcel && tpl) {
+        for (const s of studentsSnap) {
+          const studentCards = list
+            .filter((c) => c.student_id === s.id)
+            .sort((a, b) => {
+              const pa = sortedPeriods.find((p) => p.id === a.period_id)?.period_number ?? 0;
+              const pb = sortedPeriods.find((p) => p.id === b.period_id)?.period_number ?? 0;
+              return pa - pb;
+            });
+          if (!studentCards.length) continue;
+          const fill = buildAnnualFillData({
+            establishmentName,
+            className: klass.name,
+            studentFirstName: s.first_name,
+            studentLastName: s.last_name,
+            schoolYearLabel: yearLabel,
+            subjects: subjectsSnap,
+            grades: allGrades,
+            studentId: s.id,
+            orderedPeriodIds,
+            headcount: studentsSnap.length,
+            scale: tpl.scale,
+            rank: null,
+            firstAverage: null,
+            lastAverage: null,
+            studentCards,
+          });
+          fill.periodStats = periodStatsByStudent.get(s.id) ?? fill.periodStats;
+          // Ne jamais injecter une MG annuelle JS — lecture seule depuis le modèle.
+          fill.generalAverage = null;
+          fill.classAverage = null;
+          const result = await computeModelAverages(tpl.buffer, tpl.mapping, fill);
+          if (result.generalAverage !== null) {
+            avgByStudent.set(s.id, {
+              avg: result.generalAverage,
+              subjects: result.subjectAverages,
+            });
+          }
+        }
+      }
+
+      const rankedIds = [...avgByStudent.entries()]
+        .sort((a, b) => b[1].avg - a[1].avg)
+        .map(([id]) => id);
+      const rankOf = new Map(rankedIds.map((id, i) => [id, i + 1]));
+      const firstAverage = rankedIds.length ? avgByStudent.get(rankedIds[0]!)!.avg : null;
+      const lastAverage = rankedIds.length
+        ? avgByStudent.get(rankedIds[rankedIds.length - 1]!)!.avg
+        : null;
+      const annualClassAverage = rankedIds.length
+        ? rankedIds.reduce((a, id) => a + avgByStudent.get(id)!.avg, 0) / rankedIds.length
+        : null;
+
+      let success = 0;
+      const failures: string[] = [];
+
+      for (let i = 0; i < studentsSnap.length; i++) {
+        const s = studentsSnap[i]!;
+        const studentCards = list
+          .filter((c) => c.student_id === s.id)
+          .sort((a, b) => {
+            const pa = sortedPeriods.find((p) => p.id === a.period_id)?.period_number ?? 0;
+            const pb = sortedPeriods.find((p) => p.id === b.period_id)?.period_number ?? 0;
+            return pa - pb;
+          });
+
+        if (!studentCards.length) {
+          failures.push(`${s.last_name} ${s.first_name}: aucune fiche de période`);
+          toast.loading(`Bulletin annuel en arrière-plan… ${i + 1}/${studentsSnap.length}`, {
+            id: toastId,
+            duration: Infinity,
+          });
+          continue;
+        }
+
+        try {
+          if (useExcel && tpl) {
+            const fill = buildAnnualFillData({
+              establishmentName,
+              className: klass.name,
+              studentFirstName: s.first_name,
+              studentLastName: s.last_name,
+              schoolYearLabel: yearLabel,
+              subjects: subjectsSnap,
+              grades: allGrades,
+              studentId: s.id,
+              orderedPeriodIds,
+              headcount: studentsSnap.length,
+              scale: tpl.scale,
+              rank: rankOf.get(s.id) ?? null,
+              firstAverage,
+              lastAverage,
+              studentCards,
+            });
+            fill.periodStats = periodStatsByStudent.get(s.id) ?? fill.periodStats;
+            fill.generalAverage = null;
+            fill.classAverage = annualClassAverage;
+            const written = await writeFilledWorkbook(tpl.buffer, tpl.mapping, fill);
+            // Sortie modèle (prioritaire) — jamais de moyenne inventée.
+            const modelAvg = written.computed.generalAverage ?? avgByStudent.get(s.id)?.avg ?? null;
+            const modelSubjects =
+              Object.keys(written.computed.subjectAverages).length > 0
+                ? written.computed.subjectAverages
+                : avgByStudent.get(s.id)?.subjects ?? {};
+
+            const blob = toBlob(written.buffer);
+            const storagePath = `${klass.establishment_id}/${s.id}/bulletin-annuel-${Date.now()}.xlsx`;
+            const uploaded = await uploadBulletinWorkbook(storagePath, blob);
+            const filePathStored =
+              uploaded.bucket === "student-documents"
+                ? uploaded.path
+                : uploaded.bucket === "report-templates"
+                  ? `report-templates:${uploaded.path}`
+                  : `${uploaded.bucket}:${uploaded.path}`;
+
+            const { data: docRow, error: docErr } = await supabase
+              .from("student_documents")
+              .insert({
+                student_id: s.id,
+                establishment_id: klass.establishment_id,
+                name: "Bulletin annuel",
+                file_path: filePathStored,
+                file_type: XLSX_MIME,
+                file_size: blob.size,
+              })
+              .select("id")
+              .single();
+            if (docErr) throw docErr;
+
+            // Mémoriser la MG annuelle lue sur le modèle (période_id null non supporté → document seul).
+            // Si une fiche « annuelle » existe côté schéma via period_id d'une période spéciale, on ne force rien.
+            // MG annuelle = formule Excel uniquement. Ne JAMAIS écraser les fiches de période
+            // (résultats de période restent statiques une fois clôturés).
+            // Ne jamais modifier grades ni student_report_cards (périodes restent figées).
+            if (docRow?.id && modelAvg != null && Number.isFinite(modelAvg)) {
+              await supabase
+                .from("student_documents")
+                .update({ name: `Bulletin annuel — MG ${modelAvg.toFixed(2)}` })
+                .eq("id", docRow.id);
+            }
+            void modelSubjects;
+            success++;
+          } else {
+            // Sans modèle Excel : aperçu image uniquement (pas de MG inventée présentée comme officielle).
+            const subjectLines = subjectsSnap.map((sub) => {
+              const vals: number[] = [];
+              for (const c of studentCards) {
+                const sa = c.subject_averages as Record<string, number | null> | null;
+                const v = sa?.[sub.name];
+                if (v != null && Number.isFinite(Number(v))) vals.push(Number(v));
+              }
+              return {
+                name: sub.name,
+                average: vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null,
+              };
+            });
+            const canvas = renderBulletinCanvas({
+              establishmentName,
+              className: klass.name,
+              studentName: `${s.last_name} ${s.first_name}`,
+              periodNumber: 0,
+              subjectLines,
+              average: null,
+            });
+            const blob = await canvasToImageBlob(canvas);
+            const path = `${klass.establishment_id}/${s.id}/bulletin-annuel-${Date.now()}.jpg`;
+            await supabase.storage.from("student-documents").upload(path, blob, {
+              contentType: "image/jpeg",
+              upsert: true,
+            });
+            await supabase.from("student_documents").insert({
+              student_id: s.id,
+              establishment_id: klass.establishment_id,
+              name: "Bulletin annuel (aperçu)",
+              file_path: path,
+              file_type: "image/jpeg",
+              file_size: blob.size,
+            });
+            success++;
+          }
+        } catch (e) {
+          failures.push(
+            `${s.last_name} ${s.first_name}: ${describeError(e, "échec")}`,
+          );
+        }
+        toast.loading(`Bulletin annuel en arrière-plan… ${i + 1}/${studentsSnap.length}`, {
+          id: toastId,
+          duration: Infinity,
+        });
+        setDone(i + 1);
+      }
+
+      void qc.invalidateQueries({ queryKey: ["student_documents"] });
+
+      if (success > 0 && failures.length === 0) {
+        toast.success(
+          useExcel
+            ? `${success} bulletin(s) annuel(s) Excel généré(s)`
+            : `${success} aperçu(s) annuel(s) généré(s) — chargez un modèle annuel Excel pour le format officiel`,
+          { id: toastId, duration: 8_000 },
+        );
+      } else if (success > 0) {
+        toast.message(`${success} OK, ${failures.length} échec(s)`, {
+          id: toastId,
+          description: failures.slice(0, 2).join(" · "),
+          duration: 12_000,
+        });
+        // Toast remplaçable / fermable (pas Infinity)
+      } else {
+        toast.error(failures[0] ?? "Aucun bulletin annuel généré", { id: toastId });
+      }
+    } catch (e) {
+      toast.error(describeError(e, "Génération annuelle impossible"), { id: toastId });
+    } finally {
+      runningAnnualByClass.delete(klass.id);
+      setBusy(false);
+    }
+  };
+
+  const jobRunning = busy || runningAnnualByClass.has(klass.id);
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(v) => {
+        if (!v) {
+          if (jobRunning) {
+            // silencieux : génération continue
+          }
+          onClose();
+        }
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Bulletin annuel</DialogTitle>
+          <DialogDescription>
+            Remplit le modèle annuel (notes de classe + compo par période). Prérequis : bulletins de période classés (
+            {periods.length} période{periods.length > 1 ? "s" : ""}). Le modèle Excel{" "}
+            <strong>annuel</strong> de la classe est utilisé s'il est actif. Vous pouvez fermer
+            cette fenêtre : la génération continue en arrière-plan.
+          </DialogDescription>
+        </DialogHeader>
+        {jobRunning && (
+          <p className="text-sm text-muted-foreground">
+            {done} / {students.length}…
+          </p>
+        )}
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (jobRunning) {
+                // silencieux : génération continue
+              }
+              onClose();
+            }}
+          >
+            {jobRunning ? "Continuer en arrière-plan" : "Annuler"}
+          </Button>
+          <Button
+            onClick={() => void generateAll()}
+            disabled={jobRunning || students.length === 0}
+          >
+            {jobRunning ? (
+              <>
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> En cours…
+              </>
+            ) : (
+              "Générer"
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
