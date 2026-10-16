@@ -215,9 +215,22 @@ export function NoteEntryDialog({
         const { supabase } = await import("@/integrations/supabase/client");
         const { error } = await supabase.from("grades").insert(rows as never);
         if (error) throw error;
-        for (const row of rows) {
-          await writeAudit("create", "grades" as never, null, row);
-        }
+        // ❌ ANCIEN CODE :
+// for (const row of rows) {
+//   await writeAudit("create", "grades" as never, null, row);
+// }
+
+// ✅ NOUVEAU CODE :
+await writeAudit("bulk_upsert", "grades" as never, classId, {
+  class_id: classId,
+  count: rows.length,
+  nature,
+  subject_id: subjectId,
+  period_id: periodId,
+  scale: scaleNum,
+  summary: `Saisie groupée de ${rows.length} note(s) (${nature})`,
+});
+
         applyOptimisticGrades(qc, rows);
         qc.invalidateQueries({ queryKey: ["grades"] });
         const gradeIds = rows.map((r) => String(r.id));
