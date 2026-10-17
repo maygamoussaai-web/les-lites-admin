@@ -337,16 +337,16 @@ export function AssistantChat({ className }: Props) {
     }
   };
 
-    const send = async (overrideText?: string) => {
+  const send = async (overrideText?: string) => {
     const text = (overrideText ?? input).trim();
     const imgs = pendingImages.map((p) => p.payload);
     const previews = pendingImages.map((p) => p.preview);
     if ((!text && imgs.length === 0) || sending || !userId) return;
 
     const display = text || (imgs.length === 1 ? "[Photo jointe]" : `[${imgs.length} photos jointes]`);
-    const userMsg = {
+    const userMsg: AssistantMessage = {
       ...createMessage("user", display),
-      images: previews, // 📸 Conserve les photos pour l'affichage visuel
+      images: previews, // 📸 Conserve les aperçus pour affichage dans la bulle
     };
     const withUser = [...messages, userMsg];
     persist(withUser);
@@ -354,7 +354,6 @@ export function AssistantChat({ className }: Props) {
     setPendingImages([]);
     await runAsk(text, withUser, imgs);
   };
-
 
   const regenerate = async (assistantMsgId: string) => {
     if (sending || !userId) return;
@@ -373,7 +372,6 @@ export function AssistantChat({ className }: Props) {
     if (m.role !== "user" || sending) return;
     setEditingId(m.id);
     setEditDraft(m.content);
-    // Laisser le message édité visible au-dessus de la zone basse (masquée en édition).
     requestAnimationFrame(() => {
       const el = document.querySelector(`[data-msg-id="${m.id}"]`);
       el?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -522,6 +520,23 @@ export function AssistantChat({ className }: Props) {
                           : "w-full max-w-none text-foreground",
                       )}
                     >
+                      {/* 📸 Affichage des photos jointes dans la bulle utilisateur */}
+                      {isUser && m.images && m.images.length > 0 && (
+                        <div className="mb-2 flex flex-wrap gap-2">
+                          {m.images.map((imgSrc, idx) => (
+                            <a
+                              key={idx}
+                              href={imgSrc}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="relative block h-20 w-20 overflow-hidden rounded-xl border border-primary-foreground/20 bg-black/15 shadow-sm transition hover:opacity-90 active:scale-95"
+                              title="Agrandir la photo"
+                            >
+                              <img src={imgSrc} alt="Photo jointe" className="h-full w-full object-cover" />
+                            </a>
+                          ))}
+                        </div>
+                      )}
                       <MessageContent content={m.content} isUser={isUser} />
                     </div>
                   )}
@@ -603,8 +618,7 @@ export function AssistantChat({ className }: Props) {
         </div>
       </div>
 
-      {/* Zone de saisie principale : masquée pendant l'édition d'un message
-          pour ne pas recouvrir les boutons Annuler / Envoyer de la carte d'édition. */}
+      {/* Zone de saisie principale */}
       <div
         className={cn(
           "shrink-0 bg-background/90 backdrop-blur-md supports-[backdrop-filter]:bg-background/75",
@@ -616,11 +630,11 @@ export function AssistantChat({ className }: Props) {
           {pendingImages.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2 px-1">
               {pendingImages.map((img, i) => (
-                <div key={i} className="relative h-14 w-14 overflow-hidden rounded-xl border border-border/50 bg-muted">
+                <div key={i} className="relative h-14 w-14 overflow-hidden rounded-xl border border-border/50 bg-muted shadow-sm">
                   <img src={img.preview} alt="" className="h-full w-full object-cover" />
                   <button
                     type="button"
-                    className="absolute right-0.5 top-0.5 rounded-full bg-background/95 p-0.5 shadow-sm"
+                    className="absolute right-0.5 top-0.5 rounded-full bg-background/95 p-0.5 shadow-sm hover:bg-destructive hover:text-destructive-foreground transition"
                     onClick={() => setPendingImages((prev) => prev.filter((_, j) => j !== i))}
                     aria-label="Retirer la photo"
                   >
