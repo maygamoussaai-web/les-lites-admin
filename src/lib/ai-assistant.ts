@@ -10,7 +10,9 @@ export type AssistantMessage = {
   role: "user" | "assistant";
   content: string;
   at: number;
+  images?: string[];
 };
+
 
 export type AssistantResponse =
   | { ok: true; data: { reply: string } }
