@@ -37,7 +37,6 @@ function fd(dob?: string | null) {
   return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
 }
 
-
 const MODELS = [...new Set([
   Deno.env.get("GEMINI_MODEL") || "gemini-2.0-flash",
   "gemini-2.0-flash",
@@ -48,7 +47,7 @@ const SYSTEM = `Tu es l'assistant admin de Les Élites de Gao (Gao, Mali). Fran�
 
 RÈGLES :
 1. LECTURE (listes, stats, recherche, EDT, finance, notes…) : appelle le(s) outil(s) tout de suite, puis réponds avec les faits. Pas de permission.
-2. MULTI-OUTILS : si la demande touche plusieurs sujets, appelle PLUSIEURS outils EN PARALLÈLE dans le même tour (plusieurs functionCall). Tu peux aussi rappeler le MÊME outil plusieurs fois avec des arguments différents. Enchaîne jusqu'à 8 tours si besoin, puis synthétise une seule réponse.
+2. MULTI-OUTILS : si la demande touche plusieurs sujets, appelle PLUSIEURS outils EN PARALLÈLE dans le même tour (plusieurs functionCall). Tu peux aussi rappeler le MÊME outil plusieurs fois avec des arguments différents. Enchaîne jusqu'à 4 tours si besoin, puis synthétise une seule réponse.
 3. ÉCRITURE (créer / modifier / supprimer / noter / payer / séance / renouveler…) :
    • 1er appel SANS confirmed.
    • Si CONFIRMATION_REQUIRED : un Plan court (Qui / Quoi / Où) + une seule fois « Confirmez-vous ? ».
@@ -64,7 +63,6 @@ RÈGLES :
 11. TÂCHES LONGUES : pour une opération multi-étapes (ex. bulletins de toute une classe, notes + validation), propose un mini plan numéroté, demande un seul oui, puis exécute étape par étape en informant brièvement.
 12. DIAGNOSTICS : pour « qui n'a pas de notes / pas de bulletin / reste à payer », utilise check_grades_completeness, get_class_statistics, get_student_finance, list_tuition_payments selon le besoin, puis un tableau clair.
 13. TON : professionnel, encourageant, jamais condescendant. Une courte phrase d'ouverture possible (« Bien sûr. », « Voici. ») puis le fond. Pas de blabla.`;
-
 
 type Content = {
   role: string;
@@ -82,15 +80,11 @@ const consumedTokens = new Set<string>();
 type PendingConfirm = { tool: string; args: Record<string, unknown>; token: string; exp: number };
 const pendingByUser = new Map<string, PendingConfirm>();
 function isAffirmative(msg: string): boolean {
-  // Le client peut enrichir « oui » avec [INSTRUCTION:…] (>80 car.) — on ne regarde que la tête.
   let t = (msg || "").trim();
-  // Couper avant les blocs système injectés
   const cut = t.search(/\n\s*\[(INSTRUCTION|SYSTÈME)/i);
   if (cut > 0) t = t.slice(0, cut).trim();
-  // Première ligne seulement
   const firstLine = (t.split(/\r?\n/)[0] || "").trim().toLowerCase().replace(/[.!?…]+$/g, "").trim();
   if (!firstLine) return false;
-  // Affirmation courte OU début par oui/ok…
   if (firstLine.length <= 80) {
     return /^(oui|ok|d['']accord|dac|je confirme|confirme|vas-?y|oui vas-?y|oui je confirme|yes|yep|go|parfait|d accord|bien s[uû]r|volontiers|exact|c'est bon|c est bon|allez-?y|proceed)(\b|$)/i.test(firstLine)
       || /^(oui[,.\s]+)/i.test(firstLine);
@@ -127,11 +121,11 @@ function establishmentHint(a: Record<string, unknown>): string {
   }
   return "";
 }
+
 /**
  * Token HMAC lié uniquement à userId + tool + exp + nonce.
  * Ne PAS inclure les paramètres métier : Gemini les modifie souvent entre
- * l'appel initial et le rappel confirmé (ex. ajoute generation_name),
- * ce qui invalidait l'ancien jeton (stableParams) → « problème technique ».
+ * l'appel initial et le rappel confirmé.
  */
 async function issueConfirmToken(userId: string, tool: string, _a: Record<string, unknown>) {
   const exp = Date.now() + 10 * 60 * 1000;
@@ -172,7 +166,6 @@ async function requireWrite(sb: SupabaseClient, tool: string, a: Record<string, 
     if (pend && pend.tool === tool && Date.now() <= pend.exp) {
       const tok = typeof a.confirm_token === "string" ? a.confirm_token : "";
       if (!tok || tok === pend.token) {
-        // Marquer le token pending comme consommé si présent
         if (pend.token) {
           consumedTokens.add(pend.token);
           if (consumedTokens.size > 500) {
@@ -276,7 +269,6 @@ async function rStud(sb: SupabaseClient, sid: string, q: string, allowArchived =
   return { ok: true, student: st };
 }
 
-
 async function teaAccessible(sb: SupabaseClient, teacherId: string): Promise<boolean> {
   const { data } = await sb.from("teacher_assignments").select("establishment_id").eq("teacher_id", teacherId);
   for (const row of data ?? []) if (await acc(sb, row.establishment_id as string)) return true;
@@ -344,9 +336,7 @@ const TOOLS = [
   { name: "unarchive_student", description: "Désarchiver élève. REQUIRES confirmed+confirm_token.", parameters: { type: "object", properties: { confirmed: { type: "boolean" }, confirm_token: { type: "string" }, student_id: { type: "string" }, query: { type: "string" } }, required: [] as string[] } },
   { name: "transfer_student", description: "Transférer élève vers une classe. REQUIRES confirmed+confirm_token.", parameters: { type: "object", properties: { confirmed: { type: "boolean" }, confirm_token: { type: "string" }, student_id: { type: "string" }, query: { type: "string" }, to_class_name: { type: "string" }, to_class_id: { type: "string" }, class_name: { type: "string" } }, required: [] as string[] } },
   { name: "list_student_documents", description: "Liste documents d'un élève", parameters: { type: "object", properties: { student_id: { type: "string" }, query: { type: "string" } }, required: [] as string[] } },
-  { name: "generate_class_bulletins", description: "Préparer bulletins classe (fiches report_cards + docs). REQUIRES confirmed+confirm_token.", parameters: { type: "object", properties: { confirmed: { type: "boolean" }, confirm_token: { type: "string" }, class_id: { type: "string" }, class_name: { type: "string" }, period_number: { type: "number" }, period_id: { type: "string" } }, required: [] as string[] } }
-
-,
+  { name: "generate_class_bulletins", description: "Préparer bulletins classe (fiches report_cards + docs). REQUIRES confirmed+confirm_token.", parameters: { type: "object", properties: { confirmed: { type: "boolean" }, confirm_token: { type: "string" }, class_id: { type: "string" }, class_name: { type: "string" }, period_number: { type: "number" }, period_id: { type: "string" } }, required: [] as string[] } },
   { name: "get_student", description: "Fiche détaillée d'un élève", parameters: { type: "object", properties: { student_id: { type: "string" }, query: { type: "string" }, first_name: { type: "string" }, last_name: { type: "string" }, include_phones: { type: "boolean" } }, required: [] as string[] } },
   { name: "list_subjects", description: "Matières d'une classe", parameters: { type: "object", properties: { class_id: { type: "string" }, class_name: { type: "string" } }, required: [] as string[] } },
   { name: "list_establishments", description: "Liste des établissements accessibles", parameters: { type: "object", properties: { include_inactive: { type: "boolean" } }, required: [] as string[] } },
@@ -361,8 +351,6 @@ const TOOLS = [
   { name: "list_fee_plans", description: "Plans tarifaires / frais de scolarité", parameters: { type: "object", properties: { establishment_id: { type: "string" }, establishment_name: { type: "string" } }, required: [] as string[] } },
   { name: "list_student_enrollments", description: "Inscriptions / échéances d'un élève", parameters: { type: "object", properties: { student_id: { type: "string" }, query: { type: "string" } }, required: [] as string[] } },
   { name: "list_invitations", description: "Invitations admin en cours", parameters: { type: "object", properties: {}, required: [] as string[] } },
-
-
   { name: "enroll_student", description: "Inscrire un eleve (classe + plan tarifaire). REQUIRES confirmed+confirm_token.", parameters: { type: "object", properties: { confirmed: { type: "boolean" }, confirm_token: { type: "string" }, student_id: { type: "string" }, query: { type: "string" }, class_id: { type: "string" }, class_name: { type: "string" }, fee_plan_id: { type: "string" }, fee_plan_name: { type: "string" }, total_amount: { type: "number" } }, required: [] as string[] } },
   { name: "end_enrollment", description: "Cloturer une inscription eleve. REQUIRES confirmed+confirm_token.", parameters: { type: "object", properties: { confirmed: { type: "boolean" }, confirm_token: { type: "string" }, enrollment_id: { type: "string" }, student_id: { type: "string" }, query: { type: "string" } }, required: [] as string[] } },
   { name: "get_teacher", description: "Fiche detaillee d'un enseignant + affectations", parameters: { type: "object", properties: { teacher_id: { type: "string" }, query: { type: "string" } }, required: [] as string[] } },
@@ -505,7 +493,6 @@ async function upGrade(sb: SupabaseClient, a: Record<string, unknown>): Promise<
   return { ok: true, data: { created: true, grade_id: ins.id, nature, value, scale } };
 }
 
-
 async function bulkUpGrades(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
   const _cw = await requireWrite(sb, "bulk_upsert_grades", a);
   if (_cw) return _cw;
@@ -592,7 +579,6 @@ async function bulkUpGrades(sb: SupabaseClient, a: Record<string, unknown>): Pro
         const key = qn.trim().toLowerCase();
         st = byName.get(key);
         if (!st) {
-          // partial match
           for (const [k, v] of byName) {
             if (k.includes(key) || key.includes(k)) { st = v; break; }
           }
@@ -619,7 +605,6 @@ async function bulkUpGrades(sb: SupabaseClient, a: Record<string, unknown>): Pro
           continue;
         }
       }
-      // evaluation: always insert new sequence (or update seq 1 if exists for simplicity on bulk)
       let sequence_number = 1;
       if (nature === "evaluation") {
         const { data: prior } = await sb.from("grades").select("sequence_number").eq("student_id", stId).eq("period_id", pid).eq("subject_id", sid).eq("nature", "evaluation").order("sequence_number", { ascending: false }).limit(1);
@@ -719,148 +704,150 @@ async function closePeriod(sb: SupabaseClient, a: Record<string, unknown>): Prom
   return { ok: true, data: { period_id: pid, closed: !reopen, class_name: r.className } };
 }
 
-
-const WD=["","lundi","mardi","mercredi","jeudi","vendredi","samedi","dimanche"];
+const WD = ["", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"];
 async function createCls(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
-  const _cw=await requireWrite(sb,"create_class",a); if(_cw) return _cw;
-  const name=s(a.name)||s(a.class_name); if(!name) return {ok:false,error:{code:"VALIDATION",message:"name requis."}};
-  const er=await rEst(sb,s(a.establishment_id),s(a.establishment_name)); if(!er.ok) return er;
-  const capacity=Number(a.capacity??50);
-  const {data,error}=await sb.from("classes").insert({name,establishment_id:er.establishmentId,capacity:Number.isFinite(capacity)?capacity:50,is_active:true} as never).select("id,name").single();
-  if(error) return {ok:false,error:{code:"INTERNAL",message:error.message}};
-  await writeAuditLog(sb,"create","class",data.id,er.establishmentId,{name});
-  return {ok:true,data:{created:true,id:data.id,name:data.name,establishment:er.name}};
+  const _cw = await requireWrite(sb, "create_class", a); if (_cw) return _cw;
+  const name = s(a.name) || s(a.class_name); if (!name) return { ok: false, error: { code: "VALIDATION", message: "name requis." } };
+  const er = await rEst(sb, s(a.establishment_id), s(a.establishment_name)); if (!er.ok) return er;
+  const capacity = Number(a.capacity ?? 50);
+  const { data, error } = await sb.from("classes").insert({ name, establishment_id: er.establishmentId, capacity: Number.isFinite(capacity) ? capacity : 50, is_active: true } as never).select("id,name").single();
+  if (error) return { ok: false, error: { code: "INTERNAL", message: error.message } };
+  await writeAuditLog(sb, "create", "class", data.id, er.establishmentId, { name });
+  return { ok: true, data: { created: true, id: data.id, name: data.name, establishment: er.name } };
 }
 async function updateCls(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
-  const _cw=await requireWrite(sb,"update_class",a); if(_cw) return _cw;
-  const r=await rClass(sb,s(a.class_id),s(a.class_name)||s(a.query)); if(!r.ok) return r;
-  const patch: Record<string, unknown>={};
-  if(s(a.name)||s(a.new_name)) patch.name=s(a.name)||s(a.new_name);
-  if(a.capacity!=null) patch.capacity=Number(a.capacity);
-  if(a.is_active===true||a.is_active===false||a.is_active==="true"||a.is_active==="false") patch.is_active=a.is_active===true||a.is_active==="true";
-  if(!Object.keys(patch).length) return {ok:false,error:{code:"VALIDATION",message:"Aucun champ à modifier."}};
-  const {error}=await sb.from("classes").update(patch as never).eq("id",r.classId);
-  if(error) return {ok:false,error:{code:"INTERNAL",message:error.message}};
-  await writeAuditLog(sb,"update","class",r.classId,r.establishmentId,{fields:Object.keys(patch)});
-  return {ok:true,data:{updated:true,id:r.classId,fields:Object.keys(patch)}};
+  const _cw = await requireWrite(sb, "update_class", a); if (_cw) return _cw;
+  const r = await rClass(sb, s(a.class_id), s(a.class_name) || s(a.query)); if (!r.ok) return r;
+  const patch: Record<string, unknown> = {};
+  if (s(a.name) || s(a.new_name)) patch.name = s(a.name) || s(a.new_name);
+  if (a.capacity != null) patch.capacity = Number(a.capacity);
+  if (a.is_active === true || a.is_active === false || a.is_active === "true" || a.is_active === "false") patch.is_active = a.is_active === true || a.is_active === "true";
+  if (!Object.keys(patch).length) return { ok: false, error: { code: "VALIDATION", message: "Aucun champ à modifier." } };
+  const { error } = await sb.from("classes").update(patch as never).eq("id", r.classId);
+  if (error) return { ok: false, error: { code: "INTERNAL", message: error.message } };
+  await writeAuditLog(sb, "update", "class", r.classId, r.establishmentId, { fields: Object.keys(patch) });
+  return { ok: true, data: { updated: true, id: r.classId, fields: Object.keys(patch) } };
 }
 async function addSub(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
-  const _cw=await requireWrite(sb,"add_class_subject",a); if(_cw) return _cw;
-  const r=await rClass(sb,s(a.class_id),s(a.class_name)); if(!r.ok) return r;
-  const name=s(a.subject_name)||s(a.name); if(!name) return {ok:false,error:{code:"VALIDATION",message:"subject_name requis."}};
-  const {data,error}=await sb.from("class_subjects").insert({class_id:r.classId,establishment_id:r.establishmentId,name} as never).select("id,name").single();
-  if(error) return {ok:false,error:{code:"INTERNAL",message:error.message}};
-  await writeAuditLog(sb,"create","class_subject",data.id,r.establishmentId,{name});
-  return {ok:true,data:{created:true,subject:data,class_name:r.className}};
+  const _cw = await requireWrite(sb, "add_class_subject", a); if (_cw) return _cw;
+  const r = await rClass(sb, s(a.class_id), s(a.class_name)); if (!r.ok) return r;
+  const name = s(a.subject_name) || s(a.name); if (!name) return { ok: false, error: { code: "VALIDATION", message: "subject_name requis." } };
+  const { data, error } = await sb.from("class_subjects").insert({ class_id: r.classId, establishment_id: r.establishmentId, name } as never).select("id,name").single();
+  if (error) return { ok: false, error: { code: "INTERNAL", message: error.message } };
+  await writeAuditLog(sb, "create", "class_subject", data.id, r.establishmentId, { name });
+  return { ok: true, data: { created: true, subject: data, class_name: r.className } };
 }
 async function remSub(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
-  const _cw=await requireWrite(sb,"remove_class_subject",a); if(_cw) return _cw;
-  const r=await rClass(sb,s(a.class_id),s(a.class_name)); if(!r.ok) return r;
-  let sid=s(a.subject_id); const name=s(a.subject_name)||s(a.name);
-  if(!iu(sid)&&name){ const {data:subs}=await sb.from("class_subjects").select("id,name").eq("class_id",r.classId).ilike("name",`%${name}%`).limit(5);
-    if(!subs?.length) return {ok:false,error:{code:"NOT_FOUND",message:"Matière introuvable."}};
-    if(subs.length>1) return {ok:false,error:{code:"AMBIGUOUS",message:"Plusieurs matières.",candidates:subs}}; sid=subs[0].id; }
-  if(!iu(sid)) return {ok:false,error:{code:"VALIDATION",message:"subject_id ou subject_name requis."}};
-  const {error}=await sb.from("class_subjects").delete().eq("id",sid);
-  if(error) return {ok:false,error:{code:"INTERNAL",message:error.message}};
-  await writeAuditLog(sb,"delete","class_subject",sid,r.establishmentId,{});
-  return {ok:true,data:{deleted:true,subject_id:sid}};
+  const _cw = await requireWrite(sb, "remove_class_subject", a); if (_cw) return _cw;
+  const r = await rClass(sb, s(a.class_id), s(a.class_name)); if (!r.ok) return r;
+  let sid = s(a.subject_id); const name = s(a.subject_name) || s(a.name);
+  if (!iu(sid) && name) {
+    const { data: subs } = await sb.from("class_subjects").select("id,name").eq("class_id", r.classId).ilike("name", `%${name}%`).limit(5);
+    if (!subs?.length) return { ok: false, error: { code: "NOT_FOUND", message: "Matière introuvable." } };
+    if (subs.length > 1) return { ok: false, error: { code: "AMBIGUOUS", message: "Plusieurs matières.", candidates: subs } };
+    sid = subs[0].id;
+  }
+  if (!iu(sid)) return { ok: false, error: { code: "VALIDATION", message: "subject_id ou subject_name requis." } };
+  const { error } = await sb.from("class_subjects").delete().eq("id", sid);
+  if (error) return { ok: false, error: { code: "INTERNAL", message: error.message } };
+  await writeAuditLog(sb, "delete", "class_subject", sid, r.establishmentId, {});
+  return { ok: true, data: { deleted: true, subject_id: sid } };
 }
 async function createTea(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
-  const _cw=await requireWrite(sb,"create_teacher",a); if(_cw) return _cw;
-  const first=s(a.first_name), last=s(a.last_name);
-  if(!first||!last) return {ok:false,error:{code:"VALIDATION",message:"first_name et last_name requis."}};
-  if(!s(a.establishment_id)&&!s(a.establishment_name)) return {ok:false,error:{code:"VALIDATION",message:"establishment requis."}};
-  const er=await rEst(sb,s(a.establishment_id),s(a.establishment_name)); if(!er.ok) return er;
-  const row: Record<string, unknown>={first_name:first,last_name:last};
-  if(s(a.domain)) row.domain=s(a.domain); if(s(a.phone)) row.phone=s(a.phone);
-  const {data,error}=await sb.from("teachers").insert(row as never).select("id,first_name,last_name").single();
-  if(error) return {ok:false,error:{code:"INTERNAL",message:error.message}};
-  const pm=s(a.payment_method)==="hourly"?"hourly":"fixed_salary";
-  const {error:ae}=await sb.from("teacher_assignments").insert({teacher_id:data.id,establishment_id:er.establishmentId,is_active:true,payment_method:pm,salary_amount:Number(a.salary_amount??0)||0,hourly_rate:Number(a.hourly_rate??0)||0} as never);
-  if(ae) return {ok:false,error:{code:"INTERNAL",message:ae.message}};
-  await writeAuditLog(sb,"create","teacher",data.id,er.establishmentId,{});
-  return {ok:true,data:{created:true,id:data.id,name:fn(data.last_name,data.first_name),establishment_name:er.name}};
+  const _cw = await requireWrite(sb, "create_teacher", a); if (_cw) return _cw;
+  const first = s(a.first_name), last = s(a.last_name);
+  if (!first || !last) return { ok: false, error: { code: "VALIDATION", message: "first_name et last_name requis." } };
+  if (!s(a.establishment_id) && !s(a.establishment_name)) return { ok: false, error: { code: "VALIDATION", message: "establishment requis." } };
+  const er = await rEst(sb, s(a.establishment_id), s(a.establishment_name)); if (!er.ok) return er;
+  const row: Record<string, unknown> = { first_name: first, last_name: last };
+  if (s(a.domain)) row.domain = s(a.domain); if (s(a.phone)) row.phone = s(a.phone);
+  const { data, error } = await sb.from("teachers").insert(row as never).select("id,first_name,last_name").single();
+  if (error) return { ok: false, error: { code: "INTERNAL", message: error.message } };
+  const pm = s(a.payment_method) === "hourly" ? "hourly" : "fixed_salary";
+  const { error: ae } = await sb.from("teacher_assignments").insert({ teacher_id: data.id, establishment_id: er.establishmentId, is_active: true, payment_method: pm, salary_amount: Number(a.salary_amount ?? 0) || 0, hourly_rate: Number(a.hourly_rate ?? 0) || 0 } as never);
+  if (ae) return { ok: false, error: { code: "INTERNAL", message: ae.message } };
+  await writeAuditLog(sb, "create", "teacher", data.id, er.establishmentId, {});
+  return { ok: true, data: { created: true, id: data.id, name: fn(data.last_name, data.first_name), establishment_name: er.name } };
 }
 async function updateTea(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
-  const _cw=await requireWrite(sb,"update_teacher",a); if(_cw) return _cw;
-  const r=await rTea(sb,s(a.teacher_id),s(a.query)||s(a.teacher_name)); if(!r.ok) return r;
-  const patch: Record<string, unknown>={};
-  for (const k of ["first_name","last_name","domain","phone"] as const) if(s(a[k])) patch[k]=s(a[k]);
-  if(!Object.keys(patch).length) return {ok:false,error:{code:"VALIDATION",message:"Aucun champ."}};
-  const {error}=await sb.from("teachers").update(patch as never).eq("id",r.teacher.id as string);
-  if(error) return {ok:false,error:{code:"INTERNAL",message:error.message}};
-  await writeAuditLog(sb,"update","teacher",r.teacher.id as string,null,{fields:Object.keys(patch)});
-  return {ok:true,data:{updated:true,id:r.teacher.id,fields:Object.keys(patch)}};
+  const _cw = await requireWrite(sb, "update_teacher", a); if (_cw) return _cw;
+  const r = await rTea(sb, s(a.teacher_id), s(a.query) || s(a.teacher_name)); if (!r.ok) return r;
+  const patch: Record<string, unknown> = {};
+  for (const k of ["first_name", "last_name", "domain", "phone"] as const) if (s(a[k])) patch[k] = s(a[k]);
+  if (!Object.keys(patch).length) return { ok: false, error: { code: "VALIDATION", message: "Aucun champ." } };
+  const { error } = await sb.from("teachers").update(patch as never).eq("id", r.teacher.id as string);
+  if (error) return { ok: false, error: { code: "INTERNAL", message: error.message } };
+  await writeAuditLog(sb, "update", "teacher", r.teacher.id as string, null, { fields: Object.keys(patch) });
+  return { ok: true, data: { updated: true, id: r.teacher.id, fields: Object.keys(patch) } };
 }
 async function archiveTea(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
-  const _cw=await requireWrite(sb,"archive_teacher",a); if(_cw) return _cw;
-  const un=a.unarchive===true||a.unarchive==="true";
-  const r=await rTea(sb,s(a.teacher_id),s(a.query)||s(a.teacher_name)); if(!r.ok) return r;
-  const {error}=await sb.from("teachers").update({archived_at:un?null:new Date().toISOString()} as never).eq("id",r.teacher.id as string);
-  if(error) return {ok:false,error:{code:"INTERNAL",message:error.message}};
-  await writeAuditLog(sb,un?"unarchive":"archive","teacher",r.teacher.id as string,null,{});
-  return {ok:true,data:{archived:!un,id:r.teacher.id,name:fn(r.teacher.last_name as string,r.teacher.first_name as string)}};
+  const _cw = await requireWrite(sb, "archive_teacher", a); if (_cw) return _cw;
+  const un = a.unarchive === true || a.unarchive === "true";
+  const r = await rTea(sb, s(a.teacher_id), s(a.query) || s(a.teacher_name)); if (!r.ok) return r;
+  const { error } = await sb.from("teachers").update({ archived_at: un ? null : new Date().toISOString() } as never).eq("id", r.teacher.id as string);
+  if (error) return { ok: false, error: { code: "INTERNAL", message: error.message } };
+  await writeAuditLog(sb, un ? "unarchive" : "archive", "teacher", r.teacher.id as string, null, {});
+  return { ok: true, data: { archived: !un, id: r.teacher.id, name: fn(r.teacher.last_name as string, r.teacher.first_name as string) } };
 }
 async function deleteTea(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
-  const _cw=await requireWrite(sb,"delete_teacher_complete",a); if(_cw) return _cw;
-  const r=await rTea(sb,s(a.teacher_id),s(a.query)||s(a.teacher_name)); if(!r.ok) return r;
-  const tid=r.teacher.id as string;
-  const {error}=await sb.rpc("delete_teacher_complete",{target_teacher_id:tid});
-  if(error) return {ok:false,error:{code:"INTERNAL",message:error.message}};
-  await writeAuditLog(sb,"delete","teacher",tid,null,{});
-  return {ok:true,data:{deleted:true,id:tid,name:fn(r.teacher.last_name as string,r.teacher.first_name as string)}};
+  const _cw = await requireWrite(sb, "delete_teacher_complete", a); if (_cw) return _cw;
+  const r = await rTea(sb, s(a.teacher_id), s(a.query) || s(a.teacher_name)); if (!r.ok) return r;
+  const tid = r.teacher.id as string;
+  const { error } = await sb.rpc("delete_teacher_complete", { target_teacher_id: tid });
+  if (error) return { ok: false, error: { code: "INTERNAL", message: error.message } };
+  await writeAuditLog(sb, "delete", "teacher", tid, null, {});
+  return { ok: true, data: { deleted: true, id: tid, name: fn(r.teacher.last_name as string, r.teacher.first_name as string) } };
 }
 async function getTeacherSchedule(sb: SupabaseClient, args: Record<string, unknown>): Promise<TR> {
-  const tr=await rTea(sb,s(args.teacher_id),s(args.query)||s(args.teacher_name)); if(!tr.ok) return tr;
-  const {data:assigns}=await sb.from("teacher_assignments").select("id,establishment_id,is_active").eq("teacher_id",tr.teacher.id as string);
-  const sessions: Record<string, unknown>[]=[];
-  for (const a of assigns??[]) {
-    if(!(await acc(sb,a.establishment_id))) continue;
-    const {data:sess}=await sb.from("teacher_sessions").select("id,name,weekday,duration_minutes,is_done,class_id,subject_id").eq("assignment_id",a.id);
-    for (const row of sess??[]) sessions.push({...row,weekday_label:WD[Number(row.weekday)]||String(row.weekday)});
+  const tr = await rTea(sb, s(args.teacher_id), s(args.query) || s(args.teacher_name)); if (!tr.ok) return tr;
+  const { data: assigns } = await sb.from("teacher_assignments").select("id,establishment_id,is_active").eq("teacher_id", tr.teacher.id as string);
+  const sessions: Record<string, unknown>[] = [];
+  for (const a of assigns ?? []) {
+    if (!(await acc(sb, a.establishment_id))) continue;
+    const { data: sess } = await sb.from("teacher_sessions").select("id,name,weekday,duration_minutes,is_done,class_id,subject_id").eq("assignment_id", a.id);
+    for (const row of sess ?? []) sessions.push({ ...row, weekday_label: WD[Number(row.weekday)] || String(row.weekday) });
   }
-  sessions.sort((x,y)=>Number(x.weekday)-Number(y.weekday));
-  return {ok:true,data:{teacher:fn(tr.teacher.last_name as string,tr.teacher.first_name as string),sessions}};
+  sessions.sort((x, y) => Number(x.weekday) - Number(y.weekday));
+  return { ok: true, data: { teacher: fn(tr.teacher.last_name as string, tr.teacher.first_name as string), sessions } };
 }
 async function addTeacherSession(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
-  const _cw=await requireWrite(sb,"add_teacher_session",a); if(_cw) return _cw;
-  const tr=await rTea(sb,s(a.teacher_id),s(a.query)||s(a.teacher_name)); if(!tr.ok) return tr;
-  const name=s(a.name); const weekday=Number(a.weekday);
-  if(!name) return {ok:false,error:{code:"VALIDATION",message:"name requis."}};
-  if(!Number.isFinite(weekday)||weekday<1||weekday>7) return {ok:false,error:{code:"VALIDATION",message:"weekday 1-7."}};
-  let eid=s(a.establishment_id);
-  if(!iu(eid)&&s(a.establishment_name)){ const er=await rEst(sb,"",s(a.establishment_name)); if(!er.ok) return er; eid=er.establishmentId; }
-  let qq=sb.from("teacher_assignments").select("id,establishment_id").eq("teacher_id",tr.teacher.id as string).eq("is_active",true);
-  if(iu(eid)) qq=qq.eq("establishment_id",eid);
-  const {data:assigns}=await qq;
-  const okA=[]; for(const asg of assigns??[]) if(await acc(sb,asg.establishment_id)) okA.push(asg);
-  if(!okA.length) return {ok:false,error:{code:"NOT_FOUND",message:"Pas d'affectation active."}};
-  if(okA.length>1&&!iu(eid)) return {ok:false,error:{code:"AMBIGUOUS",message:"Plusieurs établissements.",candidates:okA}};
-  const assignmentId=okA[0].id, establishmentId=okA[0].establishment_id;
-  let classId: string|null=null;
-  if(s(a.class_id)||s(a.class_name)){ const cr=await rClass(sb,s(a.class_id),s(a.class_name)); if(!cr.ok) return cr; classId=cr.classId; }
-  const {data:existing}=await sb.from("teacher_sessions").select("id,name,weekday").eq("assignment_id",assignmentId).eq("weekday",weekday);
-  const force=a.force===true||a.force==="true";
-  if((existing?.length??0)>0&&!force) return {ok:false,error:{code:"CONFLICT",message:`Conflit le ${WD[weekday]} (${existing!.length} séance(s)). Relancez avec force=true.`,candidates:existing}};
-  const row: Record<string, unknown>={assignment_id:assignmentId,name,weekday,duration_minutes:Number(a.duration_minutes??60)||60,is_done:false};
-  if(classId) row.class_id=classId;
-  const {data:ins,error}=await sb.from("teacher_sessions").insert(row as never).select("id,name,weekday,duration_minutes").single();
-  if(error) return {ok:false,error:{code:"INTERNAL",message:error.message}};
-  await writeAuditLog(sb,"create","teacher_session",ins.id,establishmentId,{weekday,name});
-  return {ok:true,data:{created:true,session:{...ins,weekday_label:WD[weekday]},teacher:fn(tr.teacher.last_name as string,tr.teacher.first_name as string)}};
+  const _cw = await requireWrite(sb, "add_teacher_session", a); if (_cw) return _cw;
+  const tr = await rTea(sb, s(a.teacher_id), s(a.query) || s(a.teacher_name)); if (!tr.ok) return tr;
+  const name = s(a.name); const weekday = Number(a.weekday);
+  if (!name) return { ok: false, error: { code: "VALIDATION", message: "name requis." } };
+  if (!Number.isFinite(weekday) || weekday < 1 || weekday > 7) return { ok: false, error: { code: "VALIDATION", message: "weekday 1-7." } };
+  let eid = s(a.establishment_id);
+  if (!iu(eid) && s(a.establishment_name)) { const er = await rEst(sb, "", s(a.establishment_name)); if (!er.ok) return er; eid = er.establishmentId; }
+  let qq = sb.from("teacher_assignments").select("id,establishment_id").eq("teacher_id", tr.teacher.id as string).eq("is_active", true);
+  if (iu(eid)) qq = qq.eq("establishment_id", eid);
+  const { data: assigns } = await qq;
+  const okA = []; for (const asg of assigns ?? []) if (await acc(sb, asg.establishment_id)) okA.push(asg);
+  if (!okA.length) return { ok: false, error: { code: "NOT_FOUND", message: "Pas d'affectation active." } };
+  if (okA.length > 1 && !iu(eid)) return { ok: false, error: { code: "AMBIGUOUS", message: "Plusieurs établissements.", candidates: okA } };
+  const assignmentId = okA[0].id, establishmentId = okA[0].establishment_id;
+  let classId: string | null = null;
+  if (s(a.class_id) || s(a.class_name)) { const cr = await rClass(sb, s(a.class_id), s(a.class_name)); if (!cr.ok) return cr; classId = cr.classId; }
+  const { data: existing } = await sb.from("teacher_sessions").select("id,name,weekday").eq("assignment_id", assignmentId).eq("weekday", weekday);
+  const force = a.force === true || a.force === "true";
+  if ((existing?.length ?? 0) > 0 && !force) return { ok: false, error: { code: "CONFLICT", message: `Conflit le ${WD[weekday]} (${existing!.length} séance(s)). Relancez avec force=true.`, candidates: existing } };
+  const row: Record<string, unknown> = { assignment_id: assignmentId, name, weekday, duration_minutes: Number(a.duration_minutes ?? 60) || 60, is_done: false };
+  if (classId) row.class_id = classId;
+  const { data: ins, error } = await sb.from("teacher_sessions").insert(row as never).select("id,name,weekday,duration_minutes").single();
+  if (error) return { ok: false, error: { code: "INTERNAL", message: error.message } };
+  await writeAuditLog(sb, "create", "teacher_session", ins.id, establishmentId, { weekday, name });
+  return { ok: true, data: { created: true, session: { ...ins, weekday_label: WD[weekday] }, teacher: fn(tr.teacher.last_name as string, tr.teacher.first_name as string) } };
 }
 async function deleteTeacherSession(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
-  const _cw=await requireWrite(sb,"delete_teacher_session",a); if(_cw) return _cw;
-  const sid=s(a.session_id); if(!iu(sid)) return {ok:false,error:{code:"VALIDATION",message:"session_id requis."}};
-  const {data:sess}=await sb.from("teacher_sessions").select("id,assignment_id,name").eq("id",sid).maybeSingle();
-  if(!sess) return {ok:false,error:{code:"NOT_FOUND",message:"Séance introuvable."}};
-  const {data:asg}=await sb.from("teacher_assignments").select("establishment_id").eq("id",sess.assignment_id).maybeSingle();
-  if(!asg||!(await acc(sb,asg.establishment_id))) return {ok:false,error:{code:"FORBIDDEN",message:"Accès refusé."}};
-  const {error}=await sb.from("teacher_sessions").delete().eq("id",sid);
-  if(error) return {ok:false,error:{code:"INTERNAL",message:error.message}};
-  await writeAuditLog(sb,"delete","teacher_session",sid,asg.establishment_id,{name:sess.name});
-  return {ok:true,data:{deleted:true,session_id:sid}};
+  const _cw = await requireWrite(sb, "delete_teacher_session", a); if (_cw) return _cw;
+  const sid = s(a.session_id); if (!iu(sid)) return { ok: false, error: { code: "VALIDATION", message: "session_id requis." } };
+  const { data: sess } = await sb.from("teacher_sessions").select("id,assignment_id,name").eq("id", sid).maybeSingle();
+  if (!sess) return { ok: false, error: { code: "NOT_FOUND", message: "Séance introuvable." } };
+  const { data: asg } = await sb.from("teacher_assignments").select("establishment_id").eq("id", sess.assignment_id).maybeSingle();
+  if (!asg || !(await acc(sb, asg.establishment_id))) return { ok: false, error: { code: "FORBIDDEN", message: "Accès refusé." } };
+  const { error } = await sb.from("teacher_sessions").delete().eq("id", sid);
+  if (error) return { ok: false, error: { code: "INTERNAL", message: error.message } };
+  await writeAuditLog(sb, "delete", "teacher_session", sid, asg.establishment_id, { name: sess.name });
+  return { ok: true, data: { deleted: true, session_id: sid } };
 }
 
 async function createStu(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
@@ -1029,8 +1016,6 @@ async function generateClsBulletins(sb: SupabaseClient, a: Record<string, unknow
     },
   };
 }
-
-
 async function getStu(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
   const r = await rStud(sb, s(a.student_id), s(a.query) || [s(a.first_name), s(a.last_name)].filter(Boolean).join(" "), true);
   if (!r.ok) return r;
@@ -1173,7 +1158,6 @@ async function archiveCls(sb: SupabaseClient, a: Record<string, unknown>): Promi
 }
 async function unarchiveCls(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
   const _cw = await requireWrite(sb, "unarchive_class", a); if (_cw) return _cw;
-  // rClass only finds is_active true — allow inactive by id or name without is_active filter
   let classId = s(a.class_id), className = s(a.class_name) || s(a.query), establishmentId = "";
   if (iu(classId)) {
     const { data: k } = await sb.from("classes").select("id,name,establishment_id").eq("id", classId).maybeSingle();
@@ -1519,6 +1503,8 @@ async function listSessCompletions(sb: SupabaseClient, a: Record<string, unknown
   }
   return { ok: true, data: { teacher: fn(tr.teacher.last_name as string, tr.teacher.first_name as string), count: out.length, completions: out.slice(0, 40) } };
 }
+// ==================== PARTIE 4 SUR 4 (Lignes 1521 à la fin) ====================
+
 async function createFeePlan(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
   const _cw = await requireWrite(sb, "create_fee_plan", a); if (_cw) return _cw;
   const er = await rEst(sb, s(a.establishment_id), s(a.establishment_name));
@@ -1532,6 +1518,7 @@ async function createFeePlan(sb: SupabaseClient, a: Record<string, unknown>): Pr
   await writeAuditLog(sb, "create", "fee_plan", data.id, er.establishmentId, { name, total });
   return { ok: true, data: { created: true, fee_plan: data } };
 }
+
 async function updateFeePlan(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
   const _cw = await requireWrite(sb, "update_fee_plan", a); if (_cw) return _cw;
   const pid = s(a.fee_plan_id);
@@ -1551,6 +1538,7 @@ async function updateFeePlan(sb: SupabaseClient, a: Record<string, unknown>): Pr
   await writeAuditLog(sb, "update", "fee_plan", pid, p.establishment_id, patch);
   return { ok: true, data: { updated: true, fee_plan: data } };
 }
+
 async function listFeeInstallments(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
   let pid = s(a.fee_plan_id);
   if (!iu(pid) && s(a.fee_plan_name)) {
@@ -1567,12 +1555,12 @@ async function listFeeInstallments(sb: SupabaseClient, a: Record<string, unknown
   const { data: inst } = await sb.from("fee_plan_installments").select("id,label,amount,due_date,position").eq("fee_plan_id", pid).order("position");
   return { ok: true, data: { fee_plan: { id: p.id, name: p.name, total_amount: p.total_amount }, installments: inst ?? [] } };
 }
+
 async function getEst(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
   const er = await rEst(sb, s(a.establishment_id), s(a.establishment_name));
   if (!er.ok) return er;
   const { data } = await sb.from("establishments").select("id,name,type,description,phone,address,is_active,logo_url").eq("id", er.establishmentId).maybeSingle();
   if (!data) return { ok: false, error: { code: "NOT_FOUND", message: "Etablissement introuvable." } };
-  // Effectif = élèves non archivés affectés à une classe active de cet établissement uniquement.
   const { data: actClasses } = await sb.from("classes").select("id").eq("establishment_id", er.establishmentId).eq("is_active", true);
   const classIds = (actClasses ?? []).map((c) => c.id as string);
   let eleves = 0;
@@ -1590,6 +1578,7 @@ async function getEst(sb: SupabaseClient, a: Record<string, unknown>): Promise<T
     } as never,
   };
 }
+
 async function updateEst(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
   const _cw = await requireWrite(sb, "update_establishment", a); if (_cw) return _cw;
   const er = await rEst(sb, s(a.establishment_id), s(a.establishment_name));
@@ -1605,6 +1594,7 @@ async function updateEst(sb: SupabaseClient, a: Record<string, unknown>): Promis
   await writeAuditLog(sb, "update", "establishment", er.establishmentId, er.establishmentId, patch);
   return { ok: true, data: { updated: true, establishment: data } };
 }
+
 async function listTransfers(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
   const lim = Math.min(Number(a.limit) || 30, 50);
   if (s(a.student_id) || s(a.query)) {
@@ -1621,6 +1611,7 @@ async function listTransfers(sb: SupabaseClient, a: Record<string, unknown>): Pr
   }
   return { ok: true, data: { count: out.length, transfers: out } };
 }
+
 async function assignTea(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
   const _cw = await requireWrite(sb, "assign_teacher", a); if (_cw) return _cw;
   const tr = await rTea(sb, s(a.teacher_id), s(a.query));
@@ -1639,6 +1630,7 @@ async function assignTea(sb: SupabaseClient, a: Record<string, unknown>): Promis
   await writeAuditLog(sb, "assign", "teacher", tr.teacher.id as string, er.establishmentId, { method });
   return { ok: true, data: { assigned: true, teacher: fn(tr.teacher.last_name as string, tr.teacher.first_name as string), establishment: er.name, assignment: data } };
 }
+
 async function unassignTea(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
   const _cw = await requireWrite(sb, "unassign_teacher", a); if (_cw) return _cw;
   let aid = s(a.assignment_id);
@@ -1658,6 +1650,7 @@ async function unassignTea(sb: SupabaseClient, a: Record<string, unknown>): Prom
   await writeAuditLog(sb, "unassign", "teacher", asg.teacher_id, asg.establishment_id, {});
   return { ok: true, data: { unassigned: true, assignment_id: aid } };
 }
+
 async function listTeaAssigns(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
   const tr = await rTea(sb, s(a.teacher_id), s(a.query));
   if (!tr.ok) return tr;
@@ -1670,6 +1663,7 @@ async function listTeaAssigns(sb: SupabaseClient, a: Record<string, unknown>): P
   }
   return { ok: true, data: { teacher: fn(tr.teacher.last_name as string, tr.teacher.first_name as string), assignments: out } };
 }
+
 async function searchGrades(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
   const cr = await rClass(sb, s(a.class_id), s(a.class_name));
   if (!cr.ok) return cr;
@@ -1679,15 +1673,12 @@ async function searchGrades(sb: SupabaseClient, a: Record<string, unknown>): Pro
   if (!ids.length) return { ok: true, data: { class_name: cr.className, count: 0, grades: [] } };
   const names: Record<string, string> = {};
   for (const st of studs ?? []) names[st.id] = fn(st.last_name, st.first_name);
-  let q = sb.from("grades").select("id,student_id,value,scale,nature,created_at").in("student_id", ids).order("created_at", { ascending: false }).limit(lim);
-  // subject filter via join-like: grades may use subject_id - keep simple
-  if (a.period_number !== undefined && a.period_number !== null && a.period_number !== "") {
-    // period may be on grade_periods relation - skip if column missing handled by error
-  }
+  const q = sb.from("grades").select("id,student_id,value,scale,nature,created_at").in("student_id", ids).order("created_at", { ascending: false }).limit(lim);
   const { data, error } = await q;
   if (error) return { ok: false, error: { code: "INTERNAL", message: error.message } };
   return { ok: true, data: { class_name: cr.className, count: (data ?? []).length, grades: (data ?? []).map((g) => ({ id: g.id, student: names[g.student_id as string] || g.student_id, value: g.value, scale: g.scale, nature: g.nature, created_at: g.created_at })) } };
 }
+
 async function exportRoster(sb: SupabaseClient, a: Record<string, unknown>): Promise<TR> {
   const cr = await rClass(sb, s(a.class_id), s(a.class_name));
   if (!cr.ok) return cr;
@@ -1703,7 +1694,6 @@ async function runTool(sb: SupabaseClient, name: string, args: Record<string, un
       case "list_capabilities":
         return { ok: true, data: { version: "lot1+lot2+lot3+lot4", tools: TOOLS.map((t) => t.name), lecture: TOOLS.filter((t) => !String(t.description||"").includes("REQUIRES confirmed")).map((t) => t.name), ecriture: TOOLS.filter((t) => String(t.description||"").includes("REQUIRES confirmed")).map((t) => t.name) } };
       case "get_complex_overview": {
-        // Élèves actifs = non archivés + class_id dans une classe active (exclut « sans classe »).
         const { data: actCls } = await sb.from("classes").select("id").eq("is_active", true);
         const classIds = (actCls ?? []).map((c) => c.id as string);
         const [{ count: students }, { count: classes }, { count: teachers }] = await Promise.all([
@@ -1724,11 +1714,7 @@ async function runTool(sb: SupabaseClient, name: string, args: Record<string, un
         };
       }
       case "list_students": {
-        // Par défaut : uniquement élèves en classe active. include_unassigned=true pour aussi lister les sans classe.
-        const includeUnassigned =
-          args.include_unassigned === true ||
-          args.include_unassigned === "true" ||
-          args.include_unassigned === 1;
+        const includeUnassigned = args.include_unassigned === true || args.include_unassigned === "true" || args.include_unassigned === 1;
         const { data: actCls } = await sb.from("classes").select("id").eq("is_active", true);
         const classIds = (actCls ?? []).map((c) => c.id as string);
         let q = sb.from("students").select("id,first_name,last_name,class_id").is("archived_at", null).order("last_name").limit(Number(args.limit) || 40);
@@ -1815,7 +1801,6 @@ async function runTool(sb: SupabaseClient, name: string, args: Record<string, un
       case "add_teacher_session": return addTeacherSession(sb, args);
       case "delete_teacher_session": return deleteTeacherSession(sb, args);
 
-      
       case "create_student": return createStu(sb, args);
       case "update_student": return updateStu(sb, args);
       case "archive_student": return archiveStu(sb, args);
@@ -1824,7 +1809,6 @@ async function runTool(sb: SupabaseClient, name: string, args: Record<string, un
       case "list_student_documents": return listDocs(sb, args);
       case "generate_class_bulletins": return generateClsBulletins(sb, args);
 
-      
       case "get_student": return getStu(sb, args);
       case "list_subjects": return listSub(sb, args);
       case "list_establishments": return listEst(sb, args);
@@ -1840,7 +1824,6 @@ async function runTool(sb: SupabaseClient, name: string, args: Record<string, un
       case "list_student_enrollments": return listEnroll(sb, args);
       case "list_invitations": return listInvites(sb, args);
 
-      
       case "enroll_student": return enrollStu(sb, args);
       case "end_enrollment": return endEnroll(sb, args);
       case "get_teacher": return getTea(sb, args);
@@ -1881,9 +1864,12 @@ async function callGemini(key: string, contents: Content[]) {
   for (const model of MODELS) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
     try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 25_000);
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: SYSTEM }] },
           contents,
@@ -1891,6 +1877,7 @@ async function callGemini(key: string, contents: Content[]) {
           toolConfig: { functionCallingConfig: { mode: "AUTO" } },
         }),
       });
+      clearTimeout(timer);
       if (!res.ok) { console.error("gemini", model, res.status, (await res.text()).slice(0, 200)); continue; }
       return await res.json();
     } catch (e) { console.error("gemini fetch", model, e); }
@@ -1908,6 +1895,7 @@ function extract(j: { candidates?: { content?: { parts?: Content["parts"] } }[] 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return jr({ ok: false, error: { code: "VALIDATION", message: "Méthode non autorisée." } }, 405);
+  const startTime = Date.now();
   try {
     const authH = req.headers.get("Authorization") ?? "";
     if (!authH.toLowerCase().startsWith("bearer ")) return jr({ ok: false, error: { code: "UNAUTHENTICATED", message: "Session non authentifiée." } }, 401);
@@ -1922,7 +1910,7 @@ Deno.serve(async (req) => {
     try { body = await req.json(); } catch { return jr({ ok: false, error: { code: "VALIDATION", message: "JSON invalide." } }, 400); }
     const message = typeof body.message === "string" ? body.message.trim() : "";
     allowAffirmThisRequest = isAffirmative(message);
-    // Photos optionnelles (analyse vision Gemini)
+
     type ImgIn = { mimeType: string; data: string };
     const images: ImgIn[] = [];
     if (Array.isArray(body.images)) {
@@ -1931,10 +1919,9 @@ Deno.serve(async (req) => {
         const mimeType = typeof (im as { mimeType?: unknown }).mimeType === "string" ? String((im as { mimeType: string }).mimeType) : "";
         let data = typeof (im as { data?: unknown }).data === "string" ? String((im as { data: string }).data) : "";
         if (!mimeType.startsWith("image/") || !data) continue;
-        // strip data-URL prefix if present
         const b64 = data.indexOf("base64,");
         if (b64 >= 0) data = data.slice(b64 + 7);
-        if (data.length > 4_000_000) continue; // ~3 Mo max / image
+        if (data.length > 4_000_000) continue;
         images.push({ mimeType, data });
       }
     }
@@ -1950,7 +1937,6 @@ Deno.serve(async (req) => {
     const { data: ud2 } = await sb.auth.getUser();
     const uid = ud2?.user?.id ?? "";
 
-    // Si l'utilisateur confirme et qu'une action est en attente → exécuter directement (évite la boucle « Confirmez-vous ? »)
     if (uid && allowAffirmThisRequest) {
       const pending = pendingByUser.get(uid);
       if (pending && Date.now() <= pending.exp) {
@@ -1963,7 +1949,6 @@ Deno.serve(async (req) => {
           return jr({ ok: true, data: { reply: text || "Action effectuée avec succès." } });
         }
         const err = result.ok === false ? result.error : null;
-        // Si encore CONFIRMATION_REQUIRED malgré oui : allowAffirm devrait suffire ; sinon message clair
         if (err && err.code === "CONFIRMATION_REQUIRED") {
           pendingByUser.delete(uid);
           return jr({ ok: true, data: { reply: "La confirmation a expiré. Reformulez brièvement votre demande (ex. « renouvelle TSE »), puis confirmez par « oui »." } });
@@ -1975,7 +1960,6 @@ Deno.serve(async (req) => {
 
     const contents: Content[] = [];
     for (const h of history.slice(-12)) contents.push({ role: h.role === "user" ? "user" : "model", parts: [{ text: h.content }] });
-    // Indice pour Gemini si une conf est en attente
     const pend = uid ? pendingByUser.get(uid) : undefined;
     let userText = message;
     if (pend && Date.now() <= pend.exp && allowAffirmThisRequest) {
@@ -1990,33 +1974,44 @@ Deno.serve(async (req) => {
       if (textPart) userParts.push({ text: textPart });
       contents.push({ role: "user", parts: userParts });
     }
+
     let reply = "";
-    for (let round = 0; round < 8; round++) {
+    const MAX_TIMEOUT_MS = 110_000;
+    const MAX_ROUNDS = 4;
+
+    for (let round = 0; round < MAX_ROUNDS; round++) {
+      if (Date.now() - startTime > MAX_TIMEOUT_MS) {
+        reply = reply || "Délai limite approché (110s) : les opérations prioritaires ont été traitées.";
+        break;
+      }
       const gj = await callGemini(gkey, contents);
       if (!gj) return jr({ ok: false, error: { code: "UPSTREAM", message: "Erreur IA Gemini." } }, 502);
       const { text, calls, rawParts } = extract(gj);
       if (!calls.length) { reply = text || "Sans réponse."; break; }
       contents.push({ role: "model", parts: rawParts });
-      const frParts: Content["parts"] = [];
-      for (const call of calls) {
+
+      // Exécution parallèle des outils (Promise.all)
+      const toolPromises = calls.map(async (call) => {
         let args = call.args || {};
-        // Si Gemini rappelle un outil d'écriture après un oui sans token, injecter le pending
-        {
-          const p2 = uid ? pendingByUser.get(uid) : undefined;
-          if (p2 && p2.tool === call.name && Date.now() <= p2.exp) {
-            // Params du plan initial + éventuels ajouts Gemini ; injecter token pending
-            args = { ...p2.args, ...args, confirmed: allowAffirmThisRequest || conf(args) ? true : args.confirmed, confirm_token: (typeof args.confirm_token === "string" && args.confirm_token) ? args.confirm_token : p2.token };
-            if (allowAffirmThisRequest) args = { ...args, confirmed: true };
-          } else if (allowAffirmThisRequest) {
-            args = { ...args, confirmed: true };
-          }
+        const p2 = uid ? pendingByUser.get(uid) : undefined;
+        if (p2 && p2.tool === call.name && Date.now() <= p2.exp) {
+          args = { ...p2.args, ...args, confirmed: allowAffirmThisRequest || conf(args) ? true : args.confirmed, confirm_token: (typeof args.confirm_token === "string" && args.confirm_token) ? args.confirm_token : p2.token };
+          if (allowAffirmThisRequest) args = { ...args, confirmed: true };
+        } else if (allowAffirmThisRequest) {
+          args = { ...args, confirmed: true };
         }
         const toolRes = await runTool(sb, call.name, args);
         if (toolRes.ok && uid) pendingByUser.delete(uid);
-        frParts.push({ functionResponse: { name: call.name, response: toolRes } });
-      }
+        return { functionResponse: { name: call.name, response: toolRes } };
+      });
+
+      const frParts: Content["parts"] = await Promise.all(toolPromises);
       contents.push({ role: "user", parts: frParts });
-      if (round === 7) { const fj = await callGemini(gkey, contents); reply = extract(fj || {}).text || text || "Synthèse indisponible."; }
+
+      if (round === MAX_ROUNDS - 1) {
+        const fj = await callGemini(gkey, contents);
+        reply = extract(fj || {}).text || text || "Synthèse indisponible.";
+      }
     }
     return jr({ ok: true, data: { reply } });
   } catch (e) {
